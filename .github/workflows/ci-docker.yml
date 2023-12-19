@@ -10,7 +10,8 @@ env:
 
 jobs:
   docker:
-    runs-on: ubuntu-latest
+    # TODO: switch back to ubuntu-latest
+    runs-on: [self-hosted, x64, private-repos]
     steps:
       - uses: actions/checkout@v4
       - name: qemu

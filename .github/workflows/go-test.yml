@@ -14,8 +14,8 @@ jobs:
     strategy:
       matrix:
         go-version: [1.20.x, 1.21.x]
-        platform: [ubuntu-latest]
-    runs-on: ${{ matrix.platform }}
+    # TODO: switch back to ubuntu-latest
+    runs-on: [self-hosted, x64, private-repos]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

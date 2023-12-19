@@ -9,7 +9,8 @@ on:
 jobs:
   build:
     name: Conventional Commits
-    runs-on: ubuntu-latest
+    # TODO: switch back to ubuntu-latest
+    runs-on: [self-hosted, x64, private-repos]
     steps:
       - uses: actions/checkout@v4
 
