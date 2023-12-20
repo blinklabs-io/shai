@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Logging       LoggingConfig  `yaml:"logging"`
 	Debug         DebugConfig    `yaml:"debug"`
+	Submit        SubmitConfig   `yaml:"submit"`
 	Topology      TopologyConfig `yaml:"topology"`
 	Network       string         `yaml:"network" envconfig:"NETWORK"`
 	ListenAddress string         `yaml:"listenAddress" envconfig:"LISTEN_ADDRESS"`
@@ -26,6 +27,10 @@ type LoggingConfig struct {
 type DebugConfig struct {
 	ListenAddress string `yaml:"address" envconfig:"DEBUG_ADDRESS"`
 	ListenPort    uint   `yaml:"port" envconfig:"DEBUG_PORT"`
+}
+
+type SubmitConfig struct {
+	Url string `yaml:"url" envconfig:"SUBMIT_URL"`
 }
 
 type TopologyConfig struct {

@@ -8,6 +8,7 @@ import (
 
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/logging"
+	"github.com/blinklabs-io/shai/internal/node"
 	"github.com/blinklabs-io/shai/internal/version"
 )
 
@@ -60,5 +61,12 @@ func main() {
 		}()
 	}
 
-	// TODO: do something useful
+	// Start node
+	n := node.New()
+	if err := n.Start(); err != nil {
+		logger.Fatalf("failed to start node: %s", err)
+	}
+
+	// Wait forever
+	select {}
 }
