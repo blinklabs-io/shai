@@ -1,0 +1,303 @@
+// Copyright 2023 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package indexer
+
+import (
+	"encoding/hex"
+	"fmt"
+	"time"
+
+	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/shai/internal/logging"
+	"github.com/blinklabs-io/shai/internal/storage"
+	"github.com/blinklabs-io/shai/internal/wallet"
+
+	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/snek/event"
+	input_chainsync "github.com/blinklabs-io/snek/input/chainsync"
+	output_embedded "github.com/blinklabs-io/snek/output/embedded"
+	"github.com/blinklabs-io/snek/pipeline"
+)
+
+const (
+	syncStatusLogInterval = 30 * time.Second
+)
+
+type Indexer struct {
+	pipeline     *pipeline.Pipeline
+	cursorSlot   uint64
+	cursorHash   string
+	tipSlot      uint64
+	tipHash      string
+	tipReached   bool
+	syncLogTimer *time.Timer
+	//lastBlockData any
+	eventFuncs []EventFunc
+}
+
+type EventFunc func(event.Event) error
+
+func New() *Indexer {
+	return &Indexer{}
+}
+
+func (i *Indexer) Start() error {
+	cfg := config.GetConfig()
+	logger := logging.GetLogger()
+	// Create pipeline
+	i.pipeline = pipeline.New()
+	// Configure pipeline input
+	inputOpts := []input_chainsync.ChainSyncOptionFunc{
+		input_chainsync.WithBulkMode(true),
+		input_chainsync.WithAutoReconnect(true),
+		input_chainsync.WithLogger(logger),
+		input_chainsync.WithStatusUpdateFunc(i.updateStatus),
+		input_chainsync.WithNetwork(cfg.Network),
+		input_chainsync.WithIncludeCbor(true),
+	}
+	if cfg.Indexer.Address != "" {
+		inputOpts = append(
+			inputOpts,
+			input_chainsync.WithAddress(cfg.Indexer.Address),
+		)
+	}
+	cursorSlotNumber, cursorBlockHash, err := storage.GetStorage().GetCursor()
+	if err != nil {
+		return err
+	}
+	if cursorSlotNumber > 0 {
+		logger.Infof(
+			"found previous chainsync cursor: %d, %s",
+			cursorSlotNumber,
+			cursorBlockHash,
+		)
+		hashBytes, err := hex.DecodeString(cursorBlockHash)
+		if err != nil {
+			return err
+		}
+		inputOpts = append(
+			inputOpts,
+			input_chainsync.WithIntersectPoints(
+				[]ocommon.Point{
+					{
+						Hash: hashBytes,
+						Slot: cursorSlotNumber,
+					},
+				},
+			),
+		)
+	} else {
+		// Determine intercept slot/hash from enabled profiles
+		var interceptSlot uint64
+		var interceptHash string
+		for _, profile := range config.GetProfiles() {
+			if interceptSlot == 0 || profile.InterceptSlot < interceptSlot {
+				interceptSlot = profile.InterceptSlot
+				interceptHash = profile.InterceptHash
+			}
+		}
+		if interceptSlot == 0 {
+			return fmt.Errorf("could not determine intercept point from profiles")
+		}
+		hashBytes, err := hex.DecodeString(interceptHash)
+		if err != nil {
+			return err
+		}
+		inputOpts = append(
+			inputOpts,
+			input_chainsync.WithIntersectPoints(
+				[]ocommon.Point{
+					{
+						Hash: hashBytes,
+						Slot: interceptSlot,
+					},
+				},
+			),
+		)
+	}
+	input := input_chainsync.New(
+		inputOpts...,
+	)
+	i.pipeline.AddInput(input)
+	// Configure pipeline output
+	output := output_embedded.New(
+		output_embedded.WithCallbackFunc(
+			func(evt event.Event) error {
+				// TODO: run these in parallel
+				// Call each registered event handler func
+				for _, eventFunc := range i.eventFuncs {
+					if err := eventFunc(evt); err != nil {
+						fmt.Printf("err = %s\n", err)
+						return err
+					}
+				}
+				return nil
+			},
+		),
+	)
+	i.pipeline.AddOutput(output)
+	// Add our event handler
+	i.AddEventFunc(i.handleEvent)
+	// Start pipeline
+	if err := i.pipeline.Start(); err != nil {
+		logger.Fatalf("failed to start pipeline: %s\n", err)
+	}
+	// Start error handler
+	go func() {
+		err, ok := <-i.pipeline.ErrorChan()
+		if ok {
+			logger.Fatalf("pipeline failed: %s\n", err)
+		}
+	}()
+	// Schedule periodic catch-up sync log messages
+	i.scheduleSyncStatusLog()
+	return nil
+}
+
+func (i *Indexer) AddEventFunc(eventFunc EventFunc) {
+	i.eventFuncs = append(i.eventFuncs, eventFunc)
+}
+
+func (i *Indexer) handleEvent(evt event.Event) error {
+	switch evt.Payload.(type) {
+	case input_chainsync.TransactionEvent:
+		profiles := config.GetProfiles()
+		bursa := wallet.GetWallet()
+		eventTx := evt.Payload.(input_chainsync.TransactionEvent)
+		eventCtx := evt.Context.(input_chainsync.TransactionContext)
+		// Delete used UTXOs
+		for _, txInput := range eventTx.Inputs {
+			if err := storage.GetStorage().RemoveUtxo(txInput.Id().String(), txInput.Index()); err != nil {
+				return err
+			}
+		}
+		for idx, txOutput := range eventTx.Outputs {
+			// Check for the addresses we care about
+			txOutputAddress := txOutput.Address().String()
+			matchAddress := false
+			for _, profile := range profiles {
+				if txOutputAddress == profile.SwapAddress {
+					matchAddress = true
+					break
+				}
+				if txOutputAddress == profile.DepositAddress {
+					matchAddress = true
+					break
+				}
+				if txOutputAddress == bursa.PaymentAddress {
+					matchAddress = true
+					break
+				}
+			}
+			if !matchAddress {
+				continue
+			}
+			// Write UTXO to storage
+			if err := storage.GetStorage().AddUtxo(
+				txOutputAddress,
+				eventCtx.TransactionHash,
+				uint32(idx),
+				txOutput.Cbor(),
+			); err != nil {
+				return err
+			}
+			/*
+				// Handle datum for script address
+				if txOutput.Address().String() == cfg.Indexer.ScriptAddress {
+					datum := txOutput.Datum()
+					if datum != nil {
+						if _, err := datum.Decode(); err != nil {
+							logger.Warnf(
+								"error decoding TX (%s) output datum: %s",
+								eventCtx.TransactionHash,
+								err,
+							)
+							return err
+						}
+							if profileCfg.UseTunaV1 {
+								var blockData models.TunaV1State
+								if _, err := cbor.Decode(datum.Cbor(), &blockData); err != nil {
+									logger.Warnf(
+										"error decoding TX (%s) output datum: %s",
+										eventCtx.TransactionHash,
+										err,
+									)
+									return err
+								}
+								i.lastBlockData = blockData
+								var tmpExtra any
+								switch v := blockData.Extra.(type) {
+								case []byte:
+									tmpExtra = string(v)
+								default:
+									tmpExtra = v
+								}
+								logger.Infof(
+									"found updated datum: block number: %d, hash: %x, leading zeros: %d, difficulty number: %d, epoch time: %d, real time now: %d, extra: %v",
+									blockData.BlockNumber,
+									blockData.CurrentHash,
+									blockData.LeadingZeros,
+									blockData.DifficultyNumber,
+									blockData.EpochTime,
+									blockData.RealTimeNow,
+									tmpExtra,
+								)
+							} else {
+								panic("profile doesn't have version configured")
+							}
+
+							if err := storage.GetStorage().UpdateBlockData(&(i.lastBlockData)); err != nil {
+								return err
+							}
+					}
+				}
+			*/
+		}
+	}
+	return nil
+}
+
+func (i *Indexer) scheduleSyncStatusLog() {
+	i.syncLogTimer = time.AfterFunc(syncStatusLogInterval, i.syncStatusLog)
+}
+
+func (i *Indexer) syncStatusLog() {
+	logger := logging.GetLogger()
+	logger.Infof(
+		"catch-up sync in progress: at %d.%s (current tip slot is %d)",
+		i.cursorSlot,
+		i.cursorHash,
+		i.tipSlot,
+	)
+	i.scheduleSyncStatusLog()
+}
+
+func (i *Indexer) updateStatus(status input_chainsync.ChainSyncStatus) {
+	logger := logging.GetLogger()
+	// Check if we've hit chain tip
+	if !i.tipReached && status.TipReached {
+		if i.syncLogTimer != nil {
+			i.syncLogTimer.Stop()
+		}
+		i.tipReached = true
+	}
+	i.cursorSlot = status.SlotNumber
+	i.cursorHash = status.BlockHash
+	i.tipSlot = status.TipSlotNumber
+	i.tipHash = status.TipBlockHash
+	if err := storage.GetStorage().UpdateCursor(status.SlotNumber, status.BlockHash); err != nil {
+		logger.Errorf("failed to update cursor: %s", err)
+	}
+}

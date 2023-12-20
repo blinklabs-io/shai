@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/kelseyhightower/envconfig"
@@ -14,7 +15,11 @@ type Config struct {
 	Debug         DebugConfig    `yaml:"debug"`
 	Submit        SubmitConfig   `yaml:"submit"`
 	Topology      TopologyConfig `yaml:"topology"`
+	Storage       StorageConfig  `yaml:"storage"`
+	Indexer       IndexerConfig  `yaml:"indexer"`
+	Wallet        WalletConfig   `yaml:"wallet"`
 	Network       string         `yaml:"network" envconfig:"NETWORK"`
+	Profiles      []string       `yaml:"profiles" envconfig:"PROFILES"`
 	ListenAddress string         `yaml:"listenAddress" envconfig:"LISTEN_ADDRESS"`
 	ListenPort    uint           `yaml:"port" envconfig:"PORT"`
 	NetworkMagic  uint32
@@ -29,10 +34,6 @@ type DebugConfig struct {
 	ListenPort    uint   `yaml:"port" envconfig:"DEBUG_PORT"`
 }
 
-type SubmitConfig struct {
-	Url string `yaml:"url" envconfig:"SUBMIT_URL"`
-}
-
 type TopologyConfig struct {
 	ConfigFile string               `yaml:"configFile" envconfig:"CARDANO_TOPOLOGY"`
 	Hosts      []TopologyConfigHost `yaml:"hosts"`
@@ -43,9 +44,29 @@ type TopologyConfigHost struct {
 	Port    uint   `yaml:"port"`
 }
 
+type IndexerConfig struct {
+	Address    string `yaml:"address"       envconfig:"INDEXER_TCP_ADDRESS"`
+	SocketPath string `yaml:"socketPath"    envconfig:"INDEXER_SOCKET_PATH"`
+}
+
+type SubmitConfig struct {
+	Address    string `yaml:"address"      envconfig:"SUBMIT_TCP_ADDRESS"`
+	SocketPath string `yaml:"socketPath"   envconfig:"SUBMIT_SOCKET_PATH"`
+	Url        string `yaml:"url"          envconfig:"SUBMIT_URL"`
+}
+
+type StorageConfig struct {
+	Directory string `yaml:"dir" envconfig:"STORAGE_DIR"`
+}
+
+type WalletConfig struct {
+	Mnemonic string `yaml:"mnemonic" envconfig:"MNEMONIC"`
+}
+
 // Singleton config instance with default values
 var globalConfig = &Config{
 	Network:    "mainnet",
+	Profiles:   []string{"spectrum", "teddyswap"},
 	ListenPort: 3000,
 	Logging: LoggingConfig{
 		Level: "info",
@@ -53,6 +74,10 @@ var globalConfig = &Config{
 	Debug: DebugConfig{
 		ListenAddress: "localhost",
 		ListenPort:    0,
+	},
+	Storage: StorageConfig{
+		// TODO: pick a better location
+		Directory: "./.shai",
 	},
 }
 
@@ -87,6 +112,20 @@ func Load(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("unknown network name: %s", globalConfig.Network)
 	}
 	globalConfig.NetworkMagic = network.NetworkMagic
+	// Check profiles
+	availableProfiles := GetAvailableProfiles()
+	for _, profile := range globalConfig.Profiles {
+		foundProfile := false
+		for _, availableProfile := range availableProfiles {
+			if profile == availableProfile {
+				foundProfile = true
+				break
+			}
+		}
+		if !foundProfile {
+			return nil, fmt.Errorf("unknown profile: %s: available profiles: %s", profile, strings.Join(availableProfiles, ","))
+		}
+	}
 	return globalConfig, nil
 }
 
