@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	github.com/blinklabs-io/gouroboros v0.67.1
+	github.com/blinklabs-io/snek v0.16.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/zap v1.26.0
 	gopkg.in/yaml.v2 v2.4.0
