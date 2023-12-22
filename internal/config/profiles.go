@@ -8,6 +8,7 @@ const (
 )
 
 type Profile struct {
+	Label          string
 	Name           string
 	Type           ProfileType
 	InterceptSlot  uint64
@@ -44,6 +45,7 @@ func GetAvailableProfiles() []string {
 var Profiles = map[string]map[string]Profile{
 	"preview": map[string]Profile{
 		"teddyswap": Profile{
+			Label:          "teddyswap",
 			Name:           "Teddy Swap",
 			Type:           ProfileTypeSpectrum,
 			InterceptSlot:  9113273,
@@ -54,6 +56,7 @@ var Profiles = map[string]map[string]Profile{
 	},
 	"mainnet": map[string]Profile{
 		"spectrum": Profile{
+			Label:          "spectrum",
 			Name:           "Spectrum",
 			Type:           ProfileTypeSpectrum,
 			InterceptSlot:  98823654,
@@ -62,6 +65,7 @@ var Profiles = map[string]map[string]Profile{
 			DepositAddress: "addr1wyr4uz0tp75fu8wrg6gm83t20aphuc9vt6n8kvu09ctkugqpsrmeh",
 		},
 		"teddyswap": Profile{
+			Label:          "teddyswap",
 			Name:           "Teddy Swap",
 			Type:           ProfileTypeSpectrum,
 			InterceptSlot:  109076993,

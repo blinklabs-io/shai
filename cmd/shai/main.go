@@ -10,6 +10,7 @@ import (
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/node"
+	"github.com/blinklabs-io/shai/internal/spectrum"
 	"github.com/blinklabs-io/shai/internal/storage"
 	"github.com/blinklabs-io/shai/internal/version"
 	"github.com/blinklabs-io/shai/internal/wallet"
@@ -76,6 +77,17 @@ func main() {
 
 	// Initialize indexer
 	idx := indexer.New()
+
+	// Setup profiles
+	for _, profile := range config.GetProfiles() {
+		switch profile.Type {
+		case config.ProfileTypeSpectrum:
+			logger.Infof("initializing profile '%s' of type Spectrum", profile.Label)
+			_ = spectrum.New(idx, profile.Name, profile.SwapAddress, profile.DepositAddress)
+		default:
+			logger.Fatalf("unknown profile type for '%s'", profile.Label)
+		}
+	}
 
 	// Start node
 	n := node.New(idx)

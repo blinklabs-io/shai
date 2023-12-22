@@ -171,99 +171,33 @@ func (i *Indexer) AddEventFunc(eventFunc EventFunc) {
 }
 
 func (i *Indexer) handleEvent(evt event.Event) error {
+	//logger := logging.GetLogger()
 	switch evt.Payload.(type) {
 	case input_chainsync.TransactionEvent:
-		profiles := config.GetProfiles()
 		bursa := wallet.GetWallet()
 		eventTx := evt.Payload.(input_chainsync.TransactionEvent)
 		eventCtx := evt.Context.(input_chainsync.TransactionContext)
 		// Delete used UTXOs
 		for _, txInput := range eventTx.Inputs {
+			//logger.Debugf("UTxO %s.%d consumed in transaction %s", txInput.Id().String(), txInput.Index(), eventCtx.TransactionHash)
 			if err := storage.GetStorage().RemoveUtxo(txInput.Id().String(), txInput.Index()); err != nil {
 				return err
 			}
 		}
+		// Store UTXOs for bot wallet
 		for idx, txOutput := range eventTx.Outputs {
-			// Check for the addresses we care about
 			txOutputAddress := txOutput.Address().String()
-			matchAddress := false
-			for _, profile := range profiles {
-				if txOutputAddress == profile.SwapAddress {
-					matchAddress = true
-					break
-				}
-				if txOutputAddress == profile.DepositAddress {
-					matchAddress = true
-					break
-				}
-				if txOutputAddress == bursa.PaymentAddress {
-					matchAddress = true
-					break
+			if txOutputAddress == bursa.PaymentAddress {
+				// Write UTXO to storage
+				if err := storage.GetStorage().AddUtxo(
+					txOutputAddress,
+					eventCtx.TransactionHash,
+					uint32(idx),
+					txOutput.Cbor(),
+				); err != nil {
+					return err
 				}
 			}
-			if !matchAddress {
-				continue
-			}
-			// Write UTXO to storage
-			if err := storage.GetStorage().AddUtxo(
-				txOutputAddress,
-				eventCtx.TransactionHash,
-				uint32(idx),
-				txOutput.Cbor(),
-			); err != nil {
-				return err
-			}
-			/*
-				// Handle datum for script address
-				if txOutput.Address().String() == cfg.Indexer.ScriptAddress {
-					datum := txOutput.Datum()
-					if datum != nil {
-						if _, err := datum.Decode(); err != nil {
-							logger.Warnf(
-								"error decoding TX (%s) output datum: %s",
-								eventCtx.TransactionHash,
-								err,
-							)
-							return err
-						}
-							if profileCfg.UseTunaV1 {
-								var blockData models.TunaV1State
-								if _, err := cbor.Decode(datum.Cbor(), &blockData); err != nil {
-									logger.Warnf(
-										"error decoding TX (%s) output datum: %s",
-										eventCtx.TransactionHash,
-										err,
-									)
-									return err
-								}
-								i.lastBlockData = blockData
-								var tmpExtra any
-								switch v := blockData.Extra.(type) {
-								case []byte:
-									tmpExtra = string(v)
-								default:
-									tmpExtra = v
-								}
-								logger.Infof(
-									"found updated datum: block number: %d, hash: %x, leading zeros: %d, difficulty number: %d, epoch time: %d, real time now: %d, extra: %v",
-									blockData.BlockNumber,
-									blockData.CurrentHash,
-									blockData.LeadingZeros,
-									blockData.DifficultyNumber,
-									blockData.EpochTime,
-									blockData.RealTimeNow,
-									tmpExtra,
-								)
-							} else {
-								panic("profile doesn't have version configured")
-							}
-
-							if err := storage.GetStorage().UpdateBlockData(&(i.lastBlockData)); err != nil {
-								return err
-							}
-					}
-				}
-			*/
 		}
 	}
 	return nil
