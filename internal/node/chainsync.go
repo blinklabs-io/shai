@@ -5,16 +5,11 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/blinklabs-io/shai/internal/config"
-	"github.com/blinklabs-io/shai/internal/logging"
-
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/snek/event"
 	input_chainsync "github.com/blinklabs-io/snek/input/chainsync"
-	output_embedded "github.com/blinklabs-io/snek/output/embedded"
-	"github.com/blinklabs-io/snek/pipeline"
 )
 
 const (
@@ -128,42 +123,6 @@ func (c chainsyncBlock) String() string {
 		c.Tip.String(),
 		len(c.Cbor),
 	)
-}
-
-func (n *Node) chainsyncClientStart() error {
-	cfg := config.GetConfig()
-	logger := logging.GetLogger()
-	// Create pipeline
-	n.chainsyncClientPipeline = pipeline.New()
-	// Configure pipeline input
-	inputOpts := []input_chainsync.ChainSyncOptionFunc{
-		input_chainsync.WithAutoReconnect(true),
-		input_chainsync.WithLogger(logger),
-		input_chainsync.WithIntersectTip(true),
-		input_chainsync.WithNetwork(cfg.Network),
-		input_chainsync.WithIncludeCbor(true),
-	}
-	input := input_chainsync.New(
-		inputOpts...,
-	)
-	n.chainsyncClientPipeline.AddInput(input)
-	// Configure pipeline output
-	output := output_embedded.New(
-		output_embedded.WithCallbackFunc(n.chainsyncClientHandleEvent),
-	)
-	n.chainsyncClientPipeline.AddOutput(output)
-	// Start pipeline
-	if err := n.chainsyncClientPipeline.Start(); err != nil {
-		logger.Fatalf("failed to start pipeline: %s\n", err)
-	}
-	// Start error handler
-	go func() {
-		err, ok := <-n.chainsyncClientPipeline.ErrorChan()
-		if ok {
-			logger.Fatalf("pipeline failed: %s\n", err)
-		}
-	}()
-	return nil
 }
 
 func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {

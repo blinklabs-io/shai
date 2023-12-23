@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
@@ -24,14 +25,17 @@ type Node struct {
 	txsubmissionMempool     *txsubmissionMempool
 }
 
-func New() *Node {
-	return &Node{
+func New(idx *indexer.Indexer) *Node {
+	n := &Node{
 		chainsyncServerState: make(map[int]*chainsyncServerState),
 		chainsyncClientState: &chainsyncClientState{},
 		txsubmissionMempool: &txsubmissionMempool{
 			Transactions: make(map[string]*txsubmissionMempoolTransaction),
 		},
 	}
+	// Register indexer event handler
+	idx.AddEventFunc(n.chainsyncClientHandleEvent)
+	return n
 }
 
 func (n *Node) Start() error {
@@ -50,9 +54,6 @@ func (n *Node) Start() error {
 	)
 	go n.acceptConnections()
 	logger.Infof("listening on %s", listenAddress)
-	if err := n.chainsyncClientStart(); err != nil {
-		return err
-	}
 	n.txsubmissionMempool.scheduleRemoveExpired()
 	return nil
 }

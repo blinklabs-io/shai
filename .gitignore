@@ -22,3 +22,9 @@ go.work
 
 # Program binaries
 /shai
+
+# Wallet seed
+/seed.txt
+
+# State dir
+/.shai

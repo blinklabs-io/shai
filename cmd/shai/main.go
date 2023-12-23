@@ -7,9 +7,12 @@ import (
 	"os"
 
 	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/node"
+	"github.com/blinklabs-io/shai/internal/storage"
 	"github.com/blinklabs-io/shai/internal/version"
+	"github.com/blinklabs-io/shai/internal/wallet"
 )
 
 const (
@@ -61,10 +64,28 @@ func main() {
 		}()
 	}
 
+	// Load storage
+	if err := storage.GetStorage().Load(); err != nil {
+		logger.Fatalf("failed to load storage: %s", err)
+	}
+
+	// Setup wallet
+	wallet.Setup()
+	bursa := wallet.GetWallet()
+	logger.Infof("loaded mnemonic for address: %s", bursa.PaymentAddress)
+
+	// Initialize indexer
+	idx := indexer.New()
+
 	// Start node
-	n := node.New()
+	n := node.New(idx)
 	if err := n.Start(); err != nil {
 		logger.Fatalf("failed to start node: %s", err)
+	}
+
+	// Start indexer
+	if err := idx.Start(); err != nil {
+		logger.Fatalf("failed to start indexer: %s", err)
 	}
 
 	// Wait forever
