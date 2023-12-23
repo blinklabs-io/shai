@@ -29,7 +29,7 @@ import (
 
 const (
 	chainsyncCursorKey = "chainsync_cursor"
-	minerBlockDataKey  = "miner_block_data"
+	fingerprintKey     = "config_fingerprint"
 )
 
 type Storage struct {
@@ -51,6 +51,45 @@ func (s *Storage) Load() error {
 	}
 	s.db = db
 	//defer db.Close()
+	if err := s.compareFingerprint(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Storage) compareFingerprint() error {
+	cfg := config.GetConfig()
+	fingerprint := fmt.Sprintf(
+		"network=%s,profiles=%s",
+		cfg.Network,
+		strings.Join(cfg.Profiles, ","),
+	)
+	err := s.db.Update(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(fingerprintKey))
+		if err != nil {
+			if err == badger.ErrKeyNotFound {
+				if err := txn.Set([]byte(fingerprintKey), []byte(fingerprint)); err != nil {
+					return err
+				}
+				return nil
+			} else {
+				return err
+			}
+		}
+		err = item.Value(func(v []byte) error {
+			if string(v) != fingerprint {
+				return fmt.Errorf("config fingerprint in DB doesn't match current config: %s", v)
+			}
+			return nil
+		})
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
 	return nil
 }
 
