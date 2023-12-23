@@ -3,9 +3,10 @@ module github.com/blinklabs-io/shai
 go 1.20
 
 require (
+	github.com/Salvionied/apollo v1.0.10
 	github.com/blinklabs-io/bursa v0.6.0
 	github.com/blinklabs-io/gouroboros v0.69.2
-	github.com/blinklabs-io/snek v0.16.0
+	github.com/blinklabs-io/snek v0.17.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/zap v1.26.0
@@ -13,7 +14,11 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
+//replace github.com/blinklabs-io/gouroboros => ../gouroboros
+//replace github.com/blinklabs-io/snek => ../snek
+
 require (
+	github.com/Salvionied/cbor/v2 v2.6.0 // indirect
 	github.com/btcsuite/btcutil v1.0.2 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dgraph-io/ristretto v0.1.1 // indirect
@@ -33,7 +38,9 @@ require (
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opencensus.io v0.22.5 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
+	golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1 // indirect
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
+	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 )
