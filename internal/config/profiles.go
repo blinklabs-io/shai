@@ -8,13 +8,13 @@ const (
 )
 
 type Profile struct {
-	Label          string
 	Name           string
 	Type           ProfileType
 	InterceptSlot  uint64
 	InterceptHash  string
 	SwapAddress    string
 	DepositAddress string
+	PoolAddress    string
 }
 
 func GetProfiles() []Profile {
@@ -45,8 +45,7 @@ func GetAvailableProfiles() []string {
 var Profiles = map[string]map[string]Profile{
 	"preview": map[string]Profile{
 		"teddyswap": Profile{
-			Label:          "teddyswap",
-			Name:           "Teddy Swap",
+			Name:           "teddyswap",
 			Type:           ProfileTypeSpectrum,
 			InterceptSlot:  9113273,
 			InterceptHash:  "427d8bf518d376d53627dd83302a000213454642e97d2eeddc19cdcc89abfe8b",
@@ -56,17 +55,16 @@ var Profiles = map[string]map[string]Profile{
 	},
 	"mainnet": map[string]Profile{
 		"spectrum": Profile{
-			Label:          "spectrum",
-			Name:           "Spectrum",
+			Name:           "spectrum",
 			Type:           ProfileTypeSpectrum,
 			InterceptSlot:  98823654,
 			InterceptHash:  "4666f26d15f4802c0d4c81b841583ea6d90d623d168c77f1e45200eda1f82638",
 			SwapAddress:    "addr1wynp362vmvr8jtc946d3a3utqgclfdl5y9d3kn849e359hsskr20n",
 			DepositAddress: "addr1wyr4uz0tp75fu8wrg6gm83t20aphuc9vt6n8kvu09ctkugqpsrmeh",
+			PoolAddress:    "addr1x8nz307k3sr60gu0e47cmajssy4fmld7u493a4xztjrll0aj764lvrxdayh2ux30fl0ktuh27csgmpevdu89jlxppvrswgxsta",
 		},
 		"teddyswap": Profile{
-			Label:          "teddyswap",
-			Name:           "Teddy Swap",
+			Name:           "teddyswap",
 			Type:           ProfileTypeSpectrum,
 			InterceptSlot:  109076993,
 			InterceptHash:  "328bac757d1b100c68e0fd8f346a1bd53ee415b94271b8b7353866a22063f7bf",
