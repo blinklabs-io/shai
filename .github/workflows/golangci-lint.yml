@@ -30,5 +30,8 @@ jobs:
         with:
           version: v1.54 # current version at time of commit
           args: --timeout=10m
+          # TODO: remove me when we switch back to ubuntu-latest
+          # The cache upload is 200MB and takes forever on Starlink
+          skip-cache: true
           # Only show new issues in a PR but show all issues for pushes
           only-new-issues: ${{ github.event_name == 'pull_request' && 'true' || 'false' }}

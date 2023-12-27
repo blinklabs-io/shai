@@ -21,5 +21,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ matrix.go-version }}
+          # TODO: remove me when we switch back to ubuntu-latest
+          # The cache upload is 200MB and takes forever on Starlink
+          cache: false
       - name: go-test
         run: go test ./...
