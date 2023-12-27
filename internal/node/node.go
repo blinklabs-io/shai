@@ -13,16 +13,14 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
-	"github.com/blinklabs-io/snek/pipeline"
 )
 
 type Node struct {
-	listener                net.Listener
-	connManager             *ouroboros.ConnectionManager
-	chainsyncClientPipeline *pipeline.Pipeline
-	chainsyncClientState    *chainsyncClientState
-	chainsyncServerState    map[int]*chainsyncServerState
-	txsubmissionMempool     *txsubmissionMempool
+	listener             net.Listener
+	connManager          *ouroboros.ConnectionManager
+	chainsyncClientState *chainsyncClientState
+	chainsyncServerState map[int]*chainsyncServerState
+	txsubmissionMempool  *txsubmissionMempool
 }
 
 func New(idx *indexer.Indexer) *Node {
