@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/storage"
@@ -13,18 +14,39 @@ import (
 )
 
 type Spectrum struct {
-	idx            *indexer.Indexer
-	name           string
-	swapAddress    string
-	depositAddress string
+	idx                 *indexer.Indexer
+	name                string
+	swapAddress         string
+	swapStakeAddress    string
+	depositAddress      string
+	depositStakeAddress string
+	poolAddress         string
+	poolStakeAddress    string
 }
 
-func New(idx *indexer.Indexer, name string, swapAddress string, depositAddress string) *Spectrum {
+func New(idx *indexer.Indexer, name string, swapAddress string, depositAddress string, poolAddress string) *Spectrum {
+	var swapStakeAddress, depositStakeAddress, poolStakeAddress string
+	tmpSwapAddress, _ := ledger.NewAddress(swapAddress)
+	if tmpSwapAddress.StakeAddress() != nil {
+		swapStakeAddress = tmpSwapAddress.StakeAddress().String()
+	}
+	tmpDepositAddress, _ := ledger.NewAddress(depositAddress)
+	if tmpDepositAddress.StakeAddress() != nil {
+		depositStakeAddress = tmpDepositAddress.StakeAddress().String()
+	}
+	tmpPoolAddress, _ := ledger.NewAddress(poolAddress)
+	if tmpPoolAddress.StakeAddress() != nil {
+		poolStakeAddress = tmpPoolAddress.StakeAddress().String()
+	}
 	s := &Spectrum{
-		idx:            idx,
-		name:           name,
-		swapAddress:    swapAddress,
-		depositAddress: depositAddress,
+		idx:                 idx,
+		name:                name,
+		swapAddress:         swapAddress,
+		swapStakeAddress:    swapStakeAddress,
+		depositAddress:      depositAddress,
+		depositStakeAddress: depositStakeAddress,
+		poolAddress:         poolAddress,
+		poolStakeAddress:    poolStakeAddress,
 	}
 	idx.AddEventFunc(s.handleChainsyncEvent)
 	return s
@@ -39,15 +61,23 @@ func (s *Spectrum) handleChainsyncEvent(evt event.Event) error {
 		for idx, txOutput := range eventTx.Outputs {
 			// Check for the addresses we care about
 			txOutputAddress := txOutput.Address().String()
+			var txOutputStakeAddress string
+			if txOutput.Address().StakeAddress() != nil {
+				txOutputStakeAddress = txOutput.Address().StakeAddress().String()
+			}
 			isSwap := false
 			isDeposit := false
-			if txOutputAddress == s.swapAddress {
+			isPool := false
+			if txOutputAddress == s.swapAddress || (txOutputStakeAddress != "" && txOutputStakeAddress == s.swapStakeAddress) {
 				isSwap = true
 			}
-			if txOutputAddress == s.depositAddress {
+			if txOutputAddress == s.depositAddress || (txOutputStakeAddress != "" && txOutputStakeAddress == s.depositStakeAddress) {
 				isDeposit = true
 			}
-			if isSwap || isDeposit {
+			if txOutputAddress == s.poolAddress || (txOutputStakeAddress != "" && txOutputStakeAddress == s.poolStakeAddress) {
+				isPool = true
+			}
+			if isSwap || isDeposit || isPool {
 				// Write UTXO to storage
 				if err := storage.GetStorage().AddUtxo(
 					txOutputAddress,
@@ -63,28 +93,82 @@ func (s *Spectrum) handleChainsyncEvent(evt event.Event) error {
 						var swapConfig SwapConfig
 						if _, err := cbor.Decode(datum.Cbor(), &swapConfig); err != nil {
 							logger.Warnf(
-								"error decoding TX (%s) output datum: %s",
+								"error decoding TX (%s) output datum: %s: cbor hex: %x",
 								eventCtx.TransactionHash,
 								err,
+								datum.Cbor(),
 							)
 							continue
 						}
-						// TODO: do something with swap config
-						// XXX: should we only care about parsing it when it's in a TX from the mempool?
-						fmt.Printf("swapConfig = %s\n", swapConfig.String())
+						// Fetch matching pool UTxO
+						poolUtxo, err := storage.GetStorage().GetAssetUtxo(
+							s.name,
+							swapConfig.PoolId.PolicyId,
+							swapConfig.PoolId.Name,
+						)
+						if err != nil {
+							return err
+						}
+						// TODO: do something useful with this
+						fmt.Printf("poolUtxo(%d) = %x\n", len(poolUtxo), poolUtxo)
 					} else if isDeposit {
 						var depositConfig DepositConfig
 						if _, err := cbor.Decode(datum.Cbor(), &depositConfig); err != nil {
 							logger.Warnf(
-								"error decoding TX (%s) output datum: %s",
+								"error decoding TX (%s) output datum: %s: cbor hex: %x",
 								eventCtx.TransactionHash,
 								err,
+								datum.Cbor(),
 							)
 							continue
 						}
-						// TODO: do something with deposit config
-						// XXX: do we actually need to do anything with it?
-						fmt.Printf("depositConfig = %s\n", depositConfig.String())
+						/*
+							// Store deposit UTXO by policy/asset
+							if err := storage.GetStorage().UpdateAssetUtxo(
+								s.name,
+								depositConfig.PoolId.PolicyId,
+								depositConfig.PoolId.Name,
+								eventCtx.TransactionHash,
+								uint32(idx),
+							); err != nil {
+								return err
+							}
+							logger.Debugf(
+								"updated '%s' deposit UTxO for asset with policy ID %x and name '%s' (%x)",
+								s.name,
+								depositConfig.PoolId.PolicyId,
+								depositConfig.PoolId.Name,
+								depositConfig.PoolId.Name,
+							)
+						*/
+					} else if isPool {
+						var poolConfig PoolConfig
+						if _, err := cbor.Decode(datum.Cbor(), &poolConfig); err != nil {
+							logger.Warnf(
+								"error decoding TX (%s) output datum: %s: cbor hex: %x",
+								eventCtx.TransactionHash,
+								err,
+								datum.Cbor(),
+							)
+							continue
+						}
+						// Store pool UTXO by policy/asset
+						if err := storage.GetStorage().UpdateAssetUtxo(
+							s.name,
+							poolConfig.Nft.PolicyId,
+							poolConfig.Nft.Name,
+							eventCtx.TransactionHash,
+							uint32(idx),
+						); err != nil {
+							return err
+						}
+						logger.Debugf(
+							"updated '%s' pool UTxO for asset with policy ID %x and name '%s' (%x)",
+							s.name,
+							poolConfig.Nft.PolicyId,
+							poolConfig.Nft.Name,
+							poolConfig.Nft.Name,
+						)
 					}
 				}
 			}
