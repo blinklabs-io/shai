@@ -23,6 +23,7 @@ import (
 
 const (
 	swapTxTtlSlots = 30
+	swapTxFee      = 295_000
 )
 
 /*
@@ -372,13 +373,13 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	// We have to use big.Float here because we're dealing with multiplication and division of large numbers that overflow uint64
 	// ( FeePerTokenNum / FeePerTokenDen ) * MinQuoteAmount
 	// TODO: figure out why we're losing 1 lovelace to (probably) rounding
-	matcherFee, _ := new(big.Float).Mul(
-		new(big.Float).SetUint64(opts.swapConfig.MinQuoteAmount),
-		// NOTE: this is division, but of course they won't call it that for some reason
-		new(big.Float).Quo(
+	// NOTE: this is division, but of course they won't call it that for some reason
+	matcherFee, _ := new(big.Float).Quo(
+		new(big.Float).Mul(
+			new(big.Float).SetUint64(opts.swapConfig.MinQuoteAmount),
 			new(big.Float).SetInt(opts.swapConfig.FeePerTokenNum),
-			new(big.Float).SetInt(opts.swapConfig.FeePerTokenDen),
 		),
+		new(big.Float).SetInt(opts.swapConfig.FeePerTokenDen),
 	).Uint64()
 
 	// Calculate leftover lovelace from swap order UTxO for return with reward
@@ -386,21 +387,35 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	if len(opts.swapConfig.Base.PolicyId) == 0 {
 		leftoverSwapLovelace -= opts.swapConfig.BaseAmount
 	}
-	rewardLovelace += leftoverSwapLovelace
 
-	// Generate reward address
+	rewardLovelace += leftoverSwapLovelace
+	/*
+		// Give leftover swap lovelace to matcher if reward is in lovelace
+		if rewardAsset.IsLovelace() {
+			matcherFee += leftoverSwapLovelace
+		} else {
+			rewardLovelace += leftoverSwapLovelace
+		}
+	*/
+
+	fmt.Printf("matcherFee = %d, leftoverSwapLovelace = %d\n", matcherFee, leftoverSwapLovelace)
+
+	// Generate addresses
 	tmpRewardAddr := addressFromKeys(opts.swapConfig.RewardPkh, opts.swapConfig.StakePkh.Pkh)
 	rewardAddress, _ := serAddress.DecodeAddress(tmpRewardAddr)
 
 	poolAddress, _ := serAddress.DecodeAddress(opts.outputPoolAddress)
+
+	changeAddress, _ := serAddress.DecodeAddress(bursa.PaymentAddress)
 
 	currentSlot := unixTimeToSlot(time.Now().Unix())
 
 	cc := apollo.NewEmptyBackend()
 	apollob := apollo.New(&cc)
 	apollob = apollob.
-		SetWalletFromBech32(bursa.PaymentAddress).
-		SetWalletAsChangeAddress().
+		//SetWalletFromBech32(bursa.PaymentAddress).
+		//SetWalletAsChangeAddress().
+		AddInputAddress(changeAddress).
 		AddLoadedUTxOs(utxos...).
 		SetTtl(int64(currentSlot+swapTxTtlSlots)).
 		PayToContract(
@@ -414,6 +429,9 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		).
 		PayToAddress(
 			rewardAddress, int(rewardLovelace), rewardUnits...,
+		).
+		PayToAddress(
+			changeAddress, int(matcherFee)-swapTxFee,
 		).
 		AddReferenceInput(
 			opts.poolInputRef.TxId,
@@ -433,8 +451,8 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 						0,
 						cbor.IndefLengthList{
 							Items: []any{
-								2, // swap (?)
-								0, // ??
+								2, // action (swap)
+								0, // pool input index
 							},
 						},
 					),
@@ -459,10 +477,10 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 						0,
 						cbor.IndefLengthList{
 							Items: []any{
-								0, // ??
-								1, // ??
-								1, // ??
-								0, // ??
+								0, // pool input index
+								1, // swap order input index
+								1, // reward output index
+								0, // action (apply)
 							},
 						},
 					),
@@ -472,7 +490,8 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 
 	tx, err := apollob.
 		DisableExecutionUnitsEstimation().
-		Complete()
+		//Complete()
+		CompleteExact(swapTxFee)
 	if err != nil {
 		return nil, err
 	}
