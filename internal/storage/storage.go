@@ -273,29 +273,33 @@ func (s *Storage) RemoveUtxo(
 
 func (s *Storage) GetUtxos(address string) ([][]byte, error) {
 	var ret [][]byte
-	keyPrefix := []byte(fmt.Sprintf("utxo_%s_", address))
+	// Get list of UTxO IDs for address
+	addressKey := fmt.Sprintf("address_%s", address)
+	var utxoIds []string
 	err := s.db.View(func(txn *badger.Txn) error {
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		for it.Seek(keyPrefix); it.ValidForPrefix(keyPrefix); it.Next() {
-			item := it.Item()
-			err := item.Value(func(v []byte) error {
-				// Create copy of value for use outside of transaction
-				valCopy := append([]byte{}, v...)
-				ret = append(ret, valCopy)
-				return nil
-			})
-			if err != nil {
-				return err
-			}
+		item, err := txn.Get([]byte(addressKey))
+		if err != nil {
+			return err
+		}
+		err = item.Value(func(v []byte) error {
+			utxoIds = strings.Split(string(v), ",")
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	if len(ret) == 0 {
-		return nil, nil
+	// Retrieve UTxOs
+	for _, utxoId := range utxoIds {
+		tmpUtxo, err := s.GetUtxoById(utxoId)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(ret, tmpUtxo)
 	}
 	return ret, nil
 }
@@ -317,6 +321,24 @@ func (s *Storage) GetUtxoById(utxoId string) ([]byte, error) {
 	return ret, err
 }
 
+func (s *Storage) GetUtxoAddress(utxoId string) (string, error) {
+	var ret []byte
+	utxoKey := fmt.Sprintf("utxo_%s", utxoId)
+	utxoAddressKey := fmt.Sprintf("%s_address", utxoKey)
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(utxoAddressKey))
+		if err != nil {
+			return err
+		}
+		err = item.Value(func(v []byte) error {
+			ret = append([]byte{}, v...)
+			return nil
+		})
+		return err
+	})
+	return string(ret), err
+}
+
 func (s *Storage) UpdateAssetUtxo(keyPrefix string, policyId []byte, assetName []byte, txId string, txOutIdx uint32) error {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		key := fmt.Sprintf(
@@ -334,7 +356,7 @@ func (s *Storage) UpdateAssetUtxo(keyPrefix string, policyId []byte, assetName [
 	return err
 }
 
-func (s *Storage) GetAssetUtxo(keyPrefix string, policyId []byte, assetName []byte) ([]byte, error) {
+func (s *Storage) GetAssetUtxoId(keyPrefix string, policyId []byte, assetName []byte) (string, error) {
 	var utxoId []byte
 	err := s.db.View(func(txn *badger.Txn) error {
 		key := fmt.Sprintf(
@@ -355,10 +377,18 @@ func (s *Storage) GetAssetUtxo(keyPrefix string, policyId []byte, assetName []by
 	})
 	if err != nil {
 		if err == badger.ErrKeyNotFound {
-			return nil, fmt.Errorf("no UTxO found for asset with policy ID %x and name '%s' (%x)", policyId, assetName, assetName)
+			return "", fmt.Errorf("no UTxO found for asset with policy ID %x and name '%s' (%x)", policyId, assetName, assetName)
 		} else {
-			return nil, err
+			return "", err
 		}
+	}
+	return string(utxoId), err
+}
+
+func (s *Storage) GetAssetUtxo(keyPrefix string, policyId []byte, assetName []byte) ([]byte, error) {
+	utxoId, err := s.GetAssetUtxoId(keyPrefix, policyId, assetName)
+	if err != nil {
+		return nil, err
 	}
 	return s.GetUtxoById(string(utxoId))
 }

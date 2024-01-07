@@ -83,7 +83,7 @@ func main() {
 		switch profile.Type {
 		case config.ProfileTypeSpectrum:
 			logger.Infof("initializing profile '%s' of type Spectrum", profile.Name)
-			_ = spectrum.New(idx, profile.Name, profile.SwapAddress, profile.DepositAddress, profile.PoolAddress)
+			_ = spectrum.New(idx, profile.Name, profile.Config.(config.SpectrumProfileConfig))
 		default:
 			logger.Fatalf("unknown profile type for '%s'", profile.Name)
 		}
