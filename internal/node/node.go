@@ -28,7 +28,7 @@ func New(idx *indexer.Indexer) *Node {
 		chainsyncServerState: make(map[int]*chainsyncServerState),
 		chainsyncClientState: &chainsyncClientState{},
 		txsubmissionMempool: &txsubmissionMempool{
-			Transactions: make(map[string]*txsubmissionMempoolTransaction),
+			Transactions: make(map[string]*TxsubmissionMempoolTransaction),
 		},
 	}
 	// Register indexer event handler
@@ -54,6 +54,10 @@ func (n *Node) Start() error {
 	logger.Infof("listening on %s", listenAddress)
 	n.txsubmissionMempool.scheduleRemoveExpired()
 	return nil
+}
+
+func (n *Node) AddMempoolNewTransactionFunc(newTransactionFunc MempoolNewTransactionFunc) {
+	n.txsubmissionMempool.AddNewTransactionFunc(newTransactionFunc)
 }
 
 func (n *Node) acceptConnections() {
