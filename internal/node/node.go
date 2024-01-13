@@ -79,31 +79,41 @@ func (n *Node) acceptConnections() {
 			ouroboros.WithConnection(conn),
 			ouroboros.WithTxSubmissionConfig(
 				txsubmission.NewConfig(
-					txsubmission.WithInitFunc(func() error {
-						return n.txsubmissionServerInit(connId)
-					}),
+					txsubmission.WithInitFunc(
+						func(connId int) func() error {
+							return func() error {
+								return n.txsubmissionServerInit(connId)
+							}
+						}(connId),
+					),
 				),
 			),
 			ouroboros.WithChainSyncConfig(
 				chainsync.NewConfig(
 					chainsync.WithFindIntersectFunc(
-						func(points []common.Point) (common.Point, chainsync.Tip, error) {
-							return n.chainsyncServerFindIntersect(connId, points)
-						},
+						func(connId int) func(points []common.Point) (common.Point, chainsync.Tip, error) {
+							return func(points []common.Point) (common.Point, chainsync.Tip, error) {
+								return n.chainsyncServerFindIntersect(connId, points)
+							}
+						}(connId),
 					),
 					chainsync.WithRequestNextFunc(
-						func() error {
-							return n.chainsyncServerRequestNext(connId)
-						},
+						func(connId int) func() error {
+							return func() error {
+								return n.chainsyncServerRequestNext(connId)
+							}
+						}(connId),
 					),
 				),
 			),
 			ouroboros.WithBlockFetchConfig(
 				blockfetch.NewConfig(
 					blockfetch.WithRequestRangeFunc(
-						func(start common.Point, end common.Point) error {
-							return n.blockfetchServerRequestRange(connId, start, end)
-						},
+						func(connId int) func(start common.Point, end common.Point) error {
+							return func(start common.Point, end common.Point) error {
+								return n.blockfetchServerRequestRange(connId, start, end)
+							}
+						}(connId),
 					),
 				),
 			),
