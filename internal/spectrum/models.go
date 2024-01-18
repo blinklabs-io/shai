@@ -30,9 +30,19 @@ func (w *WrappedPkh) UnmarshalCBOR(cborData []byte) error {
 func (w *WrappedPkh) MarshalCBOR() ([]byte, error) {
 	var tmpConstr cbor.Constructor
 	if w.Pkh != nil {
-		tmpConstr = cbor.NewConstructor(0, []any{w.Pkh})
+		tmpConstr = cbor.NewConstructor(
+			0,
+			cbor.IndefLengthList{
+				Items: []any{w.Pkh},
+			},
+		)
 	} else {
-		tmpConstr = cbor.NewConstructor(1, []any{})
+		tmpConstr = cbor.NewConstructor(
+			1,
+			cbor.IndefLengthList{
+				Items: []any{},
+			},
+		)
 	}
 	return cbor.Encode(&tmpConstr)
 }
