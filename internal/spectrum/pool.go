@@ -36,7 +36,7 @@ func (a AssetAmount) IsAsset(asset AssetClass) bool {
 }
 
 func (a AssetAmount) IsLovelace() bool {
-	return len(a.Class.PolicyId) == 0
+	return a.Class.IsLovelace()
 }
 
 func NewPoolFromTransactionOutput(txOutput ledger.TransactionOutput) (*Pool, error) {

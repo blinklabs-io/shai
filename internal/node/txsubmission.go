@@ -17,7 +17,14 @@ const (
 
 type txsubmissionMempool struct {
 	sync.Mutex
-	Transactions map[string]*txsubmissionMempoolTransaction
+	Transactions        map[string]*TxsubmissionMempoolTransaction
+	newTransactionFuncs []MempoolNewTransactionFunc
+}
+
+type MempoolNewTransactionFunc func(TxsubmissionMempoolTransaction) error
+
+func (t *txsubmissionMempool) AddNewTransactionFunc(newTransactionFunc MempoolNewTransactionFunc) {
+	t.newTransactionFuncs = append(t.newTransactionFuncs, newTransactionFunc)
 }
 
 func (t *txsubmissionMempool) removeExpired() {
@@ -38,6 +45,28 @@ func (t *txsubmissionMempool) scheduleRemoveExpired() {
 	_ = time.AfterFunc(txSubmissionMempoolExpirationPeriod, t.removeExpired)
 }
 
+func (t *txsubmissionMempool) addTransaction(tx *TxsubmissionMempoolTransaction) error {
+	logger := logging.GetLogger()
+	t.Lock()
+	defer t.Unlock()
+	// Update last seen for existing TX
+	if mempoolTx, ok := t.Transactions[tx.Hash]; ok {
+		mempoolTx.LastSeen = time.Now()
+		logger.Debugf("updated last seen for transaction %s in mempool", tx.Hash)
+		return nil
+	}
+	// Add transaction record
+	t.Transactions[tx.Hash] = tx
+	// Call registered new transaction handlers
+	for _, newTransactionFunc := range t.newTransactionFuncs {
+		if err := newTransactionFunc(*tx); err != nil {
+			return err
+		}
+	}
+	logger.Debugf("added transaction %s to mempool", tx.Hash)
+	return nil
+}
+
 func (t *txsubmissionMempool) removeTransaction(hash string) {
 	logger := logging.GetLogger()
 	t.Lock()
@@ -48,7 +77,7 @@ func (t *txsubmissionMempool) removeTransaction(hash string) {
 	}
 }
 
-type txsubmissionMempoolTransaction struct {
+type TxsubmissionMempoolTransaction struct {
 	Hash     string
 	Type     uint
 	Cbor     []byte
@@ -88,24 +117,19 @@ func (n *Node) txsubmissionServerInit(connId int) error {
 						logger.Errorf("failed to parse transaction CBOR: %s", err)
 						return
 					}
-					txHash := tx.Hash()
-					n.txsubmissionMempool.Lock()
-					mempoolTx, ok := n.txsubmissionMempool.Transactions[txHash]
-					if ok {
-						// Update last seen for existing TX
-						mempoolTx.LastSeen = time.Now()
-						logger.Debugf("updated last seen for transaction %s in mempool", txHash)
-					} else {
-						n.txsubmissionMempool.Transactions[txHash] = &txsubmissionMempoolTransaction{
-							Hash:     txHash,
+					// Add transaction to mempool
+					err = n.txsubmissionMempool.addTransaction(
+						&TxsubmissionMempoolTransaction{
+							Hash:     tx.Hash(),
 							Type:     uint(txBody.EraId),
 							Cbor:     txBody.TxBody,
 							LastSeen: time.Now(),
-						}
-						logger.Debugf("added transaction %s to mempool", txHash)
-						// TODO: process incoming transaction
+						},
+					)
+					if err != nil {
+						logger.Errorf("failed to add TX %s to mempool: %s", tx.Hash(), err)
+						return
 					}
-					n.txsubmissionMempool.Unlock()
 				}
 			}
 		}

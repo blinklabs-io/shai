@@ -10,6 +10,7 @@ import (
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
+	"github.com/blinklabs-io/shai/internal/node"
 	"github.com/blinklabs-io/shai/internal/storage"
 
 	"github.com/blinklabs-io/snek/event"
@@ -18,6 +19,7 @@ import (
 
 type Spectrum struct {
 	idx            *indexer.Indexer
+	node           *node.Node
 	config         config.SpectrumProfileConfig
 	name           string
 	swapAddress    string
@@ -27,9 +29,10 @@ type Spectrum struct {
 	poolV2Address  string
 }
 
-func New(idx *indexer.Indexer, name string, config config.SpectrumProfileConfig) *Spectrum {
+func New(idx *indexer.Indexer, node *node.Node, name string, config config.SpectrumProfileConfig) *Spectrum {
 	s := &Spectrum{
 		idx:            idx,
+		node:           node,
 		config:         config,
 		name:           name,
 		swapAddress:    scriptAddressFromHash(config.SwapHash),
@@ -39,6 +42,7 @@ func New(idx *indexer.Indexer, name string, config config.SpectrumProfileConfig)
 		poolV2Address:  scriptAddressFromHash(config.PoolV2Hash),
 	}
 	idx.AddEventFunc(s.handleChainsyncEvent)
+	node.AddMempoolNewTransactionFunc(s.handleMempoolNewTransaction)
 	return s
 }
 
@@ -49,157 +53,211 @@ func (s *Spectrum) handleChainsyncEvent(evt event.Event) error {
 		eventTx := evt.Payload.(input_chainsync.TransactionEvent)
 		eventCtx := evt.Context.(input_chainsync.TransactionContext)
 		for idx, txOutput := range eventTx.Outputs {
-			// Check for the addresses we care about
-			txOutputAddress := txOutput.Address().String()
-			var paymentAddr string
-			if txOutput.Address().PaymentAddress() != nil {
-				paymentAddr = txOutput.Address().PaymentAddress().String()
-			}
-			isSwap := false
-			isDeposit := false
-			isRedeem := false
-			isPoolV1 := false
-			isPoolV2 := false
-			switch paymentAddr {
-			case s.swapAddress:
-				isSwap = true
-			case s.depositAddress:
-				isDeposit = true
-			case s.redeemAddress:
-				isRedeem = true
-			case s.poolV1Address:
-				isPoolV1 = true
-			case s.poolV2Address:
-				isPoolV2 = true
-			default:
-				continue
-			}
-			// Write UTXO to storage
-			if err := storage.GetStorage().AddUtxo(
-				txOutputAddress,
-				eventCtx.TransactionHash,
-				uint32(idx),
-				txOutput.Cbor(),
-			); err != nil {
-				return err
-			}
-			datum := txOutput.Datum()
-			if datum != nil {
-				//fmt.Printf("found transaction (%s) with datum: isSwap=%v, isDeposit=%v, isRedeem=%v, isPoolV1=%v, isPoolV2=%v\n", eventCtx.TransactionHash, isSwap, isDeposit, isRedeem, isPoolV1, isPoolV2)
-				if isSwap {
-					var swapConfig SwapConfig
-					if _, err := cbor.Decode(datum.Cbor(), &swapConfig); err != nil {
-						logger.Warnf(
-							"error decoding TX (%s) output datum: %s: cbor hex: %x",
-							eventCtx.TransactionHash,
-							err,
-							datum.Cbor(),
-						)
-						continue
-					}
-					// Get swap UTxO
-					// We fetch this from storage so it's in the proper format
-					swapUtxo, err := storage.GetStorage().GetUtxoById(
-						fmt.Sprintf("%s.%d", eventCtx.TransactionHash, idx),
-					)
-					if err != nil {
-						return err
-					}
-					// Fetch matching pool UTxO
-					// We get the UTxO ID first so that we can use it later to get the address
-					// that owns it
-					poolUtxoId, err := storage.GetStorage().GetAssetUtxoId(
-						s.name,
-						swapConfig.PoolId.PolicyId,
-						swapConfig.PoolId.Name,
-					)
-					if err != nil {
-						logger.Warnf("no matching pool UTxO for swap: %s", err)
-						continue
-					}
-					poolUtxo, err := storage.GetStorage().GetUtxoById(poolUtxoId)
-					if err != nil {
-						return err
-					}
-					pool, err := NewPoolFromUtxoBytes(poolUtxo)
-					if err != nil {
-						return err
-					}
-					// Get address for current pool UTxO
-					poolAddr, err := storage.GetStorage().GetUtxoAddress(poolUtxoId)
-					if err != nil {
-						return err
-					}
-					// Determine which pool contract input ref to use
-					var poolInputRef config.ProfileConfigInputRef
-					tmpPoolAddr, _ := ledger.NewAddress(poolAddr)
-					poolPaymentAddr := tmpPoolAddr.PaymentAddress().String()
-					if poolPaymentAddr == s.poolV1Address {
-						poolInputRef = s.config.PoolV1InputRef
-					} else if poolPaymentAddr == s.poolV2Address {
-						poolInputRef = s.config.PoolV2InputRef
-					}
-					// Build swap TX
-					swapTxOpts := createSwapTxOpts{
-						poolUtxoBytes:     poolUtxo[:],
-						pool:              pool,
-						outputPoolAddress: poolAddr,
-						poolInputRef:      poolInputRef,
-						swapUtxoBytes:     swapUtxo[:],
-						swapConfig:        swapConfig,
-					}
-					txBytes, err := s.createSwapTx(swapTxOpts)
-					if err != nil {
-						logger.Errorf("failed to build transaction: %s", err)
-					} else if false { // TODO: remove 'if false'
-						fmt.Printf("txBytes(%d) = %x\n", len(txBytes), txBytes)
-					}
-				} else if isDeposit {
-					var depositConfig DepositConfig
-					if _, err := cbor.Decode(datum.Cbor(), &depositConfig); err != nil {
-						logger.Warnf(
-							"error decoding TX (%s) output datum: %s: cbor hex: %x",
-							eventCtx.TransactionHash,
-							err,
-							datum.Cbor(),
-						)
-						continue
-					}
-				} else if isRedeem {
-					// TODO
-				} else if isPoolV1 || isPoolV2 {
-					var poolConfig PoolConfig
-					if _, err := cbor.Decode(datum.Cbor(), &poolConfig); err != nil {
-						logger.Warnf(
-							"error decoding TX (%s) output datum: %s: cbor hex: %x",
-							eventCtx.TransactionHash,
-							err,
-							datum.Cbor(),
-						)
-						continue
-					}
-					// Store pool UTXO by policy/asset
-					if err := storage.GetStorage().UpdateAssetUtxo(
-						s.name,
-						poolConfig.Nft.PolicyId,
-						poolConfig.Nft.Name,
-						eventCtx.TransactionHash,
-						uint32(idx),
-					); err != nil {
-						return err
-					}
-					logger.Debugf(
-						"updated '%s' pool UTxO for asset with policy ID %x and name '%s' (%x)",
-						s.name,
-						poolConfig.Nft.PolicyId,
-						poolConfig.Nft.Name,
-						poolConfig.Nft.Name,
-					)
-				}
+			if err := s.handleTransactionOutput(eventCtx.TransactionHash, idx, txOutput, false); err != nil {
+				logger.Errorf("failure handling on-chain transaction output %s.%d: %s", eventCtx.TransactionHash, idx, err)
 			}
 		}
 	}
 	return nil
+}
+
+func (s *Spectrum) handleMempoolNewTransaction(mempoolTx node.TxsubmissionMempoolTransaction) error {
+	logger := logging.GetLogger()
+	tx, err := ledger.NewTransactionFromCbor(mempoolTx.Type, mempoolTx.Cbor)
+	if err != nil {
+		return err
+	}
+	for idx, txOutput := range tx.Outputs() {
+		if err := s.handleTransactionOutput(tx.Hash(), idx, txOutput, true); err != nil {
+			logger.Errorf("failure handling mempool transaction output %s.%d: %s", tx.Hash(), idx, err)
+		}
+	}
+	return nil
+}
+
+func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutput ledger.TransactionOutput, fromMempool bool) error {
+	logger := logging.GetLogger()
+	// Check for the addresses we care about
+	txOutputAddress := txOutput.Address().String()
+	var paymentAddr string
+	if txOutput.Address().PaymentAddress() != nil {
+		paymentAddr = txOutput.Address().PaymentAddress().String()
+	}
+	isSwap := false
+	isDeposit := false
+	isRedeem := false
+	isPoolV1 := false
+	isPoolV2 := false
+	switch paymentAddr {
+	case s.swapAddress:
+		isSwap = true
+	case s.depositAddress:
+		isDeposit = true
+	case s.redeemAddress:
+		isRedeem = true
+	case s.poolV1Address:
+		isPoolV1 = true
+	case s.poolV2Address:
+		isPoolV2 = true
+	default:
+		return nil
+	}
+	datum := txOutput.Datum()
+	if datum != nil {
+		fmt.Printf("found transaction (%s) with datum: fromMempool=%v, isSwap=%v, isDeposit=%v, isRedeem=%v, isPoolV1=%v, isPoolV2=%v\n", txId, fromMempool, isSwap, isDeposit, isRedeem, isPoolV1, isPoolV2)
+		if isSwap && fromMempool {
+			var swapConfig SwapConfig
+			if _, err := cbor.Decode(datum.Cbor(), &swapConfig); err != nil {
+				return fmt.Errorf(
+					"error decoding datum: %s: cbor hex: %x",
+					err,
+					datum.Cbor(),
+				)
+			}
+			// Generate wrapped version of UTxO for TX building
+			swapUtxo, err := wrapTxOutput(txId, txOutputIdx, txOutput.Cbor())
+			if err != nil {
+				return err
+			}
+			// Fetch matching pool UTxO
+			// We get the UTxO ID first so that we can use it later to get the address
+			// that owns it
+			poolUtxoId, err := storage.GetStorage().GetAssetUtxoId(
+				s.name,
+				swapConfig.PoolId.PolicyId,
+				swapConfig.PoolId.Name,
+			)
+			if err != nil {
+				return fmt.Errorf("no matching pool UTxO for swap: %s", err)
+			}
+			poolUtxo, err := storage.GetStorage().GetUtxoById(poolUtxoId)
+			if err != nil {
+				return err
+			}
+			pool, err := NewPoolFromUtxoBytes(poolUtxo)
+			if err != nil {
+				return err
+			}
+			// Get address for current pool UTxO
+			poolAddr, err := storage.GetStorage().GetUtxoAddress(poolUtxoId)
+			if err != nil {
+				return err
+			}
+			// Determine which pool contract input ref to use
+			var poolInputRef config.ProfileConfigInputRef
+			tmpPoolAddr, _ := ledger.NewAddress(poolAddr)
+			poolPaymentAddr := tmpPoolAddr.PaymentAddress().String()
+			if poolPaymentAddr == s.poolV1Address {
+				poolInputRef = s.config.PoolV1InputRef
+			} else if poolPaymentAddr == s.poolV2Address {
+				poolInputRef = s.config.PoolV2InputRef
+			}
+			// Build swap TX
+			swapTxOpts := createSwapTxOpts{
+				poolUtxoBytes:     poolUtxo[:],
+				pool:              pool,
+				outputPoolAddress: poolAddr,
+				poolInputRef:      poolInputRef,
+				swapUtxoBytes:     swapUtxo[:],
+				swapConfig:        swapConfig,
+			}
+			txBytes, err := s.createSwapTx(swapTxOpts)
+			if err != nil {
+				logger.Errorf("failed to build transaction: %s", err)
+			} else {
+				fmt.Printf("txBytes(%d) = %x\n", len(txBytes), txBytes)
+				// TODO: submit the TX
+			}
+		} else if isDeposit && fromMempool {
+			var depositConfig DepositConfig
+			if _, err := cbor.Decode(datum.Cbor(), &depositConfig); err != nil {
+				return fmt.Errorf(
+					"error decoding datum: %s: cbor hex: %x",
+					err,
+					datum.Cbor(),
+				)
+			}
+		} else if isRedeem && fromMempool {
+			// TODO
+		} else if (isPoolV1 || isPoolV2) && !fromMempool {
+			// Write UTXO to storage
+			if err := storage.GetStorage().AddUtxo(
+				txOutputAddress,
+				txId,
+				uint32(txOutputIdx),
+				txOutput.Cbor(),
+			); err != nil {
+				return err
+			}
+			var poolConfig PoolConfig
+			if _, err := cbor.Decode(datum.Cbor(), &poolConfig); err != nil {
+				return fmt.Errorf(
+					"error decoding datum: %s: cbor hex: %x",
+					err,
+					datum.Cbor(),
+				)
+			}
+			// Store pool UTXO by policy/asset
+			if err := storage.GetStorage().UpdateAssetUtxo(
+				s.name,
+				poolConfig.Nft.PolicyId,
+				poolConfig.Nft.Name,
+				txId,
+				uint32(txOutputIdx),
+			); err != nil {
+				return err
+			}
+			logger.Debugf(
+				"updated '%s' pool UTxO for asset with policy ID %x and name '%s' (%x)",
+				s.name,
+				poolConfig.Nft.PolicyId,
+				poolConfig.Nft.Name,
+				poolConfig.Nft.Name,
+			)
+			/*
+				pool, err := NewPoolFromTransactionOutput(txOutput)
+				if err != nil {
+					return err
+				}
+				fmt.Printf("Pool (%s) prices:\n", pool.Id.Name)
+				xName := string(pool.X.Class.Name)
+				if pool.X.IsLovelace() {
+					xName = "lovelace"
+				}
+				yName := string(pool.Y.Class.Name)
+				if pool.Y.IsLovelace() {
+					yName = "lovelace"
+				}
+				fmt.Printf("  - 1 %s = %f %s\n", xName, (float64(pool.Y.Amount) / float64(pool.X.Amount)), yName)
+				fmt.Printf("  - 1 %s = %f %s\n", yName, (float64(pool.X.Amount) / float64(pool.Y.Amount)), xName)
+			*/
+		}
+	}
+	return nil
+}
+
+func wrapTxOutput(txId string, txOutputIdx int, txOutBytes []byte) ([]byte, error) {
+	// Wrap TX output in UTxO structure to make it easier to consume later
+	txIdBytes, err := hex.DecodeString(txId)
+	if err != nil {
+		return nil, err
+	}
+	// Create temp UTxO structure
+	utxoTmp := []any{
+		// Transaction output reference
+		[]any{
+			txIdBytes,
+			uint32(txOutputIdx),
+		},
+		// Transaction output CBOR
+		cbor.RawMessage(txOutBytes),
+	}
+	// Convert to CBOR
+	cborBytes, err := cbor.Encode(&utxoTmp)
+	if err != nil {
+		return nil, err
+	}
+	return cborBytes[:], nil
 }
 
 func scriptAddressFromHash(scriptHashHex string) string {

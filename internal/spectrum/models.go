@@ -103,6 +103,10 @@ func (a AssetClass) String() string {
 	)
 }
 
+func (a AssetClass) IsLovelace() bool {
+	return len(a.PolicyId) == 0 && len(a.Name) == 0
+}
+
 type DepositConfig struct {
 	cbor.StructAsArray
 	PoolId        AssetClass

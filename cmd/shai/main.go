@@ -75,22 +75,22 @@ func main() {
 	bursa := wallet.GetWallet()
 	logger.Infof("loaded mnemonic for address: %s", bursa.PaymentAddress)
 
-	// Initialize indexer
+	// Initialize indexer and node
 	idx := indexer.New()
+	n := node.New(idx)
 
 	// Setup profiles
 	for _, profile := range config.GetProfiles() {
 		switch profile.Type {
 		case config.ProfileTypeSpectrum:
 			logger.Infof("initializing profile '%s' of type Spectrum", profile.Name)
-			_ = spectrum.New(idx, profile.Name, profile.Config.(config.SpectrumProfileConfig))
+			_ = spectrum.New(idx, n, profile.Name, profile.Config.(config.SpectrumProfileConfig))
 		default:
 			logger.Fatalf("unknown profile type for '%s'", profile.Name)
 		}
 	}
 
 	// Start node
-	n := node.New(idx)
 	if err := n.Start(); err != nil {
 		logger.Fatalf("failed to start node: %s", err)
 	}
