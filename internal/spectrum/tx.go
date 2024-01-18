@@ -425,8 +425,8 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 				Tag: Redeemer.SPEND,
 				// NOTE: these values are estimated
 				ExUnits: Redeemer.ExecutionUnits{
-					Mem:   520_000,
-					Steps: 155_000_000,
+					Mem:   530_000,
+					Steps: 165_000_000,
 				},
 				Data: PlutusData.PlutusData{
 					Value: cbor.NewConstructor(
@@ -451,8 +451,8 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 				Tag: Redeemer.SPEND,
 				// NOTE: these values are estimated
 				ExUnits: Redeemer.ExecutionUnits{
-					Mem:   260_000,
-					Steps: 130_000_000,
+					Mem:   270_000,
+					Steps: 140_000_000,
 				},
 				Data: PlutusData.PlutusData{
 					Value: cbor.NewConstructor(
@@ -470,7 +470,9 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 			},
 		)
 
-	tx, err := apollob.Complete()
+	tx, err := apollob.
+		DisableExecutionUnitsEstimation().
+		Complete()
 	if err != nil {
 		return nil, err
 	}
