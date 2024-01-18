@@ -62,6 +62,27 @@ func (s *SwapConfig) UnmarshalCBOR(cborData []byte) error {
 	)
 }
 
+func (s *SwapConfig) MarshalCBOR() ([]byte, error) {
+	tmpConstr := cbor.NewConstructor(
+		0,
+		cbor.IndefLengthList{
+			Items: []any{
+				s.Base,
+				s.Quote,
+				s.PoolId,
+				s.FeeNum,
+				s.FeePerTokenNum,
+				s.FeePerTokenDen,
+				s.RewardPkh,
+				s.StakePkh,
+				s.BaseAmount,
+				s.MinQuoteAmount,
+			},
+		},
+	)
+	return cbor.Encode(&tmpConstr)
+}
+
 func (s SwapConfig) String() string {
 	return fmt.Sprintf(
 		"SwapConfig< base = %s, quote = %s, pool_id = %s, fee_num = %d, fee_per_token_num = %d, fee_per_token_den = %d, reward_pkh = %x, stake_pkh = %x, base_amount = %d, min_quote_amount = %d >",
@@ -93,6 +114,19 @@ func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
 		tmpConstr.FieldsCbor(),
 		a,
 	)
+}
+
+func (a *AssetClass) MarshalCBOR() ([]byte, error) {
+	tmpConstr := cbor.NewConstructor(
+		0,
+		cbor.IndefLengthList{
+			Items: []any{
+				a.PolicyId,
+				a.Name,
+			},
+		},
+	)
+	return cbor.Encode(&tmpConstr)
 }
 
 func (a AssetClass) String() string {
@@ -128,6 +162,25 @@ func (d *DepositConfig) UnmarshalCBOR(cborData []byte) error {
 		tmpConstr.FieldsCbor(),
 		d,
 	)
+}
+
+func (d *DepositConfig) MarshalCBOR() ([]byte, error) {
+	tmpConstr := cbor.NewConstructor(
+		0,
+		cbor.IndefLengthList{
+			Items: []any{
+				d.PoolId,
+				d.X,
+				d.Y,
+				d.Lq,
+				d.ExFee,
+				d.RewardPkh,
+				d.StakePkh,
+				d.CollateralAda,
+			},
+		},
+	)
+	return cbor.Encode(&tmpConstr)
 }
 
 func (d DepositConfig) String() string {
@@ -166,6 +219,24 @@ func (r *RedeemConfig) UnmarshalCBOR(cborData []byte) error {
 	)
 }
 
+func (r *RedeemConfig) MarshalCBOR() ([]byte, error) {
+	tmpConstr := cbor.NewConstructor(
+		0,
+		cbor.IndefLengthList{
+			Items: []any{
+				r.PoolId,
+				r.X,
+				r.Y,
+				r.Lq,
+				r.ExFee,
+				r.RewardPkh,
+				r.StakePkh,
+			},
+		},
+	)
+	return cbor.Encode(&tmpConstr)
+}
+
 func (r RedeemConfig) String() string {
 	return fmt.Sprintf(
 		"RedeemConfig< pool_id = %s, x = %s, y = %s, lq = %s, ex_fee = %d, reward_pkh = %x, stake_pkh = %x >",
@@ -199,6 +270,24 @@ func (p *PoolConfig) UnmarshalCBOR(cborData []byte) error {
 		tmpConstr.FieldsCbor(),
 		p,
 	)
+}
+
+func (p *PoolConfig) MarshalCBOR() ([]byte, error) {
+	tmpConstr := cbor.NewConstructor(
+		0,
+		cbor.IndefLengthList{
+			Items: []any{
+				p.Nft,
+				p.X,
+				p.Y,
+				p.Lq,
+				p.FeeNum,
+				p.AdminPolicy,
+				p.LqBound,
+			},
+		},
+	)
+	return cbor.Encode(&tmpConstr)
 }
 
 func (p PoolConfig) String() string {
