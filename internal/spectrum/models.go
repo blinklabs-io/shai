@@ -49,6 +49,7 @@ func (w *WrappedPkh) MarshalCBOR() ([]byte, error) {
 
 type SwapConfig struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	Base           AssetClass
 	Quote          AssetClass
 	PoolId         AssetClass
@@ -62,6 +63,7 @@ type SwapConfig struct {
 }
 
 func (s *SwapConfig) UnmarshalCBOR(cborData []byte) error {
+	s.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -153,6 +155,7 @@ func (a AssetClass) IsLovelace() bool {
 
 type DepositConfig struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	PoolId        AssetClass
 	X             AssetClass
 	Y             AssetClass
@@ -164,6 +167,7 @@ type DepositConfig struct {
 }
 
 func (d *DepositConfig) UnmarshalCBOR(cborData []byte) error {
+	d.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -209,6 +213,7 @@ func (d DepositConfig) String() string {
 
 type RedeemConfig struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	PoolId    AssetClass
 	X         AssetClass
 	Y         AssetClass
@@ -219,6 +224,7 @@ type RedeemConfig struct {
 }
 
 func (r *RedeemConfig) UnmarshalCBOR(cborData []byte) error {
+	r.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -262,16 +268,18 @@ func (r RedeemConfig) String() string {
 
 type PoolConfig struct {
 	cbor.StructAsArray
+	cbor.DecodeStoreCbor
 	Nft         AssetClass
 	X           AssetClass
 	Y           AssetClass
 	Lq          AssetClass
 	FeeNum      uint64
-	AdminPolicy []any
+	AdminPolicy [][]byte
 	LqBound     uint64
 }
 
 func (p *PoolConfig) UnmarshalCBOR(cborData []byte) error {
+	p.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -283,6 +291,16 @@ func (p *PoolConfig) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (p *PoolConfig) MarshalCBOR() ([]byte, error) {
+	var tmpAdminPolicy any = []any{}
+	if len(p.AdminPolicy) > 0 {
+		tmpAdminPolicyItems := []any{}
+		for _, adminPolicy := range p.AdminPolicy {
+			tmpAdminPolicyItems = append(tmpAdminPolicyItems, adminPolicy)
+		}
+		tmpAdminPolicy = cbor.IndefLengthList{
+			Items: tmpAdminPolicyItems,
+		}
+	}
 	tmpConstr := cbor.NewConstructor(
 		0,
 		cbor.IndefLengthList{
@@ -292,7 +310,7 @@ func (p *PoolConfig) MarshalCBOR() ([]byte, error) {
 				p.Y,
 				p.Lq,
 				p.FeeNum,
-				p.AdminPolicy,
+				tmpAdminPolicy,
 				p.LqBound,
 			},
 		},
