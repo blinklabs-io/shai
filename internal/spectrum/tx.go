@@ -15,6 +15,7 @@ import (
 	"github.com/Salvionied/apollo/serialization/Key"
 	"github.com/Salvionied/apollo/serialization/PlutusData"
 	"github.com/Salvionied/apollo/serialization/Redeemer"
+	"github.com/Salvionied/apollo/serialization/TransactionInput"
 	"github.com/Salvionied/apollo/serialization/UTxO"
 
 	//txBuildingUtils "github.com/Salvionied/apollo/txBuilding/Utils"
@@ -387,18 +388,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	if len(opts.swapConfig.Base.PolicyId) == 0 {
 		leftoverSwapLovelace -= opts.swapConfig.BaseAmount
 	}
-
 	rewardLovelace += leftoverSwapLovelace
-	/*
-		// Give leftover swap lovelace to matcher if reward is in lovelace
-		if rewardAsset.IsLovelace() {
-			matcherFee += leftoverSwapLovelace
-		} else {
-			rewardLovelace += leftoverSwapLovelace
-		}
-	*/
-
-	fmt.Printf("matcherFee = %d, leftoverSwapLovelace = %d\n", matcherFee, leftoverSwapLovelace)
 
 	// Generate addresses
 	tmpRewardAddr := addressFromKeys(opts.swapConfig.RewardPkh, opts.swapConfig.StakePkh.Pkh)
@@ -409,6 +399,24 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	changeAddress, _ := serAddress.DecodeAddress(bursa.PaymentAddress)
 
 	currentSlot := unixTimeToSlot(time.Now().Unix())
+
+	// Determine sorted input indexes
+	// This is necessary because redeemer indexes reflect the alphanumerically
+	// sorted order of the TX inputs, and the smart contract uses the same mapping
+	// for redeemer datum input indexes
+	datumPoolInputIdx := sortedInputIndex(
+		[]UTxO.UTxO{
+			poolUtxo,
+			swapUtxo,
+		},
+		poolUtxo.Input,
+	)
+	// We can safely assume that the swap input index is whichever one that the pool
+	// input index isn't
+	datumSwapInputIdx := 0
+	if datumPoolInputIdx == 0 {
+		datumSwapInputIdx = 1
+	}
 
 	cc := apollo.NewEmptyBackend()
 	apollob := apollo.New(&cc)
@@ -451,8 +459,8 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 						0,
 						cbor.IndefLengthList{
 							Items: []any{
-								2, // action (swap)
-								0, // pool input index
+								2,                 // action (swap)
+								datumPoolInputIdx, // pool input index
 							},
 						},
 					),
@@ -477,10 +485,10 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 						0,
 						cbor.IndefLengthList{
 							Items: []any{
-								0, // pool input index
-								1, // swap order input index
-								1, // reward output index
-								0, // action (apply)
+								datumPoolInputIdx, // pool input index
+								datumSwapInputIdx, // swap order input index
+								1,                 // reward output index
+								0,                 // action (apply)
 							},
 						},
 					),
@@ -527,4 +535,16 @@ func unixTimeToSlot(unixTime int64) uint64 {
 	return networkCfg.ShelleyOffsetSlot + uint64(
 		unixTime-networkCfg.ShelleyOffsetTime,
 	)
+}
+
+func sortedInputIndex(utxos []UTxO.UTxO, txInput TransactionInput.TransactionInput) int {
+	sortedUtxos := apollo.SortInputs(utxos)
+	for idx, utxo := range sortedUtxos {
+		if string(utxo.Input.TransactionId) == string(txInput.TransactionId) {
+			if utxo.Input.Index == txInput.Index {
+				return idx
+			}
+		}
+	}
+	return -1
 }
