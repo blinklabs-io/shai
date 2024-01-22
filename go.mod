@@ -3,7 +3,7 @@ module github.com/blinklabs-io/shai
 go 1.20
 
 require (
-	github.com/Salvionied/apollo v1.0.10
+	github.com/Salvionied/apollo v1.0.11
 	github.com/blinklabs-io/bursa v0.7.0
 	github.com/blinklabs-io/gouroboros v0.69.3
 	github.com/blinklabs-io/snek v0.17.0
