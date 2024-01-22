@@ -3,7 +3,6 @@ package spectrum
 import (
 	"encoding/hex"
 	"fmt"
-	"strings"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -29,10 +28,6 @@ type Spectrum struct {
 	redeemAddress  string
 	poolV1Address  string
 	poolV2Address  string
-	// TODO: remove me
-	tmpMempoolSwapTxId      string
-	tmpMempoolSwapOutputIdx int
-	tmpMempoolSwapInUse     bool
 }
 
 func New(idx *indexer.Indexer, node *node.Node, name string, config config.SpectrumProfileConfig) *Spectrum {
@@ -61,14 +56,6 @@ func (s *Spectrum) handleChainsyncEvent(evt event.Event) error {
 		for idx, txOutput := range eventTx.Outputs {
 			if err := s.handleTransactionOutput(eventCtx.TransactionHash, idx, txOutput, false); err != nil {
 				logger.Errorf("failure handling on-chain transaction output %s.%d: %s", eventCtx.TransactionHash, idx, err)
-			}
-		}
-		// TODO: remove me
-		for _, txInput := range eventTx.Inputs {
-			if txInput.Id().String() == s.tmpMempoolSwapTxId && int(txInput.Index()) == s.tmpMempoolSwapOutputIdx {
-				fmt.Printf("\non-chain swap TX CBOR hex for input %s.%d = %x\n\n", s.tmpMempoolSwapTxId, s.tmpMempoolSwapOutputIdx, eventTx.TransactionCbor)
-				s.tmpMempoolSwapInUse = false
-				//os.Exit(1)
 			}
 		}
 	}
@@ -118,8 +105,6 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 	}
 	datum := txOutput.Datum()
 	if datum != nil {
-		// TODO: remove me
-		fmt.Printf("found transaction (%s) with datum: fromMempool=%v, isSwap=%v, isDeposit=%v, isRedeem=%v, isPoolV1=%v, isPoolV2=%v\n", txId, fromMempool, isSwap, isDeposit, isRedeem, isPoolV1, isPoolV2)
 		if isSwap && fromMempool {
 			var swapConfig SwapConfig
 			if _, err := cbor.Decode(datum.Cbor(), &swapConfig); err != nil {
@@ -182,19 +167,7 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 			} else {
 				//fmt.Printf("txBytes(%d) = %x\n", len(txBytes), txBytes)
 				// Submit the TX
-				if err := txsubmit.SubmitTx(txBytes); err != nil {
-					// TODO: remove this
-					// record UTxO ID for later checking
-					if !s.tmpMempoolSwapInUse {
-						if !strings.Contains(err.Error(), "BadInputsUTxO") {
-							s.tmpMempoolSwapInUse = true
-							s.tmpMempoolSwapTxId = txId
-							s.tmpMempoolSwapOutputIdx = txOutputIdx
-							fmt.Printf("\ntxBytes (validation failure): %x\n\n", txBytes)
-							fmt.Printf("recorded swap order input: %s.%d\n", s.tmpMempoolSwapTxId, s.tmpMempoolSwapOutputIdx)
-						}
-					}
-				}
+				txsubmit.SubmitTx(txBytes)
 			}
 		} else if isDeposit && fromMempool {
 			var depositConfig DepositConfig
