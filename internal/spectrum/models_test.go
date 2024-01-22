@@ -42,6 +42,33 @@ var testDefs = []struct {
 			LqBound: 0x4a817c800,
 		},
 	},
+	{
+		cborHex: "d8799fd8799f581c0891dc34b96a4d705e11f0a1d14a3eb582623bffa38a9052a9dc1f204a41495f4144415f4e4654ffd8799f4040ffd8799f581cd542ad1dc269ae601125e8259cb8427c6b37c1d3569d10441df0291f424149ffd8799f581c895af34f5ef7d077d35d2b48a35df9b2c893e4621332a014ad62cb934941495f4144415f4c51ff1903e58000ff",
+		poolConfigObj: spectrum.PoolConfig{
+			Nft: spectrum.AssetClass{
+				// AI_ADA_NFT, policy_id = 0891dc34b96a4d705e11f0a1d14a3eb582623bffa38a9052a9dc1f20
+				PolicyId: testModelsDecodeHex("0891dc34b96a4d705e11f0a1d14a3eb582623bffa38a9052a9dc1f20"),
+				Name:     []byte("AI_ADA_NFT"),
+			},
+			X: spectrum.AssetClass{
+				PolicyId: []byte{},
+				Name:     []byte{},
+			},
+			Y: spectrum.AssetClass{
+				// AI, policy_id = d542ad1dc269ae601125e8259cb8427c6b37c1d3569d10441df0291f
+				PolicyId: testModelsDecodeHex("d542ad1dc269ae601125e8259cb8427c6b37c1d3569d10441df0291f"),
+				Name:     []byte("AI"),
+			},
+			Lq: spectrum.AssetClass{
+				// AI_ADA_LQ, policy_id = 895af34f5ef7d077d35d2b48a35df9b2c893e4621332a014ad62cb93
+				PolicyId: testModelsDecodeHex("895af34f5ef7d077d35d2b48a35df9b2c893e4621332a014ad62cb93"),
+				Name:     []byte("AI_ADA_LQ"),
+			},
+			FeeNum:      997,
+			AdminPolicy: [][]byte{},
+			LqBound:     0,
+		},
+	},
 }
 
 func testModelsDecodeHex(hexData string) []byte {
