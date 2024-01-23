@@ -9,7 +9,7 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 )
 
-func SubmitTx(txRawBytes []byte) error {
+func SubmitTx(txRawBytes []byte) {
 	cfg := config.GetConfig()
 	logger := logging.GetLogger()
 	if len(cfg.Topology.Hosts) > 0 {
@@ -27,11 +27,9 @@ func SubmitTx(txRawBytes []byte) error {
 	} else if cfg.Submit.Url != "" {
 		if err := submitTxApi(txRawBytes); err != nil {
 			logger.Errorf("failed to submit TX via API: %s", err)
-			return err
+		} else {
+			logger.Infof("successfully submitted TX via API")
 		}
-		logger.Infof("successfully submit TX via API")
-		// TODO: remove me
-		//os.Exit(1)
 	} else {
 		// Populate address info from indexer network
 		network := ouroboros.NetworkByName(cfg.Network)
@@ -44,5 +42,4 @@ func SubmitTx(txRawBytes []byte) error {
 			txSubmitNtn.Submit(txRawBytes, address)
 		}(address)
 	}
-	return nil
 }
