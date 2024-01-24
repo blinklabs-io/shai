@@ -2,7 +2,7 @@ package txsubmit
 
 import (
 	"encoding/hex"
-	"sync"
+	"fmt"
 	"time"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
@@ -12,143 +12,267 @@ import (
 	"github.com/blinklabs-io/shai/internal/logging"
 )
 
-type TxSubmitNtn struct {
-	txType        uint
-	txBytes       []byte
-	txHash        []byte
-	txHashHex     string
-	sentTx        bool
-	failed        bool
-	doneChan      chan any
-	doneChanMutex sync.Mutex
+const (
+	initialReconnectDelay = 1 * time.Second
+	maxReconnectDelay     = 128 * time.Second
+)
+
+type ntnTransaction struct {
+	Hash string
+	Type uint
+	Cbor []byte
 }
 
-func NewTxSubmitNtn() *TxSubmitNtn {
-	return &TxSubmitNtn{}
+type outboundConnection struct {
+	Address        string
+	ReconnectCount int
+	ReconnectDelay time.Duration
 }
 
-func (t *TxSubmitNtn) Submit(txRawBytes []byte, address string) {
+func (t *TxSubmit) startNtn(topologyHosts []config.TopologyConfigHost) error {
+	logger := logging.GetLogger()
+	t.connTransactionChans = make(map[int]chan ntnTransaction)
+	t.connTransactionCache = make(map[int]map[string]*ntnTransaction)
+	t.outboundConns = make(map[int]*outboundConnection)
+	t.connManager = ouroboros.NewConnectionManager(
+		ouroboros.ConnectionManagerConfig{
+			ErrorFunc: t.connectionManagerError,
+		},
+	)
+	// Start outbound connections
+	for idx, host := range topologyHosts {
+		go func(connId int, address string) {
+			if err := t.createOutboundConnection(connId, address); err != nil {
+				logger.Errorf("failed to establish connection to %s: %s", address, err)
+				go t.reconnectOutboundConnection(connId)
+			}
+		}(idx, fmt.Sprintf("%s:%d", host.Address, host.Port))
+	}
+	go t.handleTransactionNtn()
+	return nil
+}
+
+func (t *TxSubmit) handleTransactionNtn() {
+	logger := logging.GetLogger()
+	for {
+		txBytes, ok := <-t.transactionChan
+		if !ok {
+			return
+		}
+		// Determine transaction type (era)
+		txType, err := ledger.DetermineTransactionType(txBytes)
+		if err != nil {
+			logger.Errorf("could not parse transaction to determine type: %s", err)
+			return
+		}
+		tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
+		if err != nil {
+			logger.Errorf("failed to parse transaction CBOR: %s", err)
+			return
+		}
+		tmpTx := ntnTransaction{
+			Hash: tx.Hash(),
+			Type: txType,
+			Cbor: txBytes[:],
+		}
+		// Re-broadcast TX to each connection's TX chan
+		t.connTransactionChansMutex.Lock()
+		for _, txChan := range t.connTransactionChans {
+			txChan <- tmpTx
+		}
+		t.connTransactionChansMutex.Unlock()
+		logger.Infof("submitted transaction %s via NtN TxSubmission", tx.Hash())
+	}
+}
+
+func (t *TxSubmit) createOutboundConnection(connId int, address string) error {
 	cfg := config.GetConfig()
 	logger := logging.GetLogger()
-
-	// Record TX bytes in global for use in handler functions
-	t.txBytes = txRawBytes[:]
-	t.sentTx = false
-
-	// Determine transaction type (era)
-	var err error
-	t.txType, err = ledger.DetermineTransactionType(txRawBytes)
-	if err != nil {
-		logger.Errorf("could not parse transaction to determine type: %s", err)
-		return
+	// Add to outbound connection tracking
+	t.outboundConnsMutex.Lock()
+	if _, ok := t.outboundConns[connId]; !ok {
+		t.outboundConns[connId] = &outboundConnection{
+			Address: address,
+		}
 	}
-	tx, err := ledger.NewTransactionFromCbor(t.txType, txRawBytes)
-	if err != nil {
-		logger.Errorf("failed to parse transaction CBOR: %s", err)
-		return
-	}
-
-	// Record TX hash
-	t.txHashHex = tx.Hash()
-	t.txHash, err = hex.DecodeString(t.txHashHex)
-	if err != nil {
-		logger.Errorf("failed to decode TX hash: %s", err)
-		return
-	}
-
-	// Create connection
-	o, err := ouroboros.New(
+	t.outboundConnsMutex.Unlock()
+	// Setup Ouroboros connection
+	oConn, err := ouroboros.NewConnection(
 		ouroboros.WithNetworkMagic(cfg.NetworkMagic),
 		ouroboros.WithNodeToNode(true),
 		ouroboros.WithKeepAlive(true),
 		ouroboros.WithTxSubmissionConfig(
 			txsubmission.NewConfig(
-				txsubmission.WithRequestTxIdsFunc(t.handleRequestTxIds),
-				txsubmission.WithRequestTxsFunc(t.handleRequestTxs),
+				txsubmission.WithRequestTxIdsFunc(func(
+					blocking bool,
+					ack uint16,
+					req uint16,
+				) ([]txsubmission.TxIdAndSize, error) {
+					return t.txsubmissionClientRequestTxIds(connId, blocking, ack, req)
+				}),
+				txsubmission.WithRequestTxsFunc(func(
+					txIds []txsubmission.TxId,
+				) ([]txsubmission.TxBody, error) {
+					return t.txsubmissionClientRequestTxs(connId, txIds)
+				}),
 			),
 		),
 	)
 	if err != nil {
-		logger.Errorf("failed to establish connection to node %s: %s", address, err)
-		return
+		return err
 	}
-	if err := o.Dial("tcp", address); err != nil {
-		logger.Errorf("failed to establish connection to node %s: %s", address, err)
-		return
+	// Establish connection
+	if err := oConn.Dial("tcp", address); err != nil {
+		return err
 	}
+	logger.Infof("connected to node at %s", address)
+	// Add to connection manager
+	t.connManager.AddConnection(connId, oConn)
+	// Add TX watcher chan
+	t.connTransactionChansMutex.Lock()
+	t.connTransactionChans[connId] = make(chan ntnTransaction, maxOutboundTransactions)
+	t.connTransactionChansMutex.Unlock()
+	// Create TX cache
+	t.connTransactionCacheMutex.Lock()
+	t.connTransactionCache[connId] = make(map[string]*ntnTransaction)
+	t.connTransactionCacheMutex.Unlock()
+	// Start TxSubmission loop
+	oConn.TxSubmission().Client.Init()
+	return nil
+}
 
-	// Capture errors
-	go func() {
-		err, ok := <-o.ErrorChan()
-		if ok {
-			t.failed = true
-			logger.Errorf("failed to submit transaction %s to node %s: %s", t.txHashHex, address, err)
-			t.closeDoneChan()
+func (t *TxSubmit) reconnectOutboundConnection(connId int) {
+	logger := logging.GetLogger()
+	outboundConn := t.outboundConns[connId]
+	for {
+		if outboundConn.ReconnectDelay == 0 {
+			outboundConn.ReconnectDelay = initialReconnectDelay
+		} else if outboundConn.ReconnectDelay < maxReconnectDelay {
+			outboundConn.ReconnectDelay = outboundConn.ReconnectDelay * 2
 		}
-	}()
-
-	// Start txSubmission loop
-	t.doneChan = make(chan any)
-	o.TxSubmission().Client.Init()
-	<-t.doneChan
-	// Sleep 2s to allow time for TX to enter remote mempool before closing connection
-	time.Sleep(2 * time.Second)
-
-	if err := o.Close(); err != nil {
-		logger.Errorf("failed to close connection with node %s: %s", address, err)
-	}
-
-	if !t.failed {
-		logger.Infof("successfully submitted transaction %s to node %s", t.txHashHex, address)
-	}
-}
-
-func (t *TxSubmitNtn) closeDoneChan() {
-	t.doneChanMutex.Lock()
-	defer t.doneChanMutex.Unlock()
-	// Check if doneChan is already closed
-	select {
-	case <-t.doneChan:
-		// Already closed
+		logger.Infof("delaying %s before reconnecting to %s", outboundConn.ReconnectDelay, outboundConn.Address)
+		time.Sleep(outboundConn.ReconnectDelay)
+		if err := t.createOutboundConnection(connId, outboundConn.Address); err != nil {
+			logger.Errorf("failed to establish connection to %s: %s", outboundConn.Address, err)
+			continue
+		}
 		return
-	default:
-		// Close it
-		close(t.doneChan)
 	}
 }
 
-func (t *TxSubmitNtn) handleRequestTxIds(
+func (t *TxSubmit) connectionManagerError(connId int, err error) {
+	logger := logging.GetLogger()
+	logger.Errorf("connection %d failed: %s", connId, err)
+	conn := t.connManager.GetConnectionById(connId)
+	if conn == nil {
+		return
+	}
+	// Remove connection
+	t.connManager.RemoveConnection(connId)
+	// Close and remove transaction watcher channel
+	t.connTransactionChansMutex.Lock()
+	close(t.connTransactionChans[connId])
+	delete(t.connTransactionChans, connId)
+	t.connTransactionChansMutex.Unlock()
+	// Remove transaction cache for connection
+	t.connTransactionCacheMutex.Lock()
+	delete(t.connTransactionCache, connId)
+	t.connTransactionCacheMutex.Unlock()
+	// Reconnect if it was an outbound connection
+	if _, ok := t.outboundConns[connId]; ok {
+		go t.reconnectOutboundConnection(connId)
+	}
+	time.Sleep(1 * time.Second)
+}
+
+func (t *TxSubmit) txsubmissionClientRequestTxIds(
+	connId int,
 	blocking bool,
 	ack uint16,
 	req uint16,
 ) ([]txsubmission.TxIdAndSize, error) {
-	if t.sentTx {
-		// Terrible syncronization hack for shutdown
-		t.closeDoneChan()
-		time.Sleep(5 * time.Second)
-		return nil, nil
+	ret := []txsubmission.TxIdAndSize{}
+	// Clear TX cache
+	if ack > 0 {
+		t.connTransactionCacheMutex.Lock()
+		t.connTransactionCache[connId] = make(map[string]*ntnTransaction)
+		t.connTransactionCacheMutex.Unlock()
 	}
-	ret := []txsubmission.TxIdAndSize{
-		{
-			TxId: txsubmission.TxId{
-				EraId: uint16(t.txType),
-				TxId:  [32]byte(t.txHash),
+	// Get available TXs
+	t.connTransactionChansMutex.Lock()
+	txChan := t.connTransactionChans[connId]
+	t.connTransactionChansMutex.Unlock()
+	var tmpTxs []ntnTransaction
+	doneWaiting := false
+	for {
+		if blocking && len(tmpTxs) == 0 {
+			// Wait until we see a TX
+			tmpTx, ok := <-txChan
+			if !ok {
+				break
+			}
+			tmpTxs = append(tmpTxs, tmpTx)
+		} else {
+			// Return immediately if no TX is available
+			select {
+			case tmpTx, ok := <-txChan:
+				if !ok {
+					doneWaiting = true
+					break
+				}
+				tmpTxs = append(tmpTxs, tmpTx)
+			default:
+				doneWaiting = true
+			}
+			if doneWaiting {
+				break
+			}
+		}
+	}
+	for _, tmpTx := range tmpTxs {
+		tmpTx := tmpTx
+		// Add to return value
+		txHashBytes, err := hex.DecodeString(tmpTx.Hash)
+		if err != nil {
+			return nil, err
+		}
+		ret = append(
+			ret,
+			txsubmission.TxIdAndSize{
+				TxId: txsubmission.TxId{
+					EraId: uint16(tmpTx.Type),
+					TxId:  [32]byte(txHashBytes),
+				},
+				Size: uint32(len(tmpTx.Cbor)),
 			},
-			Size: uint32(len(t.txBytes)),
-		},
+		)
+		// Add to transaction cache
+		t.connTransactionCacheMutex.Lock()
+		t.connTransactionCache[connId][tmpTx.Hash] = &tmpTx
+		t.connTransactionCacheMutex.Unlock()
 	}
 	return ret, nil
 }
 
-func (t *TxSubmitNtn) handleRequestTxs(
+func (t *TxSubmit) txsubmissionClientRequestTxs(
+	connId int,
 	txIds []txsubmission.TxId,
 ) ([]txsubmission.TxBody, error) {
-	ret := []txsubmission.TxBody{
-		{
-			EraId:  uint16(t.txType),
-			TxBody: t.txBytes,
-		},
+	ret := []txsubmission.TxBody{}
+	for _, txId := range txIds {
+		txHash := hex.EncodeToString(txId.TxId[:])
+		t.connTransactionCacheMutex.Lock()
+		tx := t.connTransactionCache[connId][txHash]
+		t.connTransactionCacheMutex.Unlock()
+		if tx != nil {
+			ret = append(
+				ret,
+				txsubmission.TxBody{
+					EraId:  uint16(tx.Type),
+					TxBody: tx.Cbor,
+				},
+			)
+		}
 	}
-	t.sentTx = true
 	return ret, nil
 }

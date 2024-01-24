@@ -2,44 +2,58 @@ package txsubmit
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/blinklabs-io/shai/internal/config"
-	"github.com/blinklabs-io/shai/internal/logging"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
 )
 
-func SubmitTx(txRawBytes []byte) {
+const (
+	maxOutboundTransactions = 20
+)
+
+type TxSubmit struct {
+	transactionChan           chan []byte
+	connTransactionChans      map[int]chan ntnTransaction
+	connTransactionChansMutex sync.Mutex
+	connTransactionCache      map[int]map[string]*ntnTransaction
+	connTransactionCacheMutex sync.Mutex
+	connManager               *ouroboros.ConnectionManager
+	outboundConns             map[int]*outboundConnection
+	outboundConnsMutex        sync.Mutex
+}
+
+var globalTxSubmit = &TxSubmit{}
+
+func Start() error {
 	cfg := config.GetConfig()
-	logger := logging.GetLogger()
+	globalTxSubmit.transactionChan = make(chan []byte, maxOutboundTransactions)
 	if len(cfg.Topology.Hosts) > 0 {
-		for _, host := range cfg.Topology.Hosts {
-			address := fmt.Sprintf("%s:%d", host.Address, host.Port)
-			go func(address string) {
-				txSubmitNtn := NewTxSubmitNtn()
-				txSubmitNtn.Submit(txRawBytes, address)
-			}(address)
-		}
+		return globalTxSubmit.startNtn(cfg.Topology.Hosts)
+	} else if cfg.Submit.Url != "" {
+		return globalTxSubmit.startApi(cfg.Submit.Url)
 		/*
 			} else if cfg.Submit.SocketPath != "" {
 				return submitTxNtC(txRawBytes)
 		*/
-	} else if cfg.Submit.Url != "" {
-		if err := submitTxApi(txRawBytes); err != nil {
-			logger.Errorf("failed to submit TX via API: %s", err)
-		} else {
-			logger.Infof("successfully submitted TX via API")
-		}
 	} else {
 		// Populate address info from indexer network
 		network := ouroboros.NetworkByName(cfg.Network)
 		if network == ouroboros.NetworkInvalid {
-			logger.Fatalf("unknown network: %s", cfg.Network)
+			return fmt.Errorf("unknown network: %s", cfg.Network)
 		}
-		address := fmt.Sprintf("%s:%d", network.PublicRootAddress, network.PublicRootPort)
-		go func(address string) {
-			txSubmitNtn := NewTxSubmitNtn()
-			txSubmitNtn.Submit(txRawBytes, address)
-		}(address)
+		return globalTxSubmit.startNtn(
+			[]config.TopologyConfigHost{
+				{
+					Address: network.PublicRootAddress,
+					Port:    network.PublicRootPort,
+				},
+			},
+		)
 	}
+}
+
+func SubmitTx(txRawBytes []byte) {
+	globalTxSubmit.transactionChan <- txRawBytes
 }
