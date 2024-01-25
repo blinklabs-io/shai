@@ -6,13 +6,43 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/shai/internal/logging"
 )
 
-func submitTxApi(txRawBytes []byte) error {
-	cfg := config.GetConfig()
+func (t *TxSubmit) startApi(url string) error {
+	go func() {
+		logger := logging.GetLogger()
+		for {
+			txBytes, ok := <-t.transactionChan
+			if !ok {
+				return
+			}
+			// Determine transaction type (era)
+			txType, err := ledger.DetermineTransactionType(txBytes)
+			if err != nil {
+				logger.Errorf("could not parse transaction to determine type: %s", err)
+				return
+			}
+			tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
+			if err != nil {
+				logger.Errorf("failed to parse transaction CBOR: %s", err)
+				return
+			}
+			// Submit transaction
+			if err := submitTxApi(txBytes, url); err != nil {
+				logger.Errorf("failed to submit transaction %s via API: %s", tx.Hash(), err)
+			} else {
+				logger.Infof("successfully submitted transaction %s via API", tx.Hash())
+			}
+		}
+	}()
+	return nil
+}
+
+func submitTxApi(txRawBytes []byte, url string) error {
 	reqBody := bytes.NewBuffer(txRawBytes)
-	req, err := http.NewRequest(http.MethodPost, cfg.Submit.Url, reqBody)
+	req, err := http.NewRequest(http.MethodPost, url, reqBody)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %s", err)
 	}
@@ -21,7 +51,7 @@ func submitTxApi(txRawBytes []byte) error {
 	if err != nil {
 		return fmt.Errorf(
 			"failed to send request: %s: %s",
-			cfg.Submit.Url,
+			url,
 			err,
 		)
 	}
@@ -34,6 +64,6 @@ func submitTxApi(txRawBytes []byte) error {
 	if resp.StatusCode == 202 {
 		return nil
 	} else {
-		return fmt.Errorf("failed to submit TX to API: %s: %d: %s", cfg.Submit.Url, resp.StatusCode, respBody)
+		return fmt.Errorf("unexpected response: %s: %d: %s", url, resp.StatusCode, respBody)
 	}
 }

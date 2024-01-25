@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"github.com/blinklabs-io/shai/internal/config"
@@ -12,6 +13,7 @@ import (
 	"github.com/blinklabs-io/shai/internal/node"
 	"github.com/blinklabs-io/shai/internal/spectrum"
 	"github.com/blinklabs-io/shai/internal/storage"
+	"github.com/blinklabs-io/shai/internal/txsubmit"
 	"github.com/blinklabs-io/shai/internal/version"
 	"github.com/blinklabs-io/shai/internal/wallet"
 )
@@ -93,6 +95,11 @@ func main() {
 	// Start node
 	if err := n.Start(); err != nil {
 		logger.Fatalf("failed to start node: %s", err)
+	}
+
+	// Start TxSubmit
+	if err := txsubmit.Start(); err != nil {
+		logger.Fatalf("failed to start TxSubmit: %s", err)
 	}
 
 	// Start indexer
