@@ -11,18 +11,20 @@ import (
 )
 
 type Config struct {
-	Logging       LoggingConfig  `yaml:"logging"`
-	Debug         DebugConfig    `yaml:"debug"`
-	Submit        SubmitConfig   `yaml:"submit"`
-	Topology      TopologyConfig `yaml:"topology"`
-	Storage       StorageConfig  `yaml:"storage"`
-	Indexer       IndexerConfig  `yaml:"indexer"`
-	Wallet        WalletConfig   `yaml:"wallet"`
-	Network       string         `yaml:"network" envconfig:"NETWORK"`
-	Profiles      []string       `yaml:"profiles" envconfig:"PROFILES"`
-	ListenAddress string         `yaml:"listenAddress" envconfig:"LISTEN_ADDRESS"`
-	ListenPort    uint           `yaml:"port" envconfig:"PORT"`
-	NetworkMagic  uint32
+	Logging          LoggingConfig  `yaml:"logging"`
+	Debug            DebugConfig    `yaml:"debug"`
+	Submit           SubmitConfig   `yaml:"submit"`
+	Topology         TopologyConfig `yaml:"topology"`
+	Storage          StorageConfig  `yaml:"storage"`
+	Indexer          IndexerConfig  `yaml:"indexer"`
+	Wallet           WalletConfig   `yaml:"wallet"`
+	Network          string         `yaml:"network" envconfig:"NETWORK"`
+	Profiles         []string       `yaml:"profiles" envconfig:"PROFILES"`
+	ListenAddress    string         `yaml:"listenAddress" envconfig:"LISTEN_ADDRESS"`
+	ListenAddressNtc string         `yaml:"listenAddressNtc" envconfig:"LISTEN_ADDRESS_NTC"`
+	ListenPort       uint           `yaml:"port" envconfig:"PORT"`
+	ListenPortNtc    uint           `yaml:"portNtc" envconfig:"PORT_NTC"`
+	NetworkMagic     uint32
 }
 
 type LoggingConfig struct {
@@ -65,9 +67,10 @@ type WalletConfig struct {
 
 // Singleton config instance with default values
 var globalConfig = &Config{
-	Network:    "mainnet",
-	Profiles:   []string{"spectrum", "teddyswap"},
-	ListenPort: 3000,
+	Network:       "mainnet",
+	Profiles:      []string{"spectrum", "teddyswap"},
+	ListenPort:    3000,
+	ListenPortNtc: 3099,
 	Logging: LoggingConfig{
 		Level: "info",
 	},
