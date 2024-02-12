@@ -200,8 +200,12 @@ func (t *TxSubmit) txsubmissionClientRequestTxIds(
 	}
 	// Get available TXs
 	t.connTransactionChansMutex.Lock()
-	txChan := t.connTransactionChans[connId]
+	txChan, ok := t.connTransactionChans[connId]
 	t.connTransactionChansMutex.Unlock()
+	// Protect against potential race condition with unexpected shutdown
+	if !ok {
+		return ret, nil
+	}
 	var tmpTxs []ntnTransaction
 	doneWaiting := false
 	for {
@@ -248,7 +252,10 @@ func (t *TxSubmit) txsubmissionClientRequestTxIds(
 		)
 		// Add to transaction cache
 		t.connTransactionCacheMutex.Lock()
-		t.connTransactionCache[connId][tmpTx.Hash] = &tmpTx
+		// Protect against potential race condition between this and unexpected shutdown
+		if _, ok := t.connTransactionCache[connId]; ok {
+			t.connTransactionCache[connId][tmpTx.Hash] = &tmpTx
+		}
 		t.connTransactionCacheMutex.Unlock()
 	}
 	return ret, nil
