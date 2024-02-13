@@ -90,11 +90,10 @@ func (n *Node) txsubmissionServerInit(connId int) error {
 	if conn == nil {
 		return fmt.Errorf("connection %d not found", connId)
 	}
-	txSubServer := conn.Conn.TxSubmission().Server
 	go func() {
 		for {
 			// Request available TX IDs (era and TX hash) and sizes
-			txIds, err := txSubServer.RequestTxIds(true, 10)
+			txIds, err := conn.Conn.TxSubmission().Server.RequestTxIds(true, 10)
 			if err != nil {
 				logger.Errorf("failed to request TxIds: %s", err)
 				return
@@ -106,7 +105,7 @@ func (n *Node) txsubmissionServerInit(connId int) error {
 					requestTxIds = append(requestTxIds, txId.TxId)
 				}
 				// Request TX content for TxIds from above
-				txs, err := txSubServer.RequestTxs(requestTxIds)
+				txs, err := conn.Conn.TxSubmission().Server.RequestTxs(requestTxIds)
 				if err != nil {
 					logger.Errorf("failed to request Txs: %s", err)
 					return
