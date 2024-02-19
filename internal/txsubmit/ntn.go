@@ -36,7 +36,7 @@ func (t *TxSubmit) startNtn(topologyHosts []config.TopologyConfigHost) error {
 	t.outboundConns = make(map[int]*outboundConnection)
 	t.connManager = ouroboros.NewConnectionManager(
 		ouroboros.ConnectionManagerConfig{
-			ErrorFunc: t.connectionManagerError,
+			ConnClosedFunc: t.connectionManagerConnClosed,
 		},
 	)
 	// Start outbound connections
@@ -160,9 +160,13 @@ func (t *TxSubmit) reconnectOutboundConnection(connId int) {
 	}
 }
 
-func (t *TxSubmit) connectionManagerError(connId int, err error) {
+func (t *TxSubmit) connectionManagerConnClosed(connId int, err error) {
 	logger := logging.GetLogger()
-	logger.Errorf("connection %d failed: %s", connId, err)
+	if err != nil {
+		logger.Errorf("connection %d failed: %s", connId, err)
+	} else {
+		logger.Infof("connection %s closed", connId)
+	}
 	conn := t.connManager.GetConnectionById(connId)
 	if conn == nil {
 		return
