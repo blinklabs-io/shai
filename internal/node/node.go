@@ -45,7 +45,7 @@ func (n *Node) Start() error {
 	logger := logging.GetLogger()
 	n.connManager = ouroboros.NewConnectionManager(
 		ouroboros.ConnectionManagerConfig{
-			ErrorFunc: n.connectionManagerError,
+			ConnClosedFunc: n.connectionManagerConnClosed,
 		},
 	)
 	// Set initial connection ID for tracking
@@ -188,9 +188,13 @@ func (n *Node) acceptConnectionsNtc() {
 		n.connManager.AddConnection(connId, oConn)
 	}
 }
-func (n *Node) connectionManagerError(connId int, err error) {
+func (n *Node) connectionManagerConnClosed(connId int, err error) {
 	logger := logging.GetLogger()
-	logger.Errorf("connection %d failed: %s", connId, err)
+	if err != nil {
+		logger.Errorf("connection %d failed: %s", connId, err)
+	} else {
+		logger.Infof("connection %s closed", connId)
+	}
 	conn := n.connManager.GetConnectionById(connId)
 	if conn == nil {
 		return
