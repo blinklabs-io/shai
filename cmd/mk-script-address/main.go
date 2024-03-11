@@ -72,7 +72,7 @@ func main() {
 	scriptHash := hash.Sum(nil)
 	//fmt.Printf("scriptHash(%d) = %x\n", len(scriptHash), scriptHash)
 
-	address := ledger.NewAddressFromParts(
+	address, _ := ledger.NewAddressFromParts(
 		ledger.AddressTypeScriptNone,
 		network.Id,
 		scriptHash,
