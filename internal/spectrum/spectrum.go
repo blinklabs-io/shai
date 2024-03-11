@@ -272,12 +272,15 @@ func scriptAddressFromHash(scriptHashHex string) string {
 	if err != nil {
 		return ""
 	}
-	addr := ledger.NewAddressFromParts(
+	addr, err := ledger.NewAddressFromParts(
 		ledger.AddressTypeScriptNone,
 		network.Id,
 		scriptHash,
 		nil,
 	)
+	if err != nil {
+		return ""
+	}
 	return addr.String()
 }
 
@@ -291,11 +294,14 @@ func addressFromKeys(paymentKey []byte, stakeKey []byte) string {
 	if len(stakeKey) > 0 {
 		addrType = ledger.AddressTypeKeyKey
 	}
-	addr := ledger.NewAddressFromParts(
+	addr, err := ledger.NewAddressFromParts(
 		uint8(addrType),
 		network.Id,
 		paymentKey,
 		stakeKey,
 	)
+	if err != nil {
+		return ""
+	}
 	return addr.String()
 }
