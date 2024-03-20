@@ -5,8 +5,8 @@ github.com/Salvionied/apollo v1.0.11/go.mod h1:5hgk1k4EiWmAoy2yU3q6+clmA4tgnHC4X
 github.com/Salvionied/cbor/v2 v2.6.0 h1:OEwlZLiodLdNeM9wFoSydLvj6/rHRaxu5G8VzwXSeuY=
 github.com/Salvionied/cbor/v2 v2.6.0/go.mod h1:oFxaUo/mQ5sG1k459nzctGdYa80jy0ZqZ9pln9C/fGw=
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
-github.com/blinklabs-io/bursa v0.7.0 h1:i0VbHfnQ/MjStIDN6ApZYV4NWtLPcYkCmym+PcCjPgA=
-github.com/blinklabs-io/bursa v0.7.0/go.mod h1:5oA7x2aBuRXnQUG/xJK64BqsJHoA+Thj0HU41BJonQI=
+github.com/blinklabs-io/bursa v0.7.1 h1:RJ22jtpz1Qa8vYUV8X8svx0k13rcFFksXLibWxN7JHA=
+github.com/blinklabs-io/bursa v0.7.1/go.mod h1:CeHkFk0gtTEbYaYvnos5TDhxAOPqkwE2Ja8nwqLKuDw=
 github.com/blinklabs-io/gouroboros v0.75.0 h1:zM3Rmvuyzd40DFfckD26pmYNiZ9Vg6WaAVHA9habjLM=
 github.com/blinklabs-io/gouroboros v0.75.0/go.mod h1:d+OyO0y2OSUnj3y2CvG7YL9ACd8YVHsY0ndna/1RrIw=
 github.com/blinklabs-io/snek v0.17.3 h1:ccbYvQUBKqBn4nUQUtixsvLZZbJCqCel3WO7fGVhONY=
