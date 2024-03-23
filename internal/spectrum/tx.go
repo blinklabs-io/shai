@@ -507,7 +507,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	sKeyBytes, err := hex.DecodeString(bursa.PaymentESKey.CborHex)
+	sKeyBytes, err := hex.DecodeString(bursa.PaymentExtendedSKey.CborHex)
 	if err != nil {
 		return nil, err
 	}
