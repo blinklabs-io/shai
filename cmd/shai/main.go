@@ -100,7 +100,7 @@ func main() {
 	}
 
 	// Start TxSubmit
-	if err := txsubmit.Start(); err != nil {
+	if err := txsubmit.Start(n); err != nil {
 		logger.Fatalf("failed to start TxSubmit: %s", err)
 	}
 
