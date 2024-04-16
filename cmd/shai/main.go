@@ -7,6 +7,8 @@ import (
 	_ "net/http/pprof"
 	"os"
 
+	_ "go.uber.org/automaxprocs"
+
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
