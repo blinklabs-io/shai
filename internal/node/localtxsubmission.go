@@ -8,7 +8,7 @@ import (
 	"github.com/blinklabs-io/shai/internal/logging"
 )
 
-func (n *Node) localTxsubmissionServerSubmitTx(msgSubmitTxTransaction localtxsubmission.MsgSubmitTxTransaction) error {
+func (n *Node) localTxsubmissionServerSubmitTx(ctx localtxsubmission.CallbackContext, msgSubmitTxTransaction localtxsubmission.MsgSubmitTxTransaction) error {
 	logger := logging.GetLogger()
 	txEraId := uint(msgSubmitTxTransaction.EraId)
 	txBytes := msgSubmitTxTransaction.Raw.Content.([]byte)

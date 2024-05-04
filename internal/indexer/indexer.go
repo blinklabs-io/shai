@@ -178,14 +178,14 @@ func (i *Indexer) handleEvent(evt event.Event) error {
 		eventTx := evt.Payload.(input_chainsync.TransactionEvent)
 		eventCtx := evt.Context.(input_chainsync.TransactionContext)
 		// Delete used UTXOs
-		for _, txInput := range eventTx.Inputs {
+		for _, txInput := range eventTx.Transaction.Consumed() {
 			//logger.Debugf("UTxO %s.%d consumed in transaction %s", txInput.Id().String(), txInput.Index(), eventCtx.TransactionHash)
 			if err := storage.GetStorage().RemoveUtxo(txInput.Id().String(), txInput.Index()); err != nil {
 				return err
 			}
 		}
 		// Store UTXOs for bot wallet
-		for idx, txOutput := range eventTx.Outputs {
+		for idx, txOutput := range eventTx.Transaction.Produced() {
 			txOutputAddress := txOutput.Address().String()
 			if txOutputAddress == bursa.PaymentAddress {
 				// Write UTXO to storage

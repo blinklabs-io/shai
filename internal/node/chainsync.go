@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"sync"
 
+	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
 	"github.com/blinklabs-io/snek/event"
@@ -20,15 +23,15 @@ type chainsyncClientState struct {
 	sync.Mutex
 	tip          chainsyncTip
 	recentBlocks []chainsyncBlock
-	subs         map[int]chan chainsyncBlock
+	subs         map[ouroboros.ConnectionId]chan chainsyncBlock
 }
 
-func (c *chainsyncClientState) Sub(key int) chan chainsyncBlock {
+func (c *chainsyncClientState) Sub(key ouroboros.ConnectionId) chan chainsyncBlock {
 	c.Lock()
 	defer c.Unlock()
 	tmpChan := make(chan chainsyncBlock, maxRecentBlocks)
 	if c.subs == nil {
-		c.subs = make(map[int]chan chainsyncBlock)
+		c.subs = make(map[ouroboros.ConnectionId]chan chainsyncBlock)
 	}
 	c.subs[key] = tmpChan
 	// Send all current blocks
@@ -38,7 +41,7 @@ func (c *chainsyncClientState) Sub(key int) chan chainsyncBlock {
 	return tmpChan
 }
 
-func (c *chainsyncClientState) Unsub(key int) {
+func (c *chainsyncClientState) Unsub(key ouroboros.ConnectionId) {
 	c.Lock()
 	defer c.Unlock()
 	close(c.subs[key])
@@ -163,7 +166,7 @@ type chainsyncServerState struct {
 	needsInitialRollback bool
 }
 
-func (n *Node) chainsyncServerFindIntersect(connId int, points []ocommon.Point) (ocommon.Point, chainsync.Tip, error) {
+func (n *Node) chainsyncServerFindIntersect(ctx chainsync.CallbackContext, points []ocommon.Point) (ocommon.Point, chainsync.Tip, error) {
 	var retPoint ocommon.Point
 	var retTip chainsync.Tip
 	// Find intersection
@@ -192,7 +195,7 @@ func (n *Node) chainsyncServerFindIntersect(connId int, points []ocommon.Point) 
 	}
 
 	// Create initial chainsync state for connection
-	_ = n.chainsyncServerStateInit(connId, intersectTip)
+	_ = n.chainsyncServerStateInit(ctx.ConnectionId, intersectTip)
 
 	// Populate return point
 	retPoint = intersectTip.ToTip().Point
@@ -200,15 +203,11 @@ func (n *Node) chainsyncServerFindIntersect(connId int, points []ocommon.Point) 
 	return retPoint, retTip, nil
 }
 
-func (n *Node) chainsyncServerRequestNext(connId int) error {
-	conn := n.connManager.GetConnectionById(connId)
-	if conn == nil {
-		return fmt.Errorf("connection %d not found", connId)
-	}
+func (n *Node) chainsyncServerRequestNext(ctx chainsync.CallbackContext) error {
 	// Create initial chainsync state for connection
-	serverState := n.chainsyncServerStateInit(connId, n.chainsyncClientState.tip)
+	serverState := n.chainsyncServerStateInit(ctx.ConnectionId, n.chainsyncClientState.tip)
 	if serverState.needsInitialRollback {
-		err := conn.Conn.ChainSync().Server.RollBackward(
+		err := ctx.Server.RollBackward(
 			serverState.cursor.ToTip().Point,
 			n.chainsyncClientState.tip.ToTip(),
 		)
@@ -226,16 +225,16 @@ func (n *Node) chainsyncServerRequestNext(connId int) error {
 			if serverState.cursor.SlotNumber >= block.Tip.SlotNumber {
 				continue
 			}
-			return n.chainsyncServerSendNext(connId, block)
+			return n.chainsyncServerSendNext(ctx, block)
 		default:
-			err := conn.Conn.ChainSync().Server.AwaitReply()
+			err := ctx.Server.AwaitReply()
 			if err != nil {
 				return err
 			}
 			// Wait for next block and send
 			go func() {
 				block := <-serverState.blockChan
-				_ = n.chainsyncServerSendNext(connId, block)
+				_ = n.chainsyncServerSendNext(ctx, block)
 			}()
 			sentAwaitReply = true
 		}
@@ -246,7 +245,7 @@ func (n *Node) chainsyncServerRequestNext(connId int) error {
 	return nil
 }
 
-func (n *Node) chainsyncServerStateInit(connId int, cursor chainsyncTip) *chainsyncServerState {
+func (n *Node) chainsyncServerStateInit(connId connection.ConnectionId, cursor chainsyncTip) *chainsyncServerState {
 	// Create initial chainsync state for connection
 	if _, ok := n.chainsyncServerState[connId]; !ok {
 		n.chainsyncServerState[connId] = &chainsyncServerState{
@@ -258,20 +257,16 @@ func (n *Node) chainsyncServerStateInit(connId int, cursor chainsyncTip) *chains
 	return n.chainsyncServerState[connId]
 }
 
-func (n *Node) chainsyncServerSendNext(connId int, block chainsyncBlock) error {
-	conn := n.connManager.GetConnectionById(connId)
-	if conn == nil {
-		return fmt.Errorf("connection %d not found", connId)
-	}
+func (n *Node) chainsyncServerSendNext(ctx chainsync.CallbackContext, block chainsyncBlock) error {
 	var err error
 	if block.Rollback {
-		err = conn.Conn.ChainSync().Server.RollBackward(
+		err = ctx.Server.RollBackward(
 			block.Tip.ToTip().Point,
 			n.chainsyncClientState.tip.ToTip(),
 		)
 	} else {
 		blockBytes := block.Cbor[:]
-		err = conn.Conn.ChainSync().Server.RollForward(
+		err = ctx.Server.RollForward(
 			block.Type,
 			blockBytes,
 			n.chainsyncClientState.tip.ToTip(),
@@ -280,14 +275,9 @@ func (n *Node) chainsyncServerSendNext(connId int, block chainsyncBlock) error {
 	return err
 }
 
-func (n *Node) blockfetchServerRequestRange(connId int, start ocommon.Point, end ocommon.Point) error {
-	conn := n.connManager.GetConnectionById(connId)
-	if conn == nil {
-		return fmt.Errorf("connection %d not found", connId)
-	}
-	blockfetchServer := conn.Conn.BlockFetch().Server
+func (n *Node) blockfetchServerRequestRange(ctx blockfetch.CallbackContext, start ocommon.Point, end ocommon.Point) error {
 	go func() {
-		if err := blockfetchServer.StartBatch(); err != nil {
+		if err := ctx.Server.StartBatch(); err != nil {
 			return
 		}
 		for _, block := range n.chainsyncClientState.recentBlocks {
@@ -298,7 +288,7 @@ func (n *Node) blockfetchServerRequestRange(connId int, start ocommon.Point, end
 				break
 			}
 			blockBytes := block.Cbor[:]
-			err := blockfetchServer.Block(
+			err := ctx.Server.Block(
 				block.Type,
 				blockBytes,
 			)
@@ -306,7 +296,7 @@ func (n *Node) blockfetchServerRequestRange(connId int, start ocommon.Point, end
 				return
 			}
 		}
-		if err := blockfetchServer.BatchDone(); err != nil {
+		if err := ctx.Server.BatchDone(); err != nil {
 			return
 		}
 	}()
