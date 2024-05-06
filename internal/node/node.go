@@ -323,9 +323,9 @@ func (n *Node) reconnectOutboundConnection(peer outboundPeer) {
 func (n *Node) connectionManagerConnClosed(connId ouroboros.ConnectionId, err error) {
 	logger := logging.GetLogger()
 	if err != nil {
-		logger.Errorf("connection %d failed: %s", connId, err)
+		logger.Errorf("connection %s failed: %s", connId.String(), err)
 	} else {
-		logger.Infof("connection %s closed", connId)
+		logger.Infof("connection %s closed", connId.String())
 	}
 	conn := n.connManager.GetConnectionById(connId)
 	if conn == nil {
