@@ -14,8 +14,8 @@ import (
 	"github.com/blinklabs-io/shai/internal/storage"
 	"github.com/blinklabs-io/shai/internal/txsubmit"
 
-	"github.com/blinklabs-io/snek/event"
-	input_chainsync "github.com/blinklabs-io/snek/input/chainsync"
+	"github.com/blinklabs-io/adder/event"
+	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
 )
 
 type Spectrum struct {

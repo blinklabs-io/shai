@@ -4,9 +4,9 @@ go 1.21
 
 require (
 	github.com/Salvionied/apollo v1.0.11
+	github.com/blinklabs-io/adder v0.19.0
 	github.com/blinklabs-io/bursa v0.7.2
 	github.com/blinklabs-io/gouroboros v0.82.0
-	github.com/blinklabs-io/snek v0.18.0
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.5.3
@@ -18,7 +18,7 @@ require (
 
 //replace github.com/blinklabs-io/gouroboros => ../gouroboros
 
-//replace github.com/blinklabs-io/snek => ../snek
+//replace github.com/blinklabs-io/adder => ../adder
 
 require (
 	github.com/Salvionied/cbor/v2 v2.6.0 // indirect

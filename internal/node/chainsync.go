@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/blinklabs-io/adder/event"
+	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
-	"github.com/blinklabs-io/snek/event"
-	input_chainsync "github.com/blinklabs-io/snek/input/chainsync"
 )
 
 const (
@@ -140,7 +140,7 @@ func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {
 			BlockHash:   e.BlockHash,
 			BlockNumber: blockCtx.BlockNumber,
 		}
-		// Determine block type, since snek doesn't provide this information
+		// Determine block type, since adder doesn't provide this information
 		blockType, err := ledger.DetermineBlockType(e.BlockCbor)
 		if err != nil {
 			return err
