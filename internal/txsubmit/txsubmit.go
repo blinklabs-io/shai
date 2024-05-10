@@ -18,11 +18,14 @@ type TxSubmit struct {
 	transactionChan chan []byte
 }
 
-var globalTxSubmit = &TxSubmit{}
+var globalTxSubmit *TxSubmit
 
 func Start(n *node.Node) error {
 	cfg := config.GetConfig()
-	globalTxSubmit.transactionChan = make(chan []byte, maxOutboundTransactions)
+	globalTxSubmit = &TxSubmit{
+		transactionChan: make(chan []byte, maxOutboundTransactions),
+		node:            n,
+	}
 	if len(cfg.Topology.Hosts) > 0 {
 		return globalTxSubmit.startNtn()
 	} else if cfg.Submit.Url != "" {
