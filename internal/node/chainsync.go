@@ -217,10 +217,14 @@ func (n *Node) chainsyncServerRequestNext(ctx chainsync.CallbackContext) error {
 		serverState.needsInitialRollback = false
 		return nil
 	}
+outerLoop:
 	for {
 		sentAwaitReply := false
 		select {
-		case block := <-serverState.blockChan:
+		case block, ok := <-serverState.blockChan:
+			if !ok {
+				break outerLoop
+			}
 			// Ignore blocks older than what we've already sent
 			if serverState.cursor.SlotNumber >= block.Tip.SlotNumber {
 				continue
@@ -233,7 +237,10 @@ func (n *Node) chainsyncServerRequestNext(ctx chainsync.CallbackContext) error {
 			}
 			// Wait for next block and send
 			go func() {
-				block := <-serverState.blockChan
+				block, ok := <-serverState.blockChan
+				if !ok {
+					return
+				}
 				_ = n.chainsyncServerSendNext(ctx, block)
 			}()
 			sentAwaitReply = true
