@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	maxRecentBlocks = 20
+	maxRecentBlocks       = 20
+	clientBlockBufferSize = 50
 )
 
 type chainsyncClientState struct {
@@ -29,7 +30,7 @@ type chainsyncClientState struct {
 func (c *chainsyncClientState) Sub(key ouroboros.ConnectionId) chan chainsyncBlock {
 	c.Lock()
 	defer c.Unlock()
-	tmpChan := make(chan chainsyncBlock, maxRecentBlocks)
+	tmpChan := make(chan chainsyncBlock, clientBlockBufferSize)
 	if c.subs == nil {
 		c.subs = make(map[ouroboros.ConnectionId]chan chainsyncBlock)
 	}
@@ -44,8 +45,10 @@ func (c *chainsyncClientState) Sub(key ouroboros.ConnectionId) chan chainsyncBlo
 func (c *chainsyncClientState) Unsub(key ouroboros.ConnectionId) {
 	c.Lock()
 	defer c.Unlock()
-	close(c.subs[key])
-	delete(c.subs, key)
+	if subCh, ok := c.subs[key]; ok {
+		close(subCh)
+		delete(c.subs, key)
+	}
 }
 
 func (c *chainsyncClientState) AddBlock(block chainsyncBlock) {
