@@ -458,10 +458,8 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 					Value: cbor.NewConstructor(
 						0,
 						cbor.IndefLengthList{
-							Items: []any{
-								2,                 // action (swap)
-								datumPoolInputIdx, // pool input index
-							},
+							2,                 // action (swap)
+							datumPoolInputIdx, // pool input index
 						},
 					),
 				},
@@ -484,12 +482,10 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 					Value: cbor.NewConstructor(
 						0,
 						cbor.IndefLengthList{
-							Items: []any{
-								datumPoolInputIdx, // pool input index
-								datumSwapInputIdx, // swap order input index
-								1,                 // reward output index
-								0,                 // action (apply)
-							},
+							datumPoolInputIdx, // pool input index
+							datumSwapInputIdx, // swap order input index
+							1,                 // reward output index
+							0,                 // action (apply)
 						},
 					),
 				},

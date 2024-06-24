@@ -94,7 +94,7 @@ func TestPoolConfigEncodeDecode(t *testing.T) {
 		tmpTestPoolConfig.SetCbor(tmpCborData)
 		if !reflect.DeepEqual(tmpPoolConfig, tmpTestPoolConfig) {
 			t.Fatalf(
-				"CBOR did not decode to expected object\n  got: %s\n  wanted: %s",
+				"CBOR did not decode to expected object\n  got:    %s\n  wanted: %s",
 				tmpPoolConfig.String(),
 				tmpTestPoolConfig.String(),
 			)
@@ -111,7 +111,7 @@ func TestPoolConfigEncode(t *testing.T) {
 		tmpCborHex := hex.EncodeToString(tmpCbor)
 		if tmpCborHex != strings.ToLower(testDef.cborHex) {
 			t.Fatalf(
-				"test object did not encode to expected CBOR\n  got: %s\n  wanted: %s",
+				"test object did not encode to expected CBOR\n  got:    %s\n  wanted: %s",
 				tmpCborHex,
 				strings.ToLower(testDef.cborHex),
 			)
