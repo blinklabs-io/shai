@@ -33,15 +33,13 @@ func (w *WrappedPkh) MarshalCBOR() ([]byte, error) {
 		tmpConstr = cbor.NewConstructor(
 			0,
 			cbor.IndefLengthList{
-				Items: []any{w.Pkh},
+				w.Pkh,
 			},
 		)
 	} else {
 		tmpConstr = cbor.NewConstructor(
 			1,
-			cbor.IndefLengthList{
-				Items: []any{},
-			},
+			cbor.IndefLengthList{},
 		)
 	}
 	return cbor.Encode(&tmpConstr)
@@ -78,18 +76,16 @@ func (s *SwapConfig) MarshalCBOR() ([]byte, error) {
 	tmpConstr := cbor.NewConstructor(
 		0,
 		cbor.IndefLengthList{
-			Items: []any{
-				s.Base,
-				s.Quote,
-				s.PoolId,
-				s.FeeNum,
-				s.FeePerTokenNum,
-				s.FeePerTokenDen,
-				s.RewardPkh,
-				s.StakePkh,
-				s.BaseAmount,
-				s.MinQuoteAmount,
-			},
+			s.Base,
+			s.Quote,
+			s.PoolId,
+			s.FeeNum,
+			s.FeePerTokenNum,
+			s.FeePerTokenDen,
+			s.RewardPkh,
+			s.StakePkh,
+			s.BaseAmount,
+			s.MinQuoteAmount,
 		},
 	)
 	return cbor.Encode(&tmpConstr)
@@ -132,10 +128,8 @@ func (a *AssetClass) MarshalCBOR() ([]byte, error) {
 	tmpConstr := cbor.NewConstructor(
 		0,
 		cbor.IndefLengthList{
-			Items: []any{
-				a.PolicyId,
-				a.Name,
-			},
+			a.PolicyId,
+			a.Name,
 		},
 	)
 	return cbor.Encode(&tmpConstr)
@@ -182,16 +176,14 @@ func (d *DepositConfig) MarshalCBOR() ([]byte, error) {
 	tmpConstr := cbor.NewConstructor(
 		0,
 		cbor.IndefLengthList{
-			Items: []any{
-				d.PoolId,
-				d.X,
-				d.Y,
-				d.Lq,
-				d.ExFee,
-				d.RewardPkh,
-				d.StakePkh,
-				d.CollateralAda,
-			},
+			d.PoolId,
+			d.X,
+			d.Y,
+			d.Lq,
+			d.ExFee,
+			d.RewardPkh,
+			d.StakePkh,
+			d.CollateralAda,
 		},
 	)
 	return cbor.Encode(&tmpConstr)
@@ -239,15 +231,13 @@ func (r *RedeemConfig) MarshalCBOR() ([]byte, error) {
 	tmpConstr := cbor.NewConstructor(
 		0,
 		cbor.IndefLengthList{
-			Items: []any{
-				r.PoolId,
-				r.X,
-				r.Y,
-				r.Lq,
-				r.ExFee,
-				r.RewardPkh,
-				r.StakePkh,
-			},
+			r.PoolId,
+			r.X,
+			r.Y,
+			r.Lq,
+			r.ExFee,
+			r.RewardPkh,
+			r.StakePkh,
 		},
 	)
 	return cbor.Encode(&tmpConstr)
@@ -297,22 +287,18 @@ func (p *PoolConfig) MarshalCBOR() ([]byte, error) {
 		for _, adminPolicy := range p.AdminPolicy {
 			tmpAdminPolicyItems = append(tmpAdminPolicyItems, adminPolicy)
 		}
-		tmpAdminPolicy = cbor.IndefLengthList{
-			Items: tmpAdminPolicyItems,
-		}
+		tmpAdminPolicy = cbor.IndefLengthList(tmpAdminPolicyItems)
 	}
 	tmpConstr := cbor.NewConstructor(
 		0,
 		cbor.IndefLengthList{
-			Items: []any{
-				p.Nft,
-				p.X,
-				p.Y,
-				p.Lq,
-				p.FeeNum,
-				tmpAdminPolicy,
-				p.LqBound,
-			},
+			p.Nft,
+			p.X,
+			p.Y,
+			p.Lq,
+			p.FeeNum,
+			tmpAdminPolicy,
+			p.LqBound,
 		},
 	)
 	return cbor.Encode(&tmpConstr)

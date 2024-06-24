@@ -6,7 +6,7 @@ require (
 	github.com/Salvionied/apollo v1.0.11
 	github.com/blinklabs-io/adder v0.22.1
 	github.com/blinklabs-io/bursa v0.8.0
-	github.com/blinklabs-io/gouroboros v0.88.0
+	github.com/blinklabs-io/gouroboros v0.89.1
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.5.3
@@ -29,7 +29,7 @@ require (
 	github.com/dgryski/go-farm v0.0.0-20200201041132-a6ae2369ad13 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fivebinaries/go-cardano-serialization v0.0.0-20220907134105-ec9b85086588 // indirect
-	github.com/fxamacker/cbor/v2 v2.6.0 // indirect
+	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/glog v1.2.0 // indirect
 	github.com/golang/groupcache v0.0.0-20190702054246-869f871628b6 // indirect
