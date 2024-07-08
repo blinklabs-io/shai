@@ -3,7 +3,7 @@ module github.com/blinklabs-io/shai
 go 1.21
 
 require (
-	github.com/Salvionied/apollo v1.0.11
+	github.com/Salvionied/apollo v1.0.12
 	github.com/blinklabs-io/adder v0.22.1
 	github.com/blinklabs-io/bursa v0.8.0
 	github.com/blinklabs-io/gouroboros v0.89.1
@@ -39,6 +39,7 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/klauspost/compress v1.17.7 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
+	github.com/maestro-org/go-sdk v1.1.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/utxorpc/go-codegen v0.5.1 // indirect
