@@ -185,15 +185,15 @@ func (i *Indexer) handleEvent(evt event.Event) error {
 			}
 		}
 		// Store UTXOs for bot wallet
-		for idx, txOutput := range eventTx.Transaction.Produced() {
-			txOutputAddress := txOutput.Address().String()
+		for _, utxo := range eventTx.Transaction.Produced() {
+			txOutputAddress := utxo.Output.Address().String()
 			if txOutputAddress == bursa.PaymentAddress {
 				// Write UTXO to storage
 				if err := storage.GetStorage().AddUtxo(
 					txOutputAddress,
 					eventCtx.TransactionHash,
-					uint32(idx),
-					txOutput.Cbor(),
+					utxo.Id.Index(),
+					utxo.Output.Cbor(),
 				); err != nil {
 					return err
 				}
