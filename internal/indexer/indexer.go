@@ -33,6 +33,7 @@ import (
 
 const (
 	syncStatusLogInterval = 30 * time.Second
+	rollbackSlots         = 50 * 20 // 50 blocks with a 20s average between
 )
 
 type Indexer struct {
@@ -199,6 +200,8 @@ func (i *Indexer) handleEvent(evt event.Event) error {
 				}
 			}
 		}
+	case input_chainsync.RollbackEvent:
+		// TODO
 	}
 	return nil
 }

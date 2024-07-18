@@ -138,6 +138,7 @@ func (s *Storage) AddUtxo(
 	txId string,
 	txOutIdx uint32,
 	txOutBytes []byte,
+	slot uint64,
 ) error {
 	logger := logging.GetLogger()
 	utxoId := fmt.Sprintf("%s.%d", txId, txOutIdx)
@@ -206,6 +207,7 @@ func (s *Storage) AddUtxo(
 func (s *Storage) RemoveUtxo(
 	txId string,
 	utxoIdx uint32,
+	slot uint64,
 ) error {
 	logger := logging.GetLogger()
 	utxoId := fmt.Sprintf("%s.%d", txId, utxoIdx)
