@@ -9,8 +9,8 @@ github.com/Salvionied/cbor/v2 v2.6.0/go.mod h1:oFxaUo/mQ5sG1k459nzctGdYa80jy0ZqZ
 github.com/aead/siphash v1.0.1/go.mod h1:Nywa3cDsYNNK3gaciGTWPwHt0wlpNV15vwmswBAUSII=
 github.com/blinklabs-io/adder v0.23.0 h1:hpz59zTCmMdLAGdLqCkU/anzEq+ziD83MKlgnDLqP7M=
 github.com/blinklabs-io/adder v0.23.0/go.mod h1:vaFg9u8DQll3FV2FEEIS8iiRNJLSCjMLpMlpu8QpPP4=
-github.com/blinklabs-io/bursa v0.8.0 h1:wWJOweXyZ+SlqSgWGStnYZdhf5IgoETsG+KK0UekTRo=
-github.com/blinklabs-io/bursa v0.8.0/go.mod h1:ED+24unjrouN2wbr3cvAi01pOiZSVh7Bx3JXJl4Lkbc=
+github.com/blinklabs-io/bursa v0.8.1 h1:HDWHx6wxhGoJp4iiPT3eJm1W1g0jEgVF6oHDAAZJmsk=
+github.com/blinklabs-io/bursa v0.8.1/go.mod h1:WxKqqttioZmeup79Pcy0yz+BIFPOPn06FdzY22Lvmks=
 github.com/blinklabs-io/gouroboros v0.91.1 h1:LUfBRMr7Zq8t4She6mQkpEngX1VCOvN6EsxuvW5hKAk=
 github.com/blinklabs-io/gouroboros v0.91.1/go.mod h1:HM4aERbLAF2ACev2ZoY17eVeL+nWXb7urqFlkvQ3uyk=
 github.com/blinklabs-io/ouroboros-mock v0.3.2 h1:tsym/TxeZB1N7GaxAvLU7hrMicszBR98vbj3XuRgD6U=
