@@ -20,17 +20,17 @@ all: format build
 # Alias for building program binary
 build: $(BINARIES)
 
-tidy:
+mod-tidy:
 	# Needed to fetch new dependencies and add them to go.mod
 	go mod tidy
 
 clean:
 	rm -f $(BINARIES)
 
-format: tidy
+format: mod-tidy
 	go fmt ./...
 
-test: tidy
+test: mod-tidy
 	go test -v ./...
 
 # Build our program binaries
