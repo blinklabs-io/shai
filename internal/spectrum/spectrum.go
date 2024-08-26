@@ -7,6 +7,7 @@ import (
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
@@ -272,8 +273,8 @@ func scriptAddressFromHash(scriptHashHex string) string {
 	if err != nil {
 		return ""
 	}
-	addr, err := ledger.NewAddressFromParts(
-		ledger.AddressTypeScriptNone,
+	addr, err := lcommon.NewAddressFromParts(
+		lcommon.AddressTypeScriptNone,
 		network.Id,
 		scriptHash,
 		nil,
@@ -290,11 +291,11 @@ func addressFromKeys(paymentKey []byte, stakeKey []byte) string {
 	if network == ouroboros.NetworkInvalid {
 		return ""
 	}
-	addrType := ledger.AddressTypeKeyNone
+	addrType := lcommon.AddressTypeKeyNone
 	if len(stakeKey) > 0 {
-		addrType = ledger.AddressTypeKeyKey
+		addrType = lcommon.AddressTypeKeyKey
 	}
-	addr, err := ledger.NewAddressFromParts(
+	addr, err := lcommon.NewAddressFromParts(
 		uint8(addrType),
 		network.Id,
 		paymentKey,

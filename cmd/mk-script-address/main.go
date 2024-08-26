@@ -7,7 +7,7 @@ import (
 	"os"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
-	"github.com/blinklabs-io/gouroboros/ledger"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"golang.org/x/crypto/blake2b"
 )
 
@@ -72,8 +72,8 @@ func main() {
 	scriptHash := hash.Sum(nil)
 	//fmt.Printf("scriptHash(%d) = %x\n", len(scriptHash), scriptHash)
 
-	address, _ := ledger.NewAddressFromParts(
-		ledger.AddressTypeScriptNone,
+	address, _ := lcommon.NewAddressFromParts(
+		lcommon.AddressTypeScriptNone,
 		network.Id,
 		scriptHash,
 		nil,
