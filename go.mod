@@ -4,9 +4,9 @@ go 1.21
 
 require (
 	github.com/Salvionied/apollo v1.0.12
-	github.com/blinklabs-io/adder v0.23.1
+	github.com/blinklabs-io/adder v0.23.2
 	github.com/blinklabs-io/bursa v0.8.2
-	github.com/blinklabs-io/gouroboros v0.93.1
+	github.com/blinklabs-io/gouroboros v0.93.2
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.5.3
