@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
+	"github.com/blinklabs-io/node"
 	"github.com/kelseyhightower/envconfig"
 	"gopkg.in/yaml.v2"
 )
@@ -133,7 +134,7 @@ func Load(configFile string) (*Config, error) {
 }
 
 func (cfg *Config) loadTopologyConfig() error {
-	topology, err := ouroboros.NewTopologyConfigFromFile(cfg.Topology.ConfigFile)
+	topology, err := node.NewTopologyConfigFromFile(cfg.Topology.ConfigFile)
 	if err != nil {
 		return err
 	}

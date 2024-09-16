@@ -20,6 +20,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
+	"github.com/blinklabs-io/node"
 )
 
 const (
@@ -31,7 +32,7 @@ const (
 type Node struct {
 	listener                  net.Listener
 	listenerNtc               net.Listener
-	connManager               *ouroboros.ConnectionManager
+	connManager               *node.ConnectionManager
 	chainsyncClientState      *chainsyncClientState
 	chainsyncServerState      map[ouroboros.ConnectionId]*chainsyncServerState
 	txsubmissionMempool       *txsubmissionMempool
@@ -68,8 +69,8 @@ func New(idx *indexer.Indexer) *Node {
 func (n *Node) Start() error {
 	cfg := config.GetConfig()
 	logger := logging.GetLogger()
-	n.connManager = ouroboros.NewConnectionManager(
-		ouroboros.ConnectionManagerConfig{
+	n.connManager = node.NewConnectionManager(
+		node.ConnectionManagerConfig{
 			ConnClosedFunc: n.connectionManagerConnClosed,
 		},
 	)
