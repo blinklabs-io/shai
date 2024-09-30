@@ -12,7 +12,7 @@ require (
 	github.com/blinklabs-io/node v0.0.0-20240923205156-68dd205f6bbc
 	github.com/dgraph-io/badger/v4 v4.3.0
 	github.com/kelseyhightower/envconfig v1.4.0
-	go.uber.org/automaxprocs v1.5.3
+	go.uber.org/automaxprocs v1.6.0
 	go.uber.org/zap v1.27.0
 	golang.org/x/crypto v0.27.0
 	golang.org/x/sys v0.25.0
