@@ -8,7 +8,7 @@ require (
 	github.com/Salvionied/apollo v1.0.12
 	github.com/blinklabs-io/adder v0.23.4
 	github.com/blinklabs-io/bursa v0.8.2
-	github.com/blinklabs-io/gouroboros v0.98.0
+	github.com/blinklabs-io/gouroboros v0.99.0
 	github.com/blinklabs-io/node v0.0.0-20240923205156-68dd205f6bbc
 	github.com/dgraph-io/badger/v4 v4.3.1
 	github.com/kelseyhightower/envconfig v1.4.0
