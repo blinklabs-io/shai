@@ -11,8 +11,8 @@ github.com/blinklabs-io/adder v0.23.4 h1:kBEacpX+SqiMSIItJf5BHg987phwqs9UtmePEq8
 github.com/blinklabs-io/adder v0.23.4/go.mod h1:LfLui6ULQyv7pTloIq8bZl2577Lhd6XxDxRiUQSxRmU=
 github.com/blinklabs-io/bursa v0.8.3 h1:nx6+0dU9oaZDU7xejmya9YXd0GeIbsXYsB7puD/2NHM=
 github.com/blinklabs-io/bursa v0.8.3/go.mod h1:+KofXjwZXb6fHuBw60Fm/r/Gxx7Tw779j3DX0d5iF6w=
-github.com/blinklabs-io/gouroboros v0.100.0 h1:f1M0AA+Zi4YC4sbR0gJBOaMyKTClRTNY894r4Lm7TDk=
-github.com/blinklabs-io/gouroboros v0.100.0/go.mod h1:otpDPTJTU/EVt3J4axaJAA1gF/0UtalSdVxVqXK8Zuk=
+github.com/blinklabs-io/gouroboros v0.102.0 h1:SSw1SW5a/eunPJdwJHARur/dlGdTrLEq5ScRFZjhen0=
+github.com/blinklabs-io/gouroboros v0.102.0/go.mod h1:okgJskD4KXG5itGM95gUl6J+rKbURzaP++HTeCokgkM=
 github.com/blinklabs-io/node v0.0.0-20240923205156-68dd205f6bbc h1:9pT7RLjx31T2+th5X9/U4ONzL99g3zzHXeoUB2/OC5E=
 github.com/blinklabs-io/node v0.0.0-20240923205156-68dd205f6bbc/go.mod h1:9bd9CvTPV+q7+LDSzGGLiAm0q/IewcfzWDYmLY9KHso=
 github.com/blinklabs-io/ouroboros-mock v0.3.4 h1:codPfiI5vLeD6YdhKL5VwYSzy2N3Dsgx6xjcLsqFaJQ=
