@@ -55,6 +55,9 @@ func submitTxApi(txRawBytes []byte, url string) error {
 			err,
 		)
 	}
+	if resp == nil {
+		return fmt.Errorf("failed with nil response")
+	}
 	// We have to read the entire response body and close it to prevent a memory leak
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
