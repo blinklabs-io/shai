@@ -12,7 +12,7 @@ type Utxo struct {
 }
 
 func (u *Utxo) UnmarshalCBOR(data []byte) error {
-	var tmpUnwrap []cbor.RawMessage
+	tmpUnwrap := []cbor.RawMessage{}
 	if _, err := cbor.Decode(data, &tmpUnwrap); err != nil {
 		return err
 	}
