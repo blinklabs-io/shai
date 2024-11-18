@@ -8,8 +8,8 @@ require (
 	github.com/Salvionied/apollo v1.0.12
 	github.com/blinklabs-io/adder v0.23.4
 	github.com/blinklabs-io/bursa v0.8.3
-	github.com/blinklabs-io/gouroboros v0.100.0
-	github.com/blinklabs-io/node v0.0.0-20240923205156-68dd205f6bbc
+	github.com/blinklabs-io/gouroboros v0.103.5
+	github.com/blinklabs-io/node v0.1.2
 	github.com/dgraph-io/badger/v4 v4.4.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.6.0
@@ -41,6 +41,7 @@ require (
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/maestro-org/go-sdk v1.1.3 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
+	github.com/rogpeppe/go-internal v1.13.1 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/utxorpc/go-codegen v0.11.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
