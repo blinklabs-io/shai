@@ -21,19 +21,19 @@ func (t *TxSubmit) startApi(url string) error {
 			// Determine transaction type (era)
 			txType, err := ledger.DetermineTransactionType(txBytes)
 			if err != nil {
-				logger.Errorf("could not parse transaction to determine type: %s", err)
+				logger.Error("could not parse transaction to determine type:", "error:", err)
 				return
 			}
 			tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
 			if err != nil {
-				logger.Errorf("failed to parse transaction CBOR: %s", err)
+				logger.Error("failed to parse transaction CBOR:", "error:", err)
 				return
 			}
 			// Submit transaction
 			if err := submitTxApi(txBytes, url); err != nil {
-				logger.Errorf("failed to submit transaction %s via API: %s", tx.Hash(), err)
+				logger.Error("failed to submit transaction via API:", "txHash", tx.Hash(), "error:", err)
 			} else {
-				logger.Infof("successfully submitted transaction %s via API", tx.Hash())
+				logger.Info("successfully submitted transaction via API", "txHash", tx.Hash())
 			}
 		}
 	}()
@@ -49,11 +49,7 @@ func submitTxApi(txRawBytes []byte, url string) error {
 	req.Header.Add("Content-Type", "application/cbor")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf(
-			"failed to send request: %s: %s",
-			url,
-			err,
-		)
+		return fmt.Errorf("failed to send request: %s: %s", url, err)
 	}
 	if resp == nil {
 		return fmt.Errorf("failed with nil response")

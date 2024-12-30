@@ -35,7 +35,7 @@ func Setup() {
 	if mnemonic == "" {
 		// Read seed.txt if it exists
 		if data, err := os.ReadFile("seed.txt"); err == nil {
-			logger.Infof("read mnemonic from seed.txt")
+			logger.Info("read mnemonic from seed.txt")
 			mnemonic = string(data)
 		} else if errors.Is(err, os.ErrNotExist) {
 			mnemonic, err = bursa.NewMnemonic()
@@ -49,7 +49,7 @@ func Setup() {
 				panic(err)
 			}
 			l, err := f.WriteString(mnemonic)
-			logger.Debugf("wrote %d bytes to seed.txt", l)
+			logger.Debug("wrote bytes to seed.txt", "bytes", l)
 			if err != nil {
 				f.Close()
 				panic(err)
@@ -58,7 +58,7 @@ func Setup() {
 			if err != nil {
 				panic(err)
 			}
-			logger.Infof("wrote generated mnemonic to seed.txt")
+			logger.Info("wrote generated mnemonic to seed.txt")
 			// TODO: write mnemonic to storage
 		} else {
 			panic(err)

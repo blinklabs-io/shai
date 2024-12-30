@@ -17,6 +17,7 @@ package storage
 import (
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -141,7 +142,7 @@ func (s *Storage) AddUtxo(
 ) error {
 	logger := logging.GetLogger()
 	utxoId := fmt.Sprintf("%s.%d", txId, txOutIdx)
-	logger.Debugf("adding UTxO %s to storage", utxoId)
+	logger.Debug("adding UTxO to storage", "utxoId", utxoId)
 	utxoKey := fmt.Sprintf("utxo_%s", utxoId)
 	utxoAddressKey := fmt.Sprintf("%s_address", utxoKey)
 	addressKey := fmt.Sprintf("address_%s", address)
@@ -221,7 +222,7 @@ func (s *Storage) RemoveUtxo(
 			}
 			return err
 		}
-		logger.Debugf("removing UTxO %s from storage", utxoId)
+		logger.Debug("removing UTxO from storage", "utxoId", utxoId)
 		err = utxoAddressItem.Value(func(addressVal []byte) error {
 			// Delete UTxO key
 			if err := txn.Delete([]byte(utxoKey)); err != nil {
@@ -399,15 +400,27 @@ func GetStorage() *Storage {
 
 // BadgerLogger is a wrapper type to give our logger the expected interface
 type BadgerLogger struct {
-	*logging.Logger
+	logger *slog.Logger
 }
 
 func NewBadgerLogger() *BadgerLogger {
 	return &BadgerLogger{
-		Logger: logging.GetLogger(),
+		logger: logging.GetLogger(),
 	}
 }
 
+func (b *BadgerLogger) Infof(msg string, args ...any) {
+	b.logger.Error(msg, args...)
+}
+
 func (b *BadgerLogger) Warningf(msg string, args ...any) {
-	b.Logger.Warnf(msg, args...)
+	b.logger.Warn(msg, args...)
+}
+
+func (b *BadgerLogger) Debugf(msg string, args ...any) {
+	b.logger.Debug(msg, args...)
+}
+
+func (b *BadgerLogger) Errorf(msg string, args ...any) {
+	b.logger.Error(msg, args...)
 }

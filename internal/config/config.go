@@ -5,8 +5,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/blinklabs-io/dingo/topology"
 	ouroboros "github.com/blinklabs-io/gouroboros"
-	"github.com/blinklabs-io/node/topology"
 	"github.com/kelseyhightower/envconfig"
 	"gopkg.in/yaml.v2"
 )
@@ -111,8 +111,8 @@ func Load(configFile string) (*Config, error) {
 		}
 	}
 	// Populate network magic from network name
-	network := ouroboros.NetworkByName(globalConfig.Network)
-	if network == ouroboros.NetworkInvalid {
+	network, valid := ouroboros.NetworkByName(globalConfig.Network)
+	if !valid {
 		return nil, fmt.Errorf("unknown network name: %s", globalConfig.Network)
 	}
 	globalConfig.NetworkMagic = network.NetworkMagic
@@ -137,16 +137,6 @@ func (cfg *Config) loadTopologyConfig() error {
 	topology, err := topology.NewTopologyConfigFromFile(cfg.Topology.ConfigFile)
 	if err != nil {
 		return err
-	}
-	// Legacy topology config
-	for _, host := range topology.Producers {
-		cfg.Topology.Hosts = append(
-			cfg.Topology.Hosts,
-			TopologyConfigHost{
-				Address: host.Address,
-				Port:    uint(host.Port),
-			},
-		)
 	}
 	// P2P local roots
 	for _, localRoot := range topology.LocalRoots {

@@ -8,13 +8,13 @@ import (
 	"github.com/blinklabs-io/shai/internal/logging"
 )
 
-func (n *Node) localTxsubmissionServerSubmitTx(ctx localtxsubmission.CallbackContext, msgSubmitTxTransaction localtxsubmission.MsgSubmitTxTransaction) error {
+func (n *Node) localTxsubmissionServerSubmitTx(_ localtxsubmission.CallbackContext, msgSubmitTxTransaction localtxsubmission.MsgSubmitTxTransaction) error {
 	logger := logging.GetLogger()
 	txEraId := uint(msgSubmitTxTransaction.EraId)
 	txBytes := msgSubmitTxTransaction.Raw.Content.([]byte)
 	tx, err := ledger.NewTransactionFromCbor(txEraId, txBytes)
 	if err != nil {
-		logger.Errorf("failed to parse transaction CBOR: %s", err)
+		logger.Error("failed to add TX to mempool:", "txHash", tx.Hash(), "error:", err)
 		// XXX: do we want to return the error to the submitter?
 		return nil
 	}
@@ -28,7 +28,7 @@ func (n *Node) localTxsubmissionServerSubmitTx(ctx localtxsubmission.CallbackCon
 		},
 	)
 	if err != nil {
-		logger.Errorf("failed to add TX %s to mempool: %s", tx.Hash(), err)
+		logger.Error("failed to add TX to mempool:", "txHash", tx.Hash(), "error:", err)
 		// XXX: do we want to return the error to the submitter?
 		return nil
 	}

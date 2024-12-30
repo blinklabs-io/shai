@@ -17,6 +17,7 @@ package indexer
 import (
 	"encoding/hex"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/blinklabs-io/shai/internal/config"
@@ -62,7 +63,7 @@ func (i *Indexer) Start() error {
 	inputOpts := []input_chainsync.ChainSyncOptionFunc{
 		input_chainsync.WithBulkMode(true),
 		input_chainsync.WithAutoReconnect(true),
-		input_chainsync.WithLogger(logger),
+		input_chainsync.WithLogger(logging.GetLogger()),
 		input_chainsync.WithStatusUpdateFunc(i.updateStatus),
 		input_chainsync.WithNetwork(cfg.Network),
 		input_chainsync.WithIncludeCbor(true),
@@ -78,10 +79,10 @@ func (i *Indexer) Start() error {
 		return err
 	}
 	if cursorSlotNumber > 0 {
-		logger.Infof(
-			"found previous chainsync cursor: %d, %s",
-			cursorSlotNumber,
-			cursorBlockHash,
+		logger.Info(
+			"found previous chainsync cursor",
+			"slotNumber", cursorSlotNumber,
+			"blockHash", cursorBlockHash,
 		)
 		hashBytes, err := hex.DecodeString(cursorBlockHash)
 		if err != nil {
@@ -152,13 +153,15 @@ func (i *Indexer) Start() error {
 	i.AddEventFunc(i.handleEvent)
 	// Start pipeline
 	if err := i.pipeline.Start(); err != nil {
-		logger.Fatalf("failed to start pipeline: %s\n", err)
+		logger.Error("failed to start pipeline:", "error", err)
+		os.Exit(1)
 	}
 	// Start error handler
 	go func() {
 		err, ok := <-i.pipeline.ErrorChan()
 		if ok {
-			logger.Fatalf("pipeline failed: %s\n", err)
+			logger.Error("pipeline failed:", "error", err)
+			os.Exit(1)
 		}
 	}()
 	// Schedule periodic catch-up sync log messages
@@ -209,11 +212,11 @@ func (i *Indexer) scheduleSyncStatusLog() {
 
 func (i *Indexer) syncStatusLog() {
 	logger := logging.GetLogger()
-	logger.Infof(
+	logger.Info(fmt.Sprintf(
 		"catch-up sync in progress: at %d.%s (current tip slot is %d)",
 		i.cursorSlot,
 		i.cursorHash,
-		i.tipSlot,
+		i.tipSlot),
 	)
 	i.scheduleSyncStatusLog()
 }
@@ -232,6 +235,6 @@ func (i *Indexer) updateStatus(status input_chainsync.ChainSyncStatus) {
 	i.tipSlot = status.TipSlotNumber
 	i.tipHash = status.TipBlockHash
 	if err := storage.GetStorage().UpdateCursor(status.SlotNumber, status.BlockHash); err != nil {
-		logger.Errorf("failed to update cursor: %s", err)
+		logger.Error("failed to update cursor:", "error", err)
 	}
 }
