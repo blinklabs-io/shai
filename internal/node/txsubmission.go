@@ -42,7 +42,7 @@ func (t *txsubmissionMempool) removeExpired() {
 	for txHash, tx := range t.Transactions {
 		if tx.LastSeen.Before(expiredBefore) {
 			delete(t.Transactions, txHash)
-			logger.Debugf("removed expired transaction %s from mempool", txHash)
+			logger.Debug("removed expired transaction:", "txHash", txHash)
 		}
 	}
 	t.scheduleRemoveExpired()
@@ -59,7 +59,7 @@ func (t *txsubmissionMempool) addTransaction(tx *TxsubmissionMempoolTransaction)
 	// Update last seen for existing TX
 	if mempoolTx, ok := t.Transactions[tx.Hash]; ok {
 		mempoolTx.LastSeen = time.Now()
-		logger.Debugf("updated last seen for transaction %s in mempool", tx.Hash)
+		logger.Debug("updated last seen for transaction:", "txHash", tx.Hash)
 		return nil
 	}
 	// Add transaction record
@@ -70,7 +70,7 @@ func (t *txsubmissionMempool) addTransaction(tx *TxsubmissionMempoolTransaction)
 			return err
 		}
 	}
-	logger.Debugf("added transaction %s to mempool", tx.Hash)
+	logger.Debug("added transaction to mempool:", "txHash", tx.Hash)
 	return nil
 }
 
@@ -80,7 +80,7 @@ func (t *txsubmissionMempool) removeTransaction(hash string) {
 	defer t.Unlock()
 	if _, ok := t.Transactions[hash]; ok {
 		delete(t.Transactions, hash)
-		logger.Debugf("removed transaction %s from mempool", hash)
+		logger.Debug("removed transaction from mempool:", "txHash", hash)
 	}
 }
 
@@ -122,7 +122,7 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 			// Request available TX IDs (era and TX hash) and sizes
 			txIds, err := ctx.Server.RequestTxIds(true, 10)
 			if err != nil {
-				logger.Errorf("failed to request TxIds: %s", err)
+				logger.Error("failed to request TxIds:", "error:", err)
 				return
 			}
 			if len(txIds) > 0 {
@@ -134,13 +134,13 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 				// Request TX content for TxIds from above
 				txs, err := ctx.Server.RequestTxs(requestTxIds)
 				if err != nil {
-					logger.Errorf("failed to request Txs: %s", err)
+					logger.Error("failed to request Txs:", "error:", err)
 					return
 				}
 				for _, txBody := range txs {
 					tx, err := ledger.NewTransactionFromCbor(uint(txBody.EraId), txBody.TxBody)
 					if err != nil {
-						logger.Errorf("failed to parse transaction CBOR: %s", err)
+						logger.Error("failed to parse transaction CBOR:", "error:", err)
 						return
 					}
 					// Add transaction to mempool
@@ -153,7 +153,7 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 						},
 					)
 					if err != nil {
-						logger.Errorf("failed to add TX %s to mempool: %s", tx.Hash(), err)
+						logger.Error("failed to add TX to mempool:", "txHash", tx.Hash(), "error:", err)
 						return
 					}
 				}

@@ -55,7 +55,7 @@ func (s *Spectrum) handleChainsyncEvent(evt event.Event) error {
 		eventCtx := evt.Context.(input_chainsync.TransactionContext)
 		for idx, txOutput := range eventTx.Outputs {
 			if err := s.handleTransactionOutput(eventCtx.TransactionHash, idx, txOutput, false); err != nil {
-				logger.Errorf("failure handling on-chain transaction output %s.%d: %s", eventCtx.TransactionHash, idx, err)
+				logger.Error("failure handling on-chain transaction output:", "txId", eventCtx.TransactionHash, "index", idx, "error:", err)
 			}
 		}
 	}
@@ -70,7 +70,7 @@ func (s *Spectrum) handleMempoolNewTransaction(mempoolTx node.TxsubmissionMempoo
 	}
 	for idx, txOutput := range tx.Outputs() {
 		if err := s.handleTransactionOutput(tx.Hash(), idx, txOutput, true); err != nil {
-			logger.Errorf("failure handling mempool transaction output %s.%d: %s", tx.Hash(), idx, err)
+			logger.Error("failure handling mempool transaction output:", "txId", tx.Hash(), "index", idx, "error:", err)
 		}
 	}
 	return nil
@@ -163,7 +163,7 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 			}
 			txBytes, err := s.createSwapTx(swapTxOpts)
 			if err != nil {
-				logger.Errorf("failed to build transaction: %s", err)
+				logger.Error("failed to build transaction:", "error:", err)
 			} else {
 				//fmt.Printf("txBytes(%d) = %x\n", len(txBytes), txBytes)
 				// Submit the TX
@@ -209,12 +209,12 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 			); err != nil {
 				return err
 			}
-			logger.Debugf(
-				"updated '%s' pool UTxO for asset with policy ID %x and name '%s' (%x)",
-				s.name,
-				poolConfig.Nft.PolicyId,
-				poolConfig.Nft.Name,
-				poolConfig.Nft.Name,
+			logger.Debug(
+				"updated pool UTxO for asset",
+				"name", s.name,
+				"policyID", poolConfig.Nft.PolicyId,
+				"assetName", poolConfig.Nft.Name,
+				"assetNameHex", poolConfig.Nft.Name,
 			)
 			/*
 				pool, err := NewPoolFromTransactionOutput(txOutput)
@@ -264,8 +264,8 @@ func wrapTxOutput(txId string, txOutputIdx int, txOutBytes []byte) ([]byte, erro
 
 func scriptAddressFromHash(scriptHashHex string) string {
 	cfg := config.GetConfig()
-	network := ouroboros.NetworkByName(cfg.Network)
-	if network == ouroboros.NetworkInvalid {
+	network, valid := ouroboros.NetworkByName(cfg.Network)
+	if !valid {
 		return ""
 	}
 	scriptHash, err := hex.DecodeString(scriptHashHex)
@@ -286,8 +286,8 @@ func scriptAddressFromHash(scriptHashHex string) string {
 
 func addressFromKeys(paymentKey []byte, stakeKey []byte) string {
 	cfg := config.GetConfig()
-	network := ouroboros.NetworkByName(cfg.Network)
-	if network == ouroboros.NetworkInvalid {
+	network, valid := ouroboros.NetworkByName(cfg.Network)
+	if !valid {
 		return ""
 	}
 	addrType := ledger.AddressTypeKeyNone

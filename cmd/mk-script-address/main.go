@@ -30,8 +30,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	network := ouroboros.NetworkByName(cmdlineFlags.network)
-	if network == ouroboros.NetworkInvalid {
+	network, valid := ouroboros.NetworkByName(cmdlineFlags.network)
+	if !valid {
 		fmt.Printf("ERROR: unknown named network: %s\n", network)
 		os.Exit(1)
 	}

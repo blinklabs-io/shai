@@ -49,35 +49,29 @@ func main() {
 	// Configure logging
 	logging.Configure()
 	logger := logging.GetLogger()
-	// Sync logger on exit
-	defer func() {
-		if err := logger.Sync(); err != nil {
-			// We don't actually care about the error here, but we have to do something
-			// to appease the linter
-			return
-		}
-	}()
 
 	// Start debug listener
 	if cfg.Debug.ListenPort > 0 {
-		logger.Infof("starting debug listener on %s:%d", cfg.Debug.ListenAddress, cfg.Debug.ListenPort)
+		logger.Info("starting debug listener", "address", cfg.Debug.ListenAddress, "port", cfg.Debug.ListenPort)
 		go func() {
 			err := http.ListenAndServe(fmt.Sprintf("%s:%d", cfg.Debug.ListenAddress, cfg.Debug.ListenPort), nil)
 			if err != nil {
-				logger.Fatalf("failed to start debug listener: %s", err)
+				logger.Error("failed to start debug listener", "error", err)
+				os.Exit(1)
 			}
 		}()
 	}
 
 	// Load storage
 	if err := storage.GetStorage().Load(); err != nil {
-		logger.Fatalf("failed to load storage: %s", err)
+		logger.Error("failed to load storage", "error", err)
+		os.Exit(1)
 	}
 
 	// Setup wallet
 	wallet.Setup()
 	bursa := wallet.GetWallet()
-	logger.Infof("loaded mnemonic for address: %s", bursa.PaymentAddress)
+	logger.Info("loaded mnemonic for address", "address", bursa.PaymentAddress)
 
 	// Initialize indexer and node
 	idx := indexer.New()
@@ -87,26 +81,30 @@ func main() {
 	for _, profile := range config.GetProfiles() {
 		switch profile.Type {
 		case config.ProfileTypeSpectrum:
-			logger.Infof("initializing profile '%s' of type Spectrum", profile.Name)
+			logger.Info("initializing profile", "name", profile.Name, "type", "Spectrum")
 			_ = spectrum.New(idx, n, profile.Name, profile.Config.(config.SpectrumProfileConfig))
 		default:
-			logger.Fatalf("unknown profile type for '%s'", profile.Name)
+			logger.Error("unknown profile type", "name", profile.Name)
+			os.Exit(1)
 		}
 	}
 
 	// Start node
 	if err := n.Start(); err != nil {
-		logger.Fatalf("failed to start node: %s", err)
+		logger.Error("failed to start node", "error", err)
+		os.Exit(1)
 	}
 
 	// Start TxSubmit
 	if err := txsubmit.Start(n); err != nil {
-		logger.Fatalf("failed to start TxSubmit: %s", err)
+		logger.Error("failed to start TxSubmit", "error", err)
+		os.Exit(1)
 	}
 
 	// Start indexer
 	if err := idx.Start(); err != nil {
-		logger.Fatalf("failed to start indexer: %s", err)
+		logger.Error("failed to start indexer", "error", err)
+		os.Exit(1)
 	}
 
 	// Wait forever

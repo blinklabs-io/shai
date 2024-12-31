@@ -14,13 +14,13 @@ import (
 	"github.com/blinklabs-io/shai/internal/logging"
 	"golang.org/x/sys/unix"
 
+	"github.com/blinklabs-io/dingo/connmanager"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
-	"github.com/blinklabs-io/node/connmanager"
 )
 
 const (
@@ -85,7 +85,7 @@ func (n *Node) Start() error {
 	}
 	n.listener = listener
 	go n.acceptConnections()
-	logger.Infof("listening on %s (NtN)", listenAddress)
+	logger.Info("listening on", "address", listenAddress, "type", "NtN")
 	// NtC listener
 	listenAddressNtc := fmt.Sprintf("%s:%d", cfg.ListenAddressNtc, cfg.ListenPortNtc)
 	listenConfigNtc := net.ListenConfig{
@@ -97,14 +97,14 @@ func (n *Node) Start() error {
 	}
 	n.listenerNtc = listenerNtc
 	go n.acceptConnectionsNtc()
-	logger.Infof("listening on %s (NtC)", listenAddressNtc)
+	logger.Info("listening on", "address", listenAddressNtc, "type", "NtC")
 	// Start outbound connections
 	for _, host := range cfg.Topology.Hosts {
 		peerAddress := net.JoinHostPort(host.Address, strconv.Itoa(int(host.Port)))
 		tmpPeer := outboundPeer{Address: peerAddress}
 		go func(peer outboundPeer) {
 			if err := n.createOutboundConnection(peer); err != nil {
-				logger.Errorf("failed to establish connection to %s: %s", peer.Address, err)
+				logger.Error("failed to establish connection", "address", peer.Address, "error", err)
 				go n.reconnectOutboundConnection(peer)
 			}
 		}(tmpPeer)
@@ -125,10 +125,10 @@ func (n *Node) acceptConnections() {
 		// Accept connection
 		conn, err := n.listener.Accept()
 		if err != nil {
-			logger.Errorf("accept failed: %s", err)
+			logger.Error("accept failed", "error", err)
 			continue
 		}
-		logger.Infof("accepted connection from %s", conn.RemoteAddr())
+		logger.Info("accepted connection", "remoteAddr", conn.RemoteAddr())
 		// Setup Ouroboros connection
 		oConn, err := ouroboros.NewConnection(
 			ouroboros.WithNetworkMagic(cfg.NetworkMagic),
@@ -170,7 +170,7 @@ func (n *Node) acceptConnections() {
 			),
 		)
 		if err != nil {
-			logger.Errorf("failed to setup connection: %s", err)
+			logger.Error("failed to setup connection", "error", err)
 			continue
 		}
 		// Add to connection manager
@@ -185,10 +185,10 @@ func (n *Node) acceptConnectionsNtc() {
 		// Accept connection
 		conn, err := n.listenerNtc.Accept()
 		if err != nil {
-			logger.Errorf("accept failed: %s", err)
+			logger.Error("accept failed", "error", err)
 			continue
 		}
-		logger.Infof("accepted connection from %s", conn.RemoteAddr())
+		logger.Info("accepted connection", "remoteAddr", conn.RemoteAddr())
 		// Setup Ouroboros connection
 		oConn, err := ouroboros.NewConnection(
 			ouroboros.WithNetworkMagic(cfg.NetworkMagic),
@@ -198,11 +198,10 @@ func (n *Node) acceptConnectionsNtc() {
 			ouroboros.WithLocalTxSubmissionConfig(
 				localtxsubmission.NewConfig(
 					localtxsubmission.WithSubmitTxFunc(
-						func(ctx localtxsubmission.CallbackContext, tx any) error {
+						func(ctx localtxsubmission.CallbackContext, tx localtxsubmission.MsgSubmitTxTransaction) error {
 							return n.localTxsubmissionServerSubmitTx(
 								ctx,
-								// TODO: change this in the gouroboros interface
-								tx.(localtxsubmission.MsgSubmitTxTransaction),
+								tx,
 							)
 						},
 					),
@@ -210,7 +209,7 @@ func (n *Node) acceptConnectionsNtc() {
 			),
 		)
 		if err != nil {
-			logger.Errorf("failed to setup connection: %s", err)
+			logger.Error("failed to setup connection", "error", err)
 			continue
 		}
 		// Add to connection manager
@@ -283,7 +282,7 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 	if err != nil {
 		return err
 	}
-	logger.Infof("connected to node at %s", peer.Address)
+	logger.Info("connected to node", "address", peer.Address)
 	// Add to connection manager
 	n.connManager.AddConnection(oConn)
 	// Add to outbound connection tracking
@@ -311,10 +310,10 @@ func (n *Node) reconnectOutboundConnection(peer outboundPeer) {
 		} else if peer.ReconnectDelay < maxReconnectDelay {
 			peer.ReconnectDelay = peer.ReconnectDelay * 2
 		}
-		logger.Infof("delaying %s before reconnecting to %s", peer.ReconnectDelay, peer.Address)
+		logger.Info("delaying before reconnecting", "delay", peer.ReconnectDelay, "address", peer.Address)
 		time.Sleep(peer.ReconnectDelay)
 		if err := n.createOutboundConnection(peer); err != nil {
-			logger.Errorf("failed to establish connection to %s: %s", peer.Address, err)
+			logger.Error("failed to establish connection", "address", peer.Address, "error", err)
 			continue
 		}
 		return
@@ -324,9 +323,9 @@ func (n *Node) reconnectOutboundConnection(peer outboundPeer) {
 func (n *Node) connectionManagerConnClosed(connId ouroboros.ConnectionId, err error) {
 	logger := logging.GetLogger()
 	if err != nil {
-		logger.Errorf("connection %s failed: %s", connId.String(), err)
+		logger.Error("connection failed", "connId", connId.String(), "error", err)
 	} else {
-		logger.Infof("connection %s closed", connId.String())
+		logger.Info("connection closed", "connId", connId.String())
 	}
 	conn := n.connManager.GetConnectionById(connId)
 	if conn == nil {

@@ -36,14 +36,15 @@ func Start(n *node.Node) error {
 		*/
 	} else {
 		// Populate address info from indexer network
-		network := ouroboros.NetworkByName(cfg.Network)
-		if network == ouroboros.NetworkInvalid {
+		network, valid := ouroboros.NetworkByName(cfg.Network)
+		if !valid {
 			return fmt.Errorf("unknown network: %s", cfg.Network)
 		}
 		cfg.Topology.Hosts = []config.TopologyConfigHost{
 			{
-				Address: network.PublicRootAddress,
-				Port:    network.PublicRootPort,
+				// TODO - how many bootstrap peers are there?
+				Address: network.BootstrapPeers[0].Address,
+				Port:    network.BootstrapPeers[0].Port,
 			},
 		}
 		return globalTxSubmit.startNtn()
