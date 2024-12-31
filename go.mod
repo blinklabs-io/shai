@@ -9,7 +9,7 @@ require (
 	github.com/blinklabs-io/adder v0.25.2
 	github.com/blinklabs-io/bursa v0.8.3
 	github.com/blinklabs-io/dingo v0.2.2
-	github.com/blinklabs-io/gouroboros v0.106.0
+	github.com/blinklabs-io/gouroboros v0.106.1
 	github.com/dgraph-io/badger/v4 v4.5.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.6.0
@@ -52,7 +52,7 @@ require (
 	github.com/prometheus/common v0.55.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
-	github.com/utxorpc/go-codegen v0.14.0 // indirect
+	github.com/utxorpc/go-codegen v0.15.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
@@ -63,5 +63,5 @@ require (
 	golang.org/x/net v0.32.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
-	google.golang.org/protobuf v1.35.2 // indirect
+	google.golang.org/protobuf v1.36.1 // indirect
 )
