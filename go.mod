@@ -8,8 +8,8 @@ require (
 	github.com/Salvionied/apollo v1.0.12
 	github.com/blinklabs-io/adder v0.25.2
 	github.com/blinklabs-io/bursa v0.8.3
-	github.com/blinklabs-io/dingo v0.2.2
-	github.com/blinklabs-io/gouroboros v0.106.1
+	github.com/blinklabs-io/dingo v0.3.0
+	github.com/blinklabs-io/gouroboros v0.106.2
 	github.com/dgraph-io/badger/v4 v4.5.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.6.0
@@ -60,7 +60,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.33.0 // indirect
 	go.opentelemetry.io/otel/trace v1.33.0 // indirect
 	golang.org/x/exp v0.0.0-20240404231335-c0f41cb1a7a0 // indirect
-	golang.org/x/net v0.32.0 // indirect
+	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sync v0.10.0 // indirect
 	golang.org/x/text v0.21.0 // indirect
 	google.golang.org/protobuf v1.36.1 // indirect
