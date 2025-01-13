@@ -13,7 +13,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.5.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/crypto v0.31.0
+	golang.org/x/crypto v0.32.0
 	golang.org/x/sys v0.29.0
 	gopkg.in/yaml.v2 v2.4.0
 )
