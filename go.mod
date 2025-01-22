@@ -7,7 +7,7 @@ require (
 	github.com/blinklabs-io/adder v0.25.4
 	github.com/blinklabs-io/bursa v0.8.3
 	github.com/blinklabs-io/dingo v0.3.2
-	github.com/blinklabs-io/gouroboros v0.107.1
+	github.com/blinklabs-io/gouroboros v0.108.0
 	github.com/dgraph-io/badger/v4 v4.5.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	go.uber.org/automaxprocs v1.6.0
