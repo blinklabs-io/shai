@@ -1,8 +1,6 @@
 module github.com/blinklabs-io/shai
 
-go 1.22.9
-
-toolchain go1.22.10
+go 1.22.11
 
 require (
 	github.com/Salvionied/apollo v1.0.12
