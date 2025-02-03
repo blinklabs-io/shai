@@ -3,7 +3,7 @@ module github.com/blinklabs-io/shai
 go 1.22.11
 
 require (
-	github.com/Salvionied/apollo v1.0.13-0.20250122194022-ee1da4b8d9a1
+	github.com/Salvionied/apollo v1.1.0
 	github.com/blinklabs-io/adder v0.25.4
 	github.com/blinklabs-io/bursa v0.8.3
 	github.com/blinklabs-io/dingo v0.3.3
@@ -23,8 +23,8 @@ require (
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Salvionied/cbor/v2 v2.6.0 // indirect
-	github.com/SundaeSwap-finance/kugo v1.0.6-0.20250116035512-6686234216f0 // indirect
-	github.com/SundaeSwap-finance/ogmigo v0.8.2-0.20250113211512-19cbb328b538 // indirect
+	github.com/SundaeSwap-finance/kugo v1.1.0 // indirect
+	github.com/SundaeSwap-finance/ogmigo v0.9.0 // indirect
 	github.com/aws/aws-sdk-go v1.55.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.3 // indirect
