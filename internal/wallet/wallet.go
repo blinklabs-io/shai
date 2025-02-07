@@ -67,7 +67,7 @@ func Setup() {
 	wallet, err := bursa.NewWallet(
 		mnemonic,
 		cfg.Network,
-		0, 0, 0, 0,
+		"", 0, 0, 0, 0,
 	)
 	if err != nil {
 		panic(err)
