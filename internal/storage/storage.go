@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package storage
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -68,7 +69,7 @@ func (s *Storage) compareFingerprint() error {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(fingerprintKey))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				if err := txn.Set([]byte(fingerprintKey), []byte(fingerprint)); err != nil {
 					return err
 				}
@@ -128,7 +129,7 @@ func (s *Storage) GetCursor() (uint64, string, error) {
 		}
 		return nil
 	})
-	if err == badger.ErrKeyNotFound {
+	if errors.Is(err, badger.ErrKeyNotFound) {
 		return 0, "", nil
 	}
 	return slotNumber, blockHash, err
@@ -178,7 +179,7 @@ func (s *Storage) AddUtxo(
 		var oldVal []byte
 		addressItem, err := txn.Get([]byte(addressKey))
 		if err != nil {
-			if err != badger.ErrKeyNotFound {
+			if !errors.Is(err, badger.ErrKeyNotFound) {
 				return err
 			}
 		} else {
@@ -217,7 +218,7 @@ func (s *Storage) RemoveUtxo(
 		// This also allows us to shortcut the rest if we don't have the UTxO in storage at all
 		utxoAddressItem, err := txn.Get([]byte(utxoAddressKey))
 		if err != nil {
-			if err == badger.ErrKeyNotFound {
+			if errors.Is(err, badger.ErrKeyNotFound) {
 				return nil
 			}
 			return err
@@ -232,7 +233,7 @@ func (s *Storage) RemoveUtxo(
 			addressKey := fmt.Sprintf("address_%s", addressVal)
 			addressItem, err := txn.Get([]byte(addressKey))
 			if err != nil {
-				if err == badger.ErrKeyNotFound {
+				if errors.Is(err, badger.ErrKeyNotFound) {
 					return nil
 				}
 				return fmt.Errorf("failed to lookup UTxO address: %w", err)
@@ -377,7 +378,7 @@ func (s *Storage) GetAssetUtxoId(keyPrefix string, policyId []byte, assetName []
 		return err
 	})
 	if err != nil {
-		if err == badger.ErrKeyNotFound {
+		if errors.Is(err, badger.ErrKeyNotFound) {
 			return "", fmt.Errorf("no UTxO found for asset with policy ID %x and name '%s' (%x)", policyId, assetName, assetName)
 		} else {
 			return "", err
