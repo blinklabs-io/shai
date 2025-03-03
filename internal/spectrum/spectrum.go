@@ -109,7 +109,7 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 			var swapConfig SwapConfig
 			if _, err := cbor.Decode(datum.Cbor(), &swapConfig); err != nil {
 				return fmt.Errorf(
-					"error decoding datum: %s: cbor hex: %x",
+					"error decoding datum: %w: cbor hex: %x",
 					err,
 					datum.Cbor(),
 				)
@@ -128,7 +128,7 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 				swapConfig.PoolId.Name,
 			)
 			if err != nil {
-				return fmt.Errorf("no matching pool UTxO for swap: %s", err)
+				return fmt.Errorf("no matching pool UTxO for swap: %w", err)
 			}
 			poolUtxo, err := storage.GetStorage().GetUtxoById(poolUtxoId)
 			if err != nil {
@@ -173,7 +173,7 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 			var depositConfig DepositConfig
 			if _, err := cbor.Decode(datum.Cbor(), &depositConfig); err != nil {
 				return fmt.Errorf(
-					"error decoding datum: %s: cbor hex: %x",
+					"error decoding datum: %w: cbor hex: %x",
 					err,
 					datum.Cbor(),
 				)
@@ -194,7 +194,7 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 			var poolConfig PoolConfig
 			if _, err := cbor.Decode(datum.Cbor(), &poolConfig); err != nil {
 				return fmt.Errorf(
-					"error decoding datum: %s: cbor hex: %x",
+					"error decoding datum: %w: cbor hex: %x",
 					err,
 					datum.Cbor(),
 				)

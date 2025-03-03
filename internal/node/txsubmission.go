@@ -95,11 +95,11 @@ func (n *Node) AddOutboundTransaction(txBytes []byte) error {
 	// Determine transaction type (era)
 	txType, err := ledger.DetermineTransactionType(txBytes)
 	if err != nil {
-		return fmt.Errorf("could not parse transaction to determine type: %s", err)
+		return fmt.Errorf("could not parse transaction to determine type: %w", err)
 	}
 	tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
 	if err != nil {
-		return fmt.Errorf("failed to parse transaction CBOR: %s", err)
+		return fmt.Errorf("failed to parse transaction CBOR: %w", err)
 	}
 	tmpTx := ntnTransaction{
 		Hash: tx.Hash(),
