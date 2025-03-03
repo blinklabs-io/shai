@@ -81,7 +81,7 @@ func (n *Node) Start() error {
 	}
 	listener, err := listenConfig.Listen(context.Background(), "tcp", listenAddress)
 	if err != nil {
-		return fmt.Errorf("failed to open listening socket: %s", err)
+		return fmt.Errorf("failed to open listening socket: %w", err)
 	}
 	n.listener = listener
 	go n.acceptConnections()
@@ -93,7 +93,7 @@ func (n *Node) Start() error {
 	}
 	listenerNtc, err := listenConfigNtc.Listen(context.Background(), "tcp", listenAddressNtc)
 	if err != nil {
-		return fmt.Errorf("failed to open listening socket: %s", err)
+		return fmt.Errorf("failed to open listening socket: %w", err)
 	}
 	n.listenerNtc = listenerNtc
 	go n.acceptConnectionsNtc()

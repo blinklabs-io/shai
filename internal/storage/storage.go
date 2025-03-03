@@ -226,7 +226,7 @@ func (s *Storage) RemoveUtxo(
 		err = utxoAddressItem.Value(func(addressVal []byte) error {
 			// Delete UTxO key
 			if err := txn.Delete([]byte(utxoKey)); err != nil {
-				return fmt.Errorf("failed to delete UTxO key: %s", err)
+				return fmt.Errorf("failed to delete UTxO key: %w", err)
 			}
 			// Get UTxO list for address
 			addressKey := fmt.Sprintf("address_%s", addressVal)
@@ -235,7 +235,7 @@ func (s *Storage) RemoveUtxo(
 				if err == badger.ErrKeyNotFound {
 					return nil
 				}
-				return fmt.Errorf("failed to lookup UTxO address: %s", err)
+				return fmt.Errorf("failed to lookup UTxO address: %w", err)
 			}
 			err = addressItem.Value(func(utxosVal []byte) error {
 				// Remove UTxO from list

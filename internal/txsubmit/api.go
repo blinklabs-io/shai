@@ -44,12 +44,12 @@ func submitTxApi(txRawBytes []byte, url string) error {
 	reqBody := bytes.NewBuffer(txRawBytes)
 	req, err := http.NewRequest(http.MethodPost, url, reqBody)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %s", err)
+		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Add("Content-Type", "application/cbor")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %s: %s", url, err)
+		return fmt.Errorf("failed to send request: %s: %w", url, err)
 	}
 	if resp == nil {
 		return fmt.Errorf("failed with nil response")
@@ -57,7 +57,7 @@ func submitTxApi(txRawBytes []byte, url string) error {
 	// We have to read the entire response body and close it to prevent a memory leak
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return fmt.Errorf("failed to read response body: %s", err)
+		return fmt.Errorf("failed to read response body: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == 202 {
