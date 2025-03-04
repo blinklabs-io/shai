@@ -1,4 +1,4 @@
-// Copyright 2023 Blink Labs Software
+// Copyright 2025 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package indexer
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -110,7 +111,7 @@ func (i *Indexer) Start() error {
 			}
 		}
 		if interceptSlot == 0 {
-			return fmt.Errorf("could not determine intercept point from profiles")
+			return errors.New("could not determine intercept point from profiles")
 		}
 		hashBytes, err := hex.DecodeString(interceptHash)
 		if err != nil {

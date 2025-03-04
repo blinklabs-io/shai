@@ -144,9 +144,9 @@ func (s *Storage) AddUtxo(
 	logger := logging.GetLogger()
 	utxoId := fmt.Sprintf("%s.%d", txId, txOutIdx)
 	logger.Debug("adding UTxO to storage", "utxoId", utxoId)
-	utxoKey := fmt.Sprintf("utxo_%s", utxoId)
-	utxoAddressKey := fmt.Sprintf("%s_address", utxoKey)
-	addressKey := fmt.Sprintf("address_%s", address)
+	utxoKey := "utxo_" + utxoId
+	utxoAddressKey := utxoKey + "_address"
+	addressKey := "address_" + address
 	err := s.db.Update(func(txn *badger.Txn) error {
 		// Wrap TX output in UTxO structure to make it easier to consume later
 		txIdBytes, err := hex.DecodeString(txId)
@@ -211,8 +211,8 @@ func (s *Storage) RemoveUtxo(
 ) error {
 	logger := logging.GetLogger()
 	utxoId := fmt.Sprintf("%s.%d", txId, utxoIdx)
-	utxoKey := fmt.Sprintf("utxo_%s", utxoId)
-	utxoAddressKey := fmt.Sprintf("%s_address", utxoKey)
+	utxoKey := "utxo_" + utxoId
+	utxoAddressKey := utxoKey + "_address"
 	err := s.db.Update(func(txn *badger.Txn) error {
 		// Lookup current address for UTxO
 		// This also allows us to shortcut the rest if we don't have the UTxO in storage at all
@@ -276,7 +276,7 @@ func (s *Storage) RemoveUtxo(
 func (s *Storage) GetUtxos(address string) ([][]byte, error) {
 	var ret [][]byte
 	// Get list of UTxO IDs for address
-	addressKey := fmt.Sprintf("address_%s", address)
+	addressKey := "address_" + address
 	var utxoIds []string
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(addressKey))
@@ -308,7 +308,7 @@ func (s *Storage) GetUtxos(address string) ([][]byte, error) {
 
 func (s *Storage) GetUtxoById(utxoId string) ([]byte, error) {
 	var ret []byte
-	key := fmt.Sprintf("utxo_%s", utxoId)
+	key := "utxo_" + utxoId
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(key))
 		if err != nil {
@@ -325,8 +325,8 @@ func (s *Storage) GetUtxoById(utxoId string) ([]byte, error) {
 
 func (s *Storage) GetUtxoAddress(utxoId string) (string, error) {
 	var ret []byte
-	utxoKey := fmt.Sprintf("utxo_%s", utxoId)
-	utxoAddressKey := fmt.Sprintf("%s_address", utxoKey)
+	utxoKey := "utxo_" + utxoId
+	utxoAddressKey := utxoKey + "_address"
 	err := s.db.View(func(txn *badger.Txn) error {
 		item, err := txn.Get([]byte(utxoAddressKey))
 		if err != nil {
