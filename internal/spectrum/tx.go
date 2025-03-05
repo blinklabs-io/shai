@@ -321,7 +321,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	var utxos []UTxO.UTxO
+	utxos := []UTxO.UTxO{}
 	for _, utxoBytes := range utxosBytes {
 		var utxo UTxO.UTxO
 		if _, err := cbor.Decode(utxoBytes, &utxo); err != nil {
@@ -358,7 +358,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		},
 		rewardAsset,
 	)
-	var poolReturnUnits []apollo.Unit
+	poolReturnUnits := []apollo.Unit{}
 	for _, asset := range poolReturnAssets {
 		poolReturnUnits = append(
 			poolReturnUnits,
