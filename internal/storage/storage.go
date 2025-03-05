@@ -274,7 +274,7 @@ func (s *Storage) RemoveUtxo(
 }
 
 func (s *Storage) GetUtxos(address string) ([][]byte, error) {
-	var ret [][]byte
+	ret := [][]byte{}
 	// Get list of UTxO IDs for address
 	addressKey := "address_" + address
 	var utxoIds []string
