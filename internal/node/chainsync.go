@@ -27,7 +27,9 @@ type chainsyncClientState struct {
 	subs         map[ouroboros.ConnectionId]chan chainsyncBlock
 }
 
-func (c *chainsyncClientState) Sub(key ouroboros.ConnectionId) chan chainsyncBlock {
+func (c *chainsyncClientState) Sub(
+	key ouroboros.ConnectionId,
+) chan chainsyncBlock {
 	c.Lock()
 	defer c.Unlock()
 	tmpChan := make(chan chainsyncBlock, clientBlockBufferSize)
@@ -169,7 +171,10 @@ type chainsyncServerState struct {
 	needsInitialRollback bool
 }
 
-func (n *Node) chainsyncServerFindIntersect(ctx chainsync.CallbackContext, points []ocommon.Point) (ocommon.Point, chainsync.Tip, error) {
+func (n *Node) chainsyncServerFindIntersect(
+	ctx chainsync.CallbackContext,
+	points []ocommon.Point,
+) (ocommon.Point, chainsync.Tip, error) {
 	var retPoint ocommon.Point
 	var retTip chainsync.Tip
 	// Find intersection
@@ -208,7 +213,10 @@ func (n *Node) chainsyncServerFindIntersect(ctx chainsync.CallbackContext, point
 
 func (n *Node) chainsyncServerRequestNext(ctx chainsync.CallbackContext) error {
 	// Create initial chainsync state for connection
-	serverState := n.chainsyncServerStateInit(ctx.ConnectionId, n.chainsyncClientState.tip)
+	serverState := n.chainsyncServerStateInit(
+		ctx.ConnectionId,
+		n.chainsyncClientState.tip,
+	)
 	if serverState.needsInitialRollback {
 		err := ctx.Server.RollBackward(
 			serverState.cursor.ToTip().Point,
@@ -255,7 +263,10 @@ outerLoop:
 	return nil
 }
 
-func (n *Node) chainsyncServerStateInit(connId connection.ConnectionId, cursor chainsyncTip) *chainsyncServerState {
+func (n *Node) chainsyncServerStateInit(
+	connId connection.ConnectionId,
+	cursor chainsyncTip,
+) *chainsyncServerState {
 	// Create initial chainsync state for connection
 	if _, ok := n.chainsyncServerState[connId]; !ok {
 		n.chainsyncServerState[connId] = &chainsyncServerState{
@@ -267,7 +278,10 @@ func (n *Node) chainsyncServerStateInit(connId connection.ConnectionId, cursor c
 	return n.chainsyncServerState[connId]
 }
 
-func (n *Node) chainsyncServerSendNext(ctx chainsync.CallbackContext, block chainsyncBlock) error {
+func (n *Node) chainsyncServerSendNext(
+	ctx chainsync.CallbackContext,
+	block chainsyncBlock,
+) error {
 	var err error
 	if block.Rollback {
 		err = ctx.Server.RollBackward(
@@ -285,7 +299,11 @@ func (n *Node) chainsyncServerSendNext(ctx chainsync.CallbackContext, block chai
 	return err
 }
 
-func (n *Node) blockfetchServerRequestRange(ctx blockfetch.CallbackContext, start ocommon.Point, end ocommon.Point) error {
+func (n *Node) blockfetchServerRequestRange(
+	ctx blockfetch.CallbackContext,
+	start ocommon.Point,
+	end ocommon.Point,
+) error {
 	go func() {
 		if err := ctx.Server.StartBatch(); err != nil {
 			return

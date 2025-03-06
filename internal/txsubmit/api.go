@@ -36,7 +36,11 @@ func (t *TxSubmit) startApi(url string) error {
 			// Determine transaction type (era)
 			txType, err := ledger.DetermineTransactionType(txBytes)
 			if err != nil {
-				logger.Error("could not parse transaction to determine type:", "error:", err)
+				logger.Error(
+					"could not parse transaction to determine type:",
+					"error:",
+					err,
+				)
 				return
 			}
 			tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
@@ -46,7 +50,13 @@ func (t *TxSubmit) startApi(url string) error {
 			}
 			// Submit transaction
 			if err := submitTxApi(txBytes, url); err != nil {
-				logger.Error("failed to submit transaction via API:", "txHash", tx.Hash(), "error:", err)
+				logger.Error(
+					"failed to submit transaction via API:",
+					"txHash",
+					tx.Hash(),
+					"error:",
+					err,
+				)
 			} else {
 				logger.Info("successfully submitted transaction via API", "txHash", tx.Hash())
 			}

@@ -30,7 +30,9 @@ type txsubmissionMempool struct {
 
 type MempoolNewTransactionFunc func(TxsubmissionMempoolTransaction) error
 
-func (t *txsubmissionMempool) AddNewTransactionFunc(newTransactionFunc MempoolNewTransactionFunc) {
+func (t *txsubmissionMempool) AddNewTransactionFunc(
+	newTransactionFunc MempoolNewTransactionFunc,
+) {
 	t.newTransactionFuncs = append(t.newTransactionFuncs, newTransactionFunc)
 }
 
@@ -52,7 +54,9 @@ func (t *txsubmissionMempool) scheduleRemoveExpired() {
 	_ = time.AfterFunc(txSubmissionMempoolExpirationPeriod, t.removeExpired)
 }
 
-func (t *txsubmissionMempool) addTransaction(tx *TxsubmissionMempoolTransaction) error {
+func (t *txsubmissionMempool) addTransaction(
+	tx *TxsubmissionMempoolTransaction,
+) error {
 	logger := logging.GetLogger()
 	t.Lock()
 	defer t.Unlock()
@@ -95,7 +99,10 @@ func (n *Node) AddOutboundTransaction(txBytes []byte) error {
 	// Determine transaction type (era)
 	txType, err := ledger.DetermineTransactionType(txBytes)
 	if err != nil {
-		return fmt.Errorf("could not parse transaction to determine type: %w", err)
+		return fmt.Errorf(
+			"could not parse transaction to determine type: %w",
+			err,
+		)
 	}
 	tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
 	if err != nil {
@@ -138,9 +145,16 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 					return
 				}
 				for _, txBody := range txs {
-					tx, err := ledger.NewTransactionFromCbor(uint(txBody.EraId), txBody.TxBody)
+					tx, err := ledger.NewTransactionFromCbor(
+						uint(txBody.EraId),
+						txBody.TxBody,
+					)
 					if err != nil {
-						logger.Error("failed to parse transaction CBOR:", "error:", err)
+						logger.Error(
+							"failed to parse transaction CBOR:",
+							"error:",
+							err,
+						)
 						return
 					}
 					// Add transaction to mempool
@@ -153,7 +167,13 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 						},
 					)
 					if err != nil {
-						logger.Error("failed to add TX to mempool:", "txHash", tx.Hash(), "error:", err)
+						logger.Error(
+							"failed to add TX to mempool:",
+							"txHash",
+							tx.Hash(),
+							"error:",
+							err,
+						)
 						return
 					}
 				}

@@ -52,14 +52,20 @@ type outboundPeer struct {
 
 func New(idx *indexer.Indexer) *Node {
 	n := &Node{
-		chainsyncServerState: make(map[ouroboros.ConnectionId]*chainsyncServerState),
+		chainsyncServerState: make(
+			map[ouroboros.ConnectionId]*chainsyncServerState,
+		),
 		chainsyncClientState: &chainsyncClientState{},
 		txsubmissionMempool: &txsubmissionMempool{
 			Transactions: make(map[string]*TxsubmissionMempoolTransaction),
 		},
-		outboundConns:        make(map[ouroboros.ConnectionId]outboundPeer),
-		connTransactionChans: make(map[ouroboros.ConnectionId]chan ntnTransaction),
-		connTransactionCache: make(map[ouroboros.ConnectionId]map[string]*ntnTransaction),
+		outboundConns: make(map[ouroboros.ConnectionId]outboundPeer),
+		connTransactionChans: make(
+			map[ouroboros.ConnectionId]chan ntnTransaction,
+		),
+		connTransactionCache: make(
+			map[ouroboros.ConnectionId]map[string]*ntnTransaction,
+		),
 	}
 	// Register indexer event handler
 	idx.AddEventFunc(n.chainsyncClientHandleEvent)
@@ -79,7 +85,11 @@ func (n *Node) Start() error {
 	listenConfig := net.ListenConfig{
 		Control: socketControl,
 	}
-	listener, err := listenConfig.Listen(context.Background(), "tcp", listenAddress)
+	listener, err := listenConfig.Listen(
+		context.Background(),
+		"tcp",
+		listenAddress,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to open listening socket: %w", err)
 	}
@@ -87,11 +97,19 @@ func (n *Node) Start() error {
 	go n.acceptConnections()
 	logger.Info("listening on", "address", listenAddress, "type", "NtN")
 	// NtC listener
-	listenAddressNtc := fmt.Sprintf("%s:%d", cfg.ListenAddressNtc, cfg.ListenPortNtc)
+	listenAddressNtc := fmt.Sprintf(
+		"%s:%d",
+		cfg.ListenAddressNtc,
+		cfg.ListenPortNtc,
+	)
 	listenConfigNtc := net.ListenConfig{
 		Control: socketControl,
 	}
-	listenerNtc, err := listenConfigNtc.Listen(context.Background(), "tcp", listenAddressNtc)
+	listenerNtc, err := listenConfigNtc.Listen(
+		context.Background(),
+		"tcp",
+		listenAddressNtc,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to open listening socket: %w", err)
 	}
@@ -100,11 +118,20 @@ func (n *Node) Start() error {
 	logger.Info("listening on", "address", listenAddressNtc, "type", "NtC")
 	// Start outbound connections
 	for _, host := range cfg.Topology.Hosts {
-		peerAddress := net.JoinHostPort(host.Address, strconv.Itoa(int(host.Port)))
+		peerAddress := net.JoinHostPort(
+			host.Address,
+			strconv.Itoa(int(host.Port)),
+		)
 		tmpPeer := outboundPeer{Address: peerAddress}
 		go func(peer outboundPeer) {
 			if err := n.createOutboundConnection(peer); err != nil {
-				logger.Error("failed to establish connection", "address", peer.Address, "error", err)
+				logger.Error(
+					"failed to establish connection",
+					"address",
+					peer.Address,
+					"error",
+					err,
+				)
 				go n.reconnectOutboundConnection(peer)
 			}
 		}(tmpPeer)
@@ -114,7 +141,9 @@ func (n *Node) Start() error {
 	return nil
 }
 
-func (n *Node) AddMempoolNewTransactionFunc(newTransactionFunc MempoolNewTransactionFunc) {
+func (n *Node) AddMempoolNewTransactionFunc(
+	newTransactionFunc MempoolNewTransactionFunc,
+) {
 	n.txsubmissionMempool.AddNewTransactionFunc(newTransactionFunc)
 }
 
@@ -222,7 +251,10 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 	logger := logging.GetLogger()
 	// Setup connection to use our listening port as the source port
 	// This is required for peer sharing to be useful
-	clientAddr, _ := net.ResolveTCPAddr("tcp", fmt.Sprintf(":%d", cfg.ListenPort))
+	clientAddr, _ := net.ResolveTCPAddr(
+		"tcp",
+		fmt.Sprintf(":%d", cfg.ListenPort),
+	)
 	dialer := net.Dialer{
 		LocalAddr: clientAddr,
 		Timeout:   10 * time.Second,
@@ -291,7 +323,10 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 	n.outboundConnsMutex.Unlock()
 	// Add TX watcher chan
 	n.connTransactionChansMutex.Lock()
-	n.connTransactionChans[oConn.Id()] = make(chan ntnTransaction, maxOutboundTransactions)
+	n.connTransactionChans[oConn.Id()] = make(
+		chan ntnTransaction,
+		maxOutboundTransactions,
+	)
 	n.connTransactionChansMutex.Unlock()
 	// Create TX cache
 	n.connTransactionCacheMutex.Lock()
@@ -310,20 +345,41 @@ func (n *Node) reconnectOutboundConnection(peer outboundPeer) {
 		} else if peer.ReconnectDelay < maxReconnectDelay {
 			peer.ReconnectDelay = peer.ReconnectDelay * 2
 		}
-		logger.Info("delaying before reconnecting", "delay", peer.ReconnectDelay, "address", peer.Address)
+		logger.Info(
+			"delaying before reconnecting",
+			"delay",
+			peer.ReconnectDelay,
+			"address",
+			peer.Address,
+		)
 		time.Sleep(peer.ReconnectDelay)
 		if err := n.createOutboundConnection(peer); err != nil {
-			logger.Error("failed to establish connection", "address", peer.Address, "error", err)
+			logger.Error(
+				"failed to establish connection",
+				"address",
+				peer.Address,
+				"error",
+				err,
+			)
 			continue
 		}
 		return
 	}
 }
 
-func (n *Node) connectionManagerConnClosed(connId ouroboros.ConnectionId, err error) {
+func (n *Node) connectionManagerConnClosed(
+	connId ouroboros.ConnectionId,
+	err error,
+) {
 	logger := logging.GetLogger()
 	if err != nil {
-		logger.Error("connection failed", "connId", connId.String(), "error", err)
+		logger.Error(
+			"connection failed",
+			"connId",
+			connId.String(),
+			"error",
+			err,
+		)
 	} else {
 		logger.Info("connection closed", "connId", connId.String())
 	}
@@ -364,7 +420,12 @@ func (n *Node) connectionManagerConnClosed(connId ouroboros.ConnectionId, err er
 func socketControl(network, address string, c syscall.RawConn) error {
 	var innerErr error
 	err := c.Control(func(fd uintptr) {
-		err := unix.SetsockoptInt(int(fd), unix.SOL_SOCKET, unix.SO_REUSEADDR, 1)
+		err := unix.SetsockoptInt(
+			int(fd),
+			unix.SOL_SOCKET,
+			unix.SO_REUSEADDR,
+			1,
+		)
 		if err != nil {
 			innerErr = err
 			return
