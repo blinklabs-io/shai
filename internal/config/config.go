@@ -19,12 +19,12 @@ type Config struct {
 	Storage          StorageConfig  `yaml:"storage"`
 	Indexer          IndexerConfig  `yaml:"indexer"`
 	Wallet           WalletConfig   `yaml:"wallet"`
-	Network          string         `yaml:"network" envconfig:"NETWORK"`
-	Profiles         []string       `yaml:"profiles" envconfig:"PROFILES"`
-	ListenAddress    string         `yaml:"listenAddress" envconfig:"LISTEN_ADDRESS"`
+	Network          string         `yaml:"network"          envconfig:"NETWORK"`
+	Profiles         []string       `yaml:"profiles"         envconfig:"PROFILES"`
+	ListenAddress    string         `yaml:"listenAddress"    envconfig:"LISTEN_ADDRESS"`
 	ListenAddressNtc string         `yaml:"listenAddressNtc" envconfig:"LISTEN_ADDRESS_NTC"`
-	ListenPort       uint           `yaml:"port" envconfig:"PORT"`
-	ListenPortNtc    uint           `yaml:"portNtc" envconfig:"PORT_NTC"`
+	ListenPort       uint           `yaml:"port"             envconfig:"PORT"`
+	ListenPortNtc    uint           `yaml:"portNtc"          envconfig:"PORT_NTC"`
 	NetworkMagic     uint32
 }
 
@@ -34,7 +34,7 @@ type LoggingConfig struct {
 
 type DebugConfig struct {
 	ListenAddress string `yaml:"address" envconfig:"DEBUG_ADDRESS"`
-	ListenPort    uint   `yaml:"port" envconfig:"DEBUG_PORT"`
+	ListenPort    uint   `yaml:"port"    envconfig:"DEBUG_PORT"`
 }
 
 type TopologyConfig struct {
@@ -48,14 +48,14 @@ type TopologyConfigHost struct {
 }
 
 type IndexerConfig struct {
-	Address    string `yaml:"address"       envconfig:"INDEXER_TCP_ADDRESS"`
-	SocketPath string `yaml:"socketPath"    envconfig:"INDEXER_SOCKET_PATH"`
+	Address    string `yaml:"address"    envconfig:"INDEXER_TCP_ADDRESS"`
+	SocketPath string `yaml:"socketPath" envconfig:"INDEXER_SOCKET_PATH"`
 }
 
 type SubmitConfig struct {
-	Address    string `yaml:"address"      envconfig:"SUBMIT_TCP_ADDRESS"`
-	SocketPath string `yaml:"socketPath"   envconfig:"SUBMIT_SOCKET_PATH"`
-	Url        string `yaml:"url"          envconfig:"SUBMIT_URL"`
+	Address    string `yaml:"address"    envconfig:"SUBMIT_TCP_ADDRESS"`
+	SocketPath string `yaml:"socketPath" envconfig:"SUBMIT_SOCKET_PATH"`
+	Url        string `yaml:"url"        envconfig:"SUBMIT_URL"`
 }
 
 type StorageConfig struct {
@@ -127,7 +127,11 @@ func Load(configFile string) (*Config, error) {
 			}
 		}
 		if !foundProfile {
-			return nil, fmt.Errorf("unknown profile: %s: available profiles: %s", profile, strings.Join(availableProfiles, ","))
+			return nil, fmt.Errorf(
+				"unknown profile: %s: available profiles: %s",
+				profile,
+				strings.Join(availableProfiles, ","),
+			)
 		}
 	}
 	return globalConfig, nil

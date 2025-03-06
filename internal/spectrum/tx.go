@@ -331,9 +331,16 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	}
 
 	// Calculate reward lovelace and asset amounts
-	rewardAsset := opts.pool.OutputForInput(opts.swapConfig.Base, opts.swapConfig.BaseAmount)
+	rewardAsset := opts.pool.OutputForInput(
+		opts.swapConfig.Base,
+		opts.swapConfig.BaseAmount,
+	)
 	if rewardAsset.Amount < opts.swapConfig.MinQuoteAmount {
-		return nil, fmt.Errorf("calculated reward asset amount (%d) is less than MinQuoteAmount (%d) in swap order", rewardAsset.Amount, opts.swapConfig.MinQuoteAmount)
+		return nil, fmt.Errorf(
+			"calculated reward asset amount (%d) is less than MinQuoteAmount (%d) in swap order",
+			rewardAsset.Amount,
+			opts.swapConfig.MinQuoteAmount,
+		)
 	}
 	var rewardLovelace uint64
 	var rewardUnits []apollo.Unit
@@ -384,14 +391,19 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	).Uint64()
 
 	// Calculate leftover lovelace from swap order UTxO for return with reward
-	leftoverSwapLovelace := uint64(swapUtxo.Output.GetAmount().GetCoin()) - matcherFee
+	leftoverSwapLovelace := uint64(
+		swapUtxo.Output.GetAmount().GetCoin(),
+	) - matcherFee
 	if len(opts.swapConfig.Base.PolicyId) == 0 {
 		leftoverSwapLovelace -= opts.swapConfig.BaseAmount
 	}
 	rewardLovelace += leftoverSwapLovelace
 
 	// Generate addresses
-	tmpRewardAddr := addressFromKeys(opts.swapConfig.RewardPkh, opts.swapConfig.StakePkh.Pkh)
+	tmpRewardAddr := addressFromKeys(
+		opts.swapConfig.RewardPkh,
+		opts.swapConfig.StakePkh.Pkh,
+	)
 	rewardAddress, _ := serAddress.DecodeAddress(tmpRewardAddr)
 
 	poolAddress, _ := serAddress.DecodeAddress(opts.outputPoolAddress)
@@ -533,7 +545,10 @@ func unixTimeToSlot(unixTime int64) uint64 {
 	)
 }
 
-func sortedInputIndex(utxos []UTxO.UTxO, txInput TransactionInput.TransactionInput) int {
+func sortedInputIndex(
+	utxos []UTxO.UTxO,
+	txInput TransactionInput.TransactionInput,
+) int {
 	sortedUtxos := apollo.SortInputs(utxos)
 	for idx, utxo := range sortedUtxos {
 		if string(utxo.Input.TransactionId) == string(txInput.TransactionId) {

@@ -53,7 +53,9 @@ func (a AssetAmount) IsLovelace() bool {
 	return a.Class.IsLovelace()
 }
 
-func NewPoolFromTransactionOutput(txOutput ledger.TransactionOutput) (*Pool, error) {
+func NewPoolFromTransactionOutput(
+	txOutput ledger.TransactionOutput,
+) (*Pool, error) {
 	if txOutput.Datum() == nil {
 		return nil, errors.New("no datum found in transaction output")
 	}
@@ -72,8 +74,11 @@ func NewPoolFromTransactionOutput(txOutput ledger.TransactionOutput) (*Pool, err
 			Amount: getAssetAmountFromTransactionOutput(poolConfig.Y, txOutput),
 		},
 		Lq: AssetAmount{
-			Class:  poolConfig.Lq,
-			Amount: getAssetAmountFromTransactionOutput(poolConfig.Lq, txOutput),
+			Class: poolConfig.Lq,
+			Amount: getAssetAmountFromTransactionOutput(
+				poolConfig.Lq,
+				txOutput,
+			),
 		},
 		FeeNum: poolConfig.FeeNum,
 		Datum:  poolConfig,
@@ -81,7 +86,10 @@ func NewPoolFromTransactionOutput(txOutput ledger.TransactionOutput) (*Pool, err
 	return p, nil
 }
 
-func getAssetAmountFromTransactionOutput(assetClass AssetClass, txOutput ledger.TransactionOutput) uint64 {
+func getAssetAmountFromTransactionOutput(
+	assetClass AssetClass,
+	txOutput ledger.TransactionOutput,
+) uint64 {
 	if len(assetClass.PolicyId) == 0 {
 		// ADA
 		return txOutput.Amount()
@@ -100,7 +108,10 @@ func NewPoolFromUtxoBytes(utxoBytes []byte) (*Pool, error) {
 	return NewPoolFromTransactionOutput(utxo.Output)
 }
 
-func (p *Pool) OutputForInput(inputAssetClass AssetClass, inputAmount uint64) AssetAmount {
+func (p *Pool) OutputForInput(
+	inputAssetClass AssetClass,
+	inputAmount uint64,
+) AssetAmount {
 	var inputAsset, outputAsset AssetAmount
 	if p.X.IsAsset(inputAssetClass) {
 		inputAsset = p.X
@@ -159,10 +170,13 @@ func (p *Pool) Asset(asset AssetClass) AssetAmount {
 	return AssetAmount{}
 }
 
-func (p *Pool) CalculateReturnToPool(inputAsset AssetAmount, rewardAsset AssetAmount) (uint64, []AssetAmount) {
+func (p *Pool) CalculateReturnToPool(
+	inputAsset AssetAmount,
+	rewardAsset AssetAmount,
+) (uint64, []AssetAmount) {
 	var retAda uint64
 	retUnits := []AssetAmount{
-		AssetAmount{
+		{
 			Class:  p.Id,
 			Amount: 1,
 		},

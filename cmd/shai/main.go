@@ -30,7 +30,12 @@ var cmdlineFlags struct {
 }
 
 func main() {
-	flag.StringVar(&cmdlineFlags.configFile, "config", "", "path to config file to load")
+	flag.StringVar(
+		&cmdlineFlags.configFile,
+		"config",
+		"",
+		"path to config file to load",
+	)
 	flag.BoolVar(&cmdlineFlags.version, "version", false, "show version")
 	flag.Parse()
 
@@ -52,9 +57,22 @@ func main() {
 
 	// Start debug listener
 	if cfg.Debug.ListenPort > 0 {
-		logger.Info("starting debug listener", "address", cfg.Debug.ListenAddress, "port", cfg.Debug.ListenPort)
+		logger.Info(
+			"starting debug listener",
+			"address",
+			cfg.Debug.ListenAddress,
+			"port",
+			cfg.Debug.ListenPort,
+		)
 		go func() {
-			err := http.ListenAndServe(fmt.Sprintf("%s:%d", cfg.Debug.ListenAddress, cfg.Debug.ListenPort), nil)
+			err := http.ListenAndServe(
+				fmt.Sprintf(
+					"%s:%d",
+					cfg.Debug.ListenAddress,
+					cfg.Debug.ListenPort,
+				),
+				nil,
+			)
 			if err != nil {
 				logger.Error("failed to start debug listener", "error", err)
 				os.Exit(1)
@@ -81,8 +99,22 @@ func main() {
 	for _, profile := range config.GetProfiles() {
 		switch profile.Type {
 		case config.ProfileTypeSpectrum:
-			logger.Info("initializing profile", "name", profile.Name, "type", "Spectrum")
-			_ = spectrum.New(idx, n, profile.Name, profile.Config.(config.SpectrumProfileConfig))
+			logger.Info(
+				"initializing profile",
+				"name",
+				profile.Name,
+				"type",
+				"Spectrum",
+			)
+			_ = spectrum.New(
+				idx,
+				n,
+				profile.Name,
+				profile.Config.(config.SpectrumProfileConfig),
+			)
+		case config.ProfileTypeNone:
+			logger.Error("profile type none given")
+			os.Exit(1)
 		default:
 			logger.Error("unknown profile type", "name", profile.Name)
 			os.Exit(1)

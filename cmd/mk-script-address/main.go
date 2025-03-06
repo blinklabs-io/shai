@@ -19,13 +19,34 @@ var cmdlineFlags struct {
 }
 
 func main() {
-	flag.StringVar(&cmdlineFlags.scriptData, "script-data", "", "hex-encoded script data")
-	flag.StringVar(&cmdlineFlags.scriptPath, "script-path", "", "path to script file to load")
-	flag.StringVar(&cmdlineFlags.network, "network", "mainnet", "named network to generate script address for")
-	flag.IntVar(&cmdlineFlags.plutusVersion, "plutus-version", 2, "plutus version of script")
+	flag.StringVar(
+		&cmdlineFlags.scriptData,
+		"script-data",
+		"",
+		"hex-encoded script data",
+	)
+	flag.StringVar(
+		&cmdlineFlags.scriptPath,
+		"script-path",
+		"",
+		"path to script file to load",
+	)
+	flag.StringVar(
+		&cmdlineFlags.network,
+		"network",
+		"mainnet",
+		"named network to generate script address for",
+	)
+	flag.IntVar(
+		&cmdlineFlags.plutusVersion,
+		"plutus-version",
+		2,
+		"plutus version of script",
+	)
 	flag.Parse()
 
-	if (cmdlineFlags.scriptPath == "" && cmdlineFlags.scriptData == "") || cmdlineFlags.network == "" {
+	if (cmdlineFlags.scriptPath == "" && cmdlineFlags.scriptData == "") ||
+		cmdlineFlags.network == "" {
 		fmt.Printf("ERROR: you must specify the network and script\n")
 		os.Exit(1)
 	}

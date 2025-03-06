@@ -80,7 +80,10 @@ func (s *Storage) compareFingerprint() error {
 		}
 		err = item.Value(func(v []byte) error {
 			if string(v) != fingerprint {
-				return fmt.Errorf("config fingerprint in DB doesn't match current config: %s", v)
+				return fmt.Errorf(
+					"config fingerprint in DB doesn't match current config: %s",
+					v,
+				)
 			}
 			return nil
 		})
@@ -341,7 +344,13 @@ func (s *Storage) GetUtxoAddress(utxoId string) (string, error) {
 	return string(ret), err
 }
 
-func (s *Storage) UpdateAssetUtxo(keyPrefix string, policyId []byte, assetName []byte, txId string, txOutIdx uint32) error {
+func (s *Storage) UpdateAssetUtxo(
+	keyPrefix string,
+	policyId []byte,
+	assetName []byte,
+	txId string,
+	txOutIdx uint32,
+) error {
 	err := s.db.Update(func(txn *badger.Txn) error {
 		key := fmt.Sprintf(
 			"%s_asset_%s_%s",
@@ -358,7 +367,11 @@ func (s *Storage) UpdateAssetUtxo(keyPrefix string, policyId []byte, assetName [
 	return err
 }
 
-func (s *Storage) GetAssetUtxoId(keyPrefix string, policyId []byte, assetName []byte) (string, error) {
+func (s *Storage) GetAssetUtxoId(
+	keyPrefix string,
+	policyId []byte,
+	assetName []byte,
+) (string, error) {
 	var utxoId []byte
 	err := s.db.View(func(txn *badger.Txn) error {
 		key := fmt.Sprintf(
@@ -379,7 +392,12 @@ func (s *Storage) GetAssetUtxoId(keyPrefix string, policyId []byte, assetName []
 	})
 	if err != nil {
 		if errors.Is(err, badger.ErrKeyNotFound) {
-			return "", fmt.Errorf("no UTxO found for asset with policy ID %x and name '%s' (%x)", policyId, assetName, assetName)
+			return "", fmt.Errorf(
+				"no UTxO found for asset with policy ID %x and name '%s' (%x)",
+				policyId,
+				assetName,
+				assetName,
+			)
 		} else {
 			return "", err
 		}
@@ -387,7 +405,11 @@ func (s *Storage) GetAssetUtxoId(keyPrefix string, policyId []byte, assetName []
 	return string(utxoId), err
 }
 
-func (s *Storage) GetAssetUtxo(keyPrefix string, policyId []byte, assetName []byte) ([]byte, error) {
+func (s *Storage) GetAssetUtxo(
+	keyPrefix string,
+	policyId []byte,
+	assetName []byte,
+) ([]byte, error) {
 	utxoId, err := s.GetAssetUtxoId(keyPrefix, policyId, assetName)
 	if err != nil {
 		return nil, err

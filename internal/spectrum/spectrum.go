@@ -30,7 +30,12 @@ type Spectrum struct {
 	poolV2Address  string
 }
 
-func New(idx *indexer.Indexer, node *node.Node, name string, config config.SpectrumProfileConfig) *Spectrum {
+func New(
+	idx *indexer.Indexer,
+	node *node.Node,
+	name string,
+	config config.SpectrumProfileConfig,
+) *Spectrum {
 	s := &Spectrum{
 		idx:            idx,
 		node:           node,
@@ -62,7 +67,9 @@ func (s *Spectrum) handleChainsyncEvent(evt event.Event) error {
 	return nil
 }
 
-func (s *Spectrum) handleMempoolNewTransaction(mempoolTx node.TxsubmissionMempoolTransaction) error {
+func (s *Spectrum) handleMempoolNewTransaction(
+	mempoolTx node.TxsubmissionMempoolTransaction,
+) error {
 	logger := logging.GetLogger()
 	tx, err := ledger.NewTransactionFromCbor(mempoolTx.Type, mempoolTx.Cbor)
 	if err != nil {
@@ -70,13 +77,26 @@ func (s *Spectrum) handleMempoolNewTransaction(mempoolTx node.TxsubmissionMempoo
 	}
 	for idx, txOutput := range tx.Outputs() {
 		if err := s.handleTransactionOutput(tx.Hash(), idx, txOutput, true); err != nil {
-			logger.Error("failure handling mempool transaction output:", "txId", tx.Hash(), "index", idx, "error:", err)
+			logger.Error(
+				"failure handling mempool transaction output:",
+				"txId",
+				tx.Hash(),
+				"index",
+				idx,
+				"error:",
+				err,
+			)
 		}
 	}
 	return nil
 }
 
-func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutput ledger.TransactionOutput, fromMempool bool) error {
+func (s *Spectrum) handleTransactionOutput(
+	txId string,
+	txOutputIdx int,
+	txOutput ledger.TransactionOutput,
+	fromMempool bool,
+) error {
 	logger := logging.GetLogger()
 	// Check for the addresses we care about
 	txOutputAddress := txOutput.Address().String()
@@ -238,7 +258,11 @@ func (s *Spectrum) handleTransactionOutput(txId string, txOutputIdx int, txOutpu
 	return nil
 }
 
-func wrapTxOutput(txId string, txOutputIdx int, txOutBytes []byte) ([]byte, error) {
+func wrapTxOutput(
+	txId string,
+	txOutputIdx int,
+	txOutBytes []byte,
+) ([]byte, error) {
 	// Wrap TX output in UTxO structure to make it easier to consume later
 	txIdBytes, err := hex.DecodeString(txId)
 	if err != nil {
