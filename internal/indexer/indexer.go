@@ -21,16 +21,15 @@ import (
 	"os"
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/config"
-	"github.com/blinklabs-io/shai/internal/logging"
-	"github.com/blinklabs-io/shai/internal/storage"
-	"github.com/blinklabs-io/shai/internal/wallet"
-
 	"github.com/blinklabs-io/adder/event"
 	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
 	output_embedded "github.com/blinklabs-io/adder/output/embedded"
 	"github.com/blinklabs-io/adder/pipeline"
 	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
+	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/shai/internal/logging"
+	"github.com/blinklabs-io/shai/internal/storage"
+	"github.com/blinklabs-io/shai/internal/wallet"
 )
 
 const (

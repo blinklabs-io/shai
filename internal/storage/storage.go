@@ -22,10 +22,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/logging"
-
-	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/dgraph-io/badger/v4"
 )
 
