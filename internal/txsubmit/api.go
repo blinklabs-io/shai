@@ -84,7 +84,7 @@ func submitTxApi(txRawBytes []byte, url string) error {
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode == 202 {
 		return nil
 	} else {

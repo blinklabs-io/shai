@@ -18,10 +18,9 @@ import (
 	"errors"
 	"os"
 
+	"github.com/blinklabs-io/bursa"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/logging"
-
-	"github.com/blinklabs-io/bursa"
 )
 
 var globalWallet = &bursa.Wallet{}
@@ -51,7 +50,7 @@ func Setup() {
 			l, err := f.WriteString(mnemonic)
 			logger.Debug("wrote bytes to seed.txt", "bytes", l)
 			if err != nil {
-				f.Close()
+				f.Close() //nolint:errcheck
 				panic(err)
 			}
 			err = f.Close()

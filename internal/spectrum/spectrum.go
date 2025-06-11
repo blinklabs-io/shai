@@ -4,6 +4,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/blinklabs-io/adder/event"
+	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -13,9 +15,6 @@ import (
 	"github.com/blinklabs-io/shai/internal/node"
 	"github.com/blinklabs-io/shai/internal/storage"
 	"github.com/blinklabs-io/shai/internal/txsubmit"
-
-	"github.com/blinklabs-io/adder/event"
-	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
 )
 
 type Spectrum struct {

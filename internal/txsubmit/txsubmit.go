@@ -3,10 +3,9 @@ package txsubmit
 import (
 	"fmt"
 
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/node"
-
-	ouroboros "github.com/blinklabs-io/gouroboros"
 )
 
 const (

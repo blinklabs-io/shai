@@ -9,11 +9,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/config"
-	"github.com/blinklabs-io/shai/internal/indexer"
-	"github.com/blinklabs-io/shai/internal/logging"
-	"golang.org/x/sys/unix"
-
 	"github.com/blinklabs-io/dingo/connmanager"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
@@ -21,6 +16,10 @@ import (
 	"github.com/blinklabs-io/gouroboros/protocol/localtxsubmission"
 	"github.com/blinklabs-io/gouroboros/protocol/peersharing"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
+	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/shai/internal/indexer"
+	"github.com/blinklabs-io/shai/internal/logging"
+	"golang.org/x/sys/unix"
 )
 
 const (

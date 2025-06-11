@@ -6,10 +6,6 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/config"
-	"github.com/blinklabs-io/shai/internal/storage"
-	"github.com/blinklabs-io/shai/internal/wallet"
-
 	"github.com/Salvionied/apollo"
 	serAddress "github.com/Salvionied/apollo/serialization/Address"
 	"github.com/Salvionied/apollo/serialization/Key"
@@ -17,9 +13,11 @@ import (
 	"github.com/Salvionied/apollo/serialization/Redeemer"
 	"github.com/Salvionied/apollo/serialization/TransactionInput"
 	"github.com/Salvionied/apollo/serialization/UTxO"
-
-	//txBuildingUtils "github.com/Salvionied/apollo/txBuilding/Utils"
+	// txBuildingUtils "github.com/Salvionied/apollo/txBuilding/Utils"
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/shai/internal/storage"
+	"github.com/blinklabs-io/shai/internal/wallet"
 )
 
 const (

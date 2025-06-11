@@ -7,8 +7,6 @@ import (
 	_ "net/http/pprof"
 	"os"
 
-	_ "go.uber.org/automaxprocs"
-
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
@@ -18,6 +16,7 @@ import (
 	"github.com/blinklabs-io/shai/internal/txsubmit"
 	"github.com/blinklabs-io/shai/internal/version"
 	"github.com/blinklabs-io/shai/internal/wallet"
+	_ "go.uber.org/automaxprocs"
 )
 
 const (
