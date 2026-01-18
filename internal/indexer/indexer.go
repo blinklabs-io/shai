@@ -44,8 +44,7 @@ type Indexer struct {
 	tipHash      string
 	tipReached   bool
 	syncLogTimer *time.Timer
-	//lastBlockData any
-	eventFuncs []EventFunc
+	eventFuncs   []EventFunc
 }
 
 type EventFunc func(event.Event) error
@@ -135,11 +134,9 @@ func (i *Indexer) Start() error {
 	output := output_embedded.New(
 		output_embedded.WithCallbackFunc(
 			func(evt event.Event) error {
-				// TODO: run these in parallel
 				// Call each registered event handler func
 				for _, eventFunc := range i.eventFuncs {
 					if err := eventFunc(evt); err != nil {
-						fmt.Printf("err = %s\n", err)
 						return err
 					}
 				}
@@ -173,7 +170,6 @@ func (i *Indexer) AddEventFunc(eventFunc EventFunc) {
 }
 
 func (i *Indexer) handleEvent(evt event.Event) error {
-	//logger := logging.GetLogger()
 	switch evt.Payload.(type) {
 	case event.TransactionEvent:
 		bursa := wallet.GetWallet()

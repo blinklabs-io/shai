@@ -11,6 +11,7 @@ import (
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/node"
+	"github.com/blinklabs-io/shai/internal/oracle"
 	"github.com/blinklabs-io/shai/internal/spectrum"
 	"github.com/blinklabs-io/shai/internal/storage"
 	"github.com/blinklabs-io/shai/internal/txsubmit"
@@ -111,6 +112,45 @@ func main() {
 				profile.Name,
 				profile.Config.(config.SpectrumProfileConfig),
 			)
+		case config.ProfileTypeOracle:
+			oracleCfg, ok := profile.Config.(config.OracleProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid oracle profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			logger.Info(
+				"initializing profile",
+				"name",
+				profile.Name,
+				"type",
+				"Oracle",
+				"protocol",
+				oracleCfg.Protocol,
+			)
+			parser := getOracleParser(oracleCfg.Protocol)
+			if parser == nil {
+				logger.Error(
+					"unknown oracle protocol",
+					"protocol",
+					oracleCfg.Protocol,
+				)
+				os.Exit(1)
+			}
+			o := oracle.New(idx, &profile, parser)
+			if err := o.Start(); err != nil {
+				logger.Error(
+					"failed to start oracle",
+					"error",
+					err,
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -140,4 +180,14 @@ func main() {
 
 	// Wait forever
 	select {}
+}
+
+// getOracleParser returns the appropriate parser for an oracle protocol
+func getOracleParser(protocol string) oracle.PoolParser {
+	switch protocol {
+	case "minswap-v2", "minswap":
+		return oracle.NewMinswapV2Parser()
+	default:
+		return nil
+	}
 }

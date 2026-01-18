@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/blinklabs-io/dingo/topology"
@@ -119,13 +120,7 @@ func Load(configFile string) (*Config, error) {
 	// Check profiles
 	availableProfiles := GetAvailableProfiles()
 	for _, profile := range globalConfig.Profiles {
-		foundProfile := false
-		for _, availableProfile := range availableProfiles {
-			if profile == availableProfile {
-				foundProfile = true
-				break
-			}
-		}
+		foundProfile := slices.Contains(availableProfiles, profile)
 		if !foundProfile {
 			return nil, fmt.Errorf(
 				"unknown profile: %s: available profiles: %s",
