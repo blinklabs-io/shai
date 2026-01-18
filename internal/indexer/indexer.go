@@ -61,7 +61,6 @@ func (i *Indexer) Start() error {
 	i.pipeline = pipeline.New()
 	// Configure pipeline input
 	inputOpts := []input_chainsync.ChainSyncOptionFunc{
-		input_chainsync.WithBulkMode(true),
 		input_chainsync.WithAutoReconnect(true),
 		input_chainsync.WithLogger(logging.GetLogger()),
 		input_chainsync.WithStatusUpdateFunc(i.updateStatus),
@@ -176,10 +175,10 @@ func (i *Indexer) AddEventFunc(eventFunc EventFunc) {
 func (i *Indexer) handleEvent(evt event.Event) error {
 	//logger := logging.GetLogger()
 	switch evt.Payload.(type) {
-	case input_chainsync.TransactionEvent:
+	case event.TransactionEvent:
 		bursa := wallet.GetWallet()
-		eventTx := evt.Payload.(input_chainsync.TransactionEvent)
-		eventCtx := evt.Context.(input_chainsync.TransactionContext)
+		eventTx := evt.Payload.(event.TransactionEvent)
+		eventCtx := evt.Context.(event.TransactionContext)
 		// Delete used UTXOs
 		for _, txInput := range eventTx.Transaction.Consumed() {
 			//logger.Debugf("UTxO %s.%d consumed in transaction %s", txInput.Id().String(), txInput.Index(), eventCtx.TransactionHash)

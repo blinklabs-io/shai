@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/blinklabs-io/adder/event"
-	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -54,9 +53,9 @@ func New(
 func (s *Spectrum) handleChainsyncEvent(evt event.Event) error {
 	logger := logging.GetLogger()
 	switch evt.Payload.(type) {
-	case input_chainsync.TransactionEvent:
-		eventTx := evt.Payload.(input_chainsync.TransactionEvent)
-		eventCtx := evt.Context.(input_chainsync.TransactionContext)
+	case event.TransactionEvent:
+		eventTx := evt.Payload.(event.TransactionEvent)
+		eventCtx := evt.Context.(event.TransactionContext)
 		for idx, txOutput := range eventTx.Outputs {
 			if err := s.handleTransactionOutput(eventCtx.TransactionHash, idx, txOutput, false); err != nil {
 				logger.Error("failure handling on-chain transaction output:", "txId", eventCtx.TransactionHash, "index", idx, "error:", err)
@@ -75,7 +74,7 @@ func (s *Spectrum) handleMempoolNewTransaction(
 		return err
 	}
 	for idx, txOutput := range tx.Outputs() {
-		if err := s.handleTransactionOutput(tx.Hash(), idx, txOutput, true); err != nil {
+		if err := s.handleTransactionOutput(tx.Hash().String(), idx, txOutput, true); err != nil {
 			logger.Error(
 				"failure handling mempool transaction output:",
 				"txId",
@@ -166,9 +165,10 @@ func (s *Spectrum) handleTransactionOutput(
 			var poolInputRef config.ProfileConfigInputRef
 			tmpPoolAddr, _ := ledger.NewAddress(poolAddr)
 			poolPaymentAddr := tmpPoolAddr.PaymentAddress().String()
-			if poolPaymentAddr == s.poolV1Address {
+			switch poolPaymentAddr {
+			case s.poolV1Address:
 				poolInputRef = s.config.PoolV1InputRef
-			} else if poolPaymentAddr == s.poolV2Address {
+			case s.poolV2Address:
 				poolInputRef = s.config.PoolV2InputRef
 			}
 			// Build swap TX
