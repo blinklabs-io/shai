@@ -13,6 +13,7 @@ import (
 	"github.com/Salvionied/apollo/serialization/Redeemer"
 	"github.com/Salvionied/apollo/serialization/TransactionInput"
 	"github.com/Salvionied/apollo/serialization/UTxO"
+
 	// txBuildingUtils "github.com/Salvionied/apollo/txBuilding/Utils"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/shai/internal/config"
@@ -333,6 +334,10 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		opts.swapConfig.Base,
 		opts.swapConfig.BaseAmount,
 	)
+	// Validate reward amount is non-zero
+	if rewardAsset.Amount == 0 {
+		return nil, fmt.Errorf("calculated reward is zero")
+	}
 	if rewardAsset.Amount < opts.swapConfig.MinQuoteAmount {
 		return nil, fmt.Errorf(
 			"calculated reward asset amount (%d) is less than MinQuoteAmount (%d) in swap order",
@@ -356,13 +361,16 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	}
 
 	// Calculate lovelace and assets to return to pool
-	poolReturnLovelace, poolReturnAssets := opts.pool.CalculateReturnToPool(
+	poolReturnLovelace, poolReturnAssets, err := opts.pool.CalculateReturnToPool(
 		AssetAmount{
 			Class:  opts.swapConfig.Base,
 			Amount: opts.swapConfig.BaseAmount,
 		},
 		rewardAsset,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to calculate pool return: %w", err)
+	}
 	poolReturnUnits := []apollo.Unit{}
 	for _, asset := range poolReturnAssets {
 		poolReturnUnits = append(
@@ -380,6 +388,12 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	// ( FeePerTokenNum / FeePerTokenDen ) * MinQuoteAmount
 	// TODO: figure out why we're losing 1 lovelace to (probably) rounding
 	// NOTE: this is division, but of course they won't call it that for some reason
+	// Validate FeePerTokenDen to avoid division by zero
+	if opts.swapConfig.FeePerTokenDen.Sign() == 0 {
+		return nil, fmt.Errorf(
+			"FeePerTokenDen is zero, cannot calculate matcher fee",
+		)
+	}
 	matcherFee, _ := new(big.Float).Quo(
 		new(big.Float).Mul(
 			new(big.Float).SetUint64(opts.swapConfig.MinQuoteAmount),
@@ -389,10 +403,24 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	).Uint64()
 
 	// Calculate leftover lovelace from swap order UTxO for return with reward
-	leftoverSwapLovelace := uint64(
-		swapUtxo.Output.GetAmount().GetCoin(),
-	) - matcherFee
+	// Validate to prevent uint64 underflow
+	swapCoin := uint64(swapUtxo.Output.GetAmount().GetCoin())
+	if swapCoin < matcherFee {
+		return nil, fmt.Errorf(
+			"swap UTxO lovelace (%d) < matcher fee (%d)",
+			swapCoin,
+			matcherFee,
+		)
+	}
+	leftoverSwapLovelace := swapCoin - matcherFee
 	if len(opts.swapConfig.Base.PolicyId) == 0 {
+		if leftoverSwapLovelace < opts.swapConfig.BaseAmount {
+			return nil, fmt.Errorf(
+				"leftover lovelace (%d) < base amount (%d)",
+				leftoverSwapLovelace,
+				opts.swapConfig.BaseAmount,
+			)
+		}
 		leftoverSwapLovelace -= opts.swapConfig.BaseAmount
 	}
 	rewardLovelace += leftoverSwapLovelace
@@ -428,6 +456,16 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		datumSwapInputIdx = 1
 	}
 
+	// Validate change amount to prevent negative output
+	changeAmount := int(matcherFee) - swapTxFee
+	if changeAmount <= 0 {
+		return nil, fmt.Errorf(
+			"matcher fee (%d) <= tx fee (%d), no profit",
+			matcherFee,
+			swapTxFee,
+		)
+	}
+
 	cc := apollo.NewEmptyBackend()
 	apollob := apollo.New(&cc)
 	apollob = apollob.
@@ -449,7 +487,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 			rewardAddress, int(rewardLovelace), rewardUnits...,
 		).
 		PayToAddress(
-			changeAddress, int(matcherFee)-swapTxFee,
+			changeAddress, changeAmount,
 		).
 		AddReferenceInput(
 			opts.poolInputRef.TxId,

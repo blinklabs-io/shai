@@ -109,7 +109,7 @@ func (n *Node) AddOutboundTransaction(txBytes []byte) error {
 		return fmt.Errorf("failed to parse transaction CBOR: %w", err)
 	}
 	tmpTx := ntnTransaction{
-		Hash: tx.Hash(),
+		Hash: tx.Hash().String(),
 		Type: txType,
 		Cbor: txBytes[:],
 	}
@@ -160,7 +160,7 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 					// Add transaction to mempool
 					err = n.txsubmissionMempool.addTransaction(
 						&TxsubmissionMempoolTransaction{
-							Hash:     tx.Hash(),
+							Hash:     tx.Hash().String(),
 							Type:     uint(txBody.EraId),
 							Cbor:     txBody.TxBody,
 							LastSeen: time.Now(),
@@ -170,7 +170,7 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 						logger.Error(
 							"failed to add TX to mempool:",
 							"txHash",
-							tx.Hash(),
+							tx.Hash().String(),
 							"error:",
 							err,
 						)

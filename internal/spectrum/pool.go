@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,6 +16,7 @@ package spectrum
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -173,7 +174,7 @@ func (p *Pool) Asset(asset AssetClass) AssetAmount {
 func (p *Pool) CalculateReturnToPool(
 	inputAsset AssetAmount,
 	rewardAsset AssetAmount,
-) (uint64, []AssetAmount) {
+) (uint64, []AssetAmount, error) {
 	var retAda uint64
 	retUnits := []AssetAmount{
 		{
@@ -185,6 +186,14 @@ func (p *Pool) CalculateReturnToPool(
 	inAsset := p.Asset(inputAsset.Class)
 	inAsset.Amount += inputAsset.Amount
 	outAsset := p.Asset(rewardAsset.Class)
+	// Validate to prevent uint64 underflow
+	if outAsset.Amount < rewardAsset.Amount {
+		return 0, nil, fmt.Errorf(
+			"pool reserve (%d) insufficient for reward (%d)",
+			outAsset.Amount,
+			rewardAsset.Amount,
+		)
+	}
 	outAsset.Amount -= rewardAsset.Amount
 	if inAsset.IsLovelace() {
 		retAda = inAsset.Amount
@@ -193,5 +202,5 @@ func (p *Pool) CalculateReturnToPool(
 		retAda = outAsset.Amount
 		retUnits = append(retUnits, inAsset)
 	}
-	return retAda, retUnits
+	return retAda, retUnits, nil
 }

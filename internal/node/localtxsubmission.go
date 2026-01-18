@@ -30,7 +30,7 @@ func (n *Node) localTxsubmissionServerSubmitTx(
 	// Add transaction to mempool
 	err = n.txsubmissionMempool.addTransaction(
 		&TxsubmissionMempoolTransaction{
-			Hash:     tx.Hash(),
+			Hash:     tx.Hash().String(),
 			Type:     txEraId,
 			Cbor:     txBytes,
 			LastSeen: time.Now(),

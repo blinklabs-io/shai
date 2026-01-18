@@ -6,7 +6,6 @@ import (
 	"sync"
 
 	"github.com/blinklabs-io/adder/event"
-	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/connection"
 	"github.com/blinklabs-io/gouroboros/ledger"
@@ -135,10 +134,10 @@ func (c chainsyncBlock) String() string {
 
 func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {
 	switch e := evt.Payload.(type) {
-	case input_chainsync.RollbackEvent:
+	case event.RollbackEvent:
 		n.chainsyncClientState.Rollback(e.SlotNumber, e.BlockHash)
-	case input_chainsync.BlockEvent:
-		blockCtx := evt.Context.(input_chainsync.BlockContext)
+	case event.BlockEvent:
+		blockCtx := evt.Context.(event.BlockContext)
 		// Update current tip
 		n.chainsyncClientState.tip = chainsyncTip{
 			SlotNumber:  blockCtx.SlotNumber,
@@ -158,8 +157,8 @@ func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {
 				Type: blockType,
 			},
 		)
-	case input_chainsync.TransactionEvent:
-		eventCtx := evt.Context.(input_chainsync.TransactionContext)
+	case event.TransactionEvent:
+		eventCtx := evt.Context.(event.TransactionContext)
 		n.txsubmissionMempool.removeTransaction(eventCtx.TransactionHash)
 	}
 	return nil
@@ -199,7 +198,7 @@ func (n *Node) chainsyncServerFindIntersect(
 	retTip = n.chainsyncClientState.tip.ToTip()
 
 	if intersectTip.SlotNumber == 0 {
-		return retPoint, retTip, chainsync.IntersectNotFoundError
+		return retPoint, retTip, chainsync.ErrIntersectNotFound
 	}
 
 	// Create initial chainsync state for connection

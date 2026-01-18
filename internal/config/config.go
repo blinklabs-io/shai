@@ -19,6 +19,7 @@ type Config struct {
 	Storage          StorageConfig  `yaml:"storage"`
 	Indexer          IndexerConfig  `yaml:"indexer"`
 	Wallet           WalletConfig   `yaml:"wallet"`
+	Oracle           OracleConfig   `yaml:"oracle"`
 	Network          string         `yaml:"network"          envconfig:"NETWORK"`
 	Profiles         []string       `yaml:"profiles"         envconfig:"PROFILES"`
 	ListenAddress    string         `yaml:"listenAddress"    envconfig:"LISTEN_ADDRESS"`
@@ -26,6 +27,11 @@ type Config struct {
 	ListenPort       uint           `yaml:"port"             envconfig:"PORT"`
 	ListenPortNtc    uint           `yaml:"portNtc"          envconfig:"PORT_NTC"`
 	NetworkMagic     uint32
+}
+
+type OracleConfig struct {
+	APIEnabled bool   `yaml:"apiEnabled" envconfig:"ORACLE_API_ENABLED"`
+	APIAddress string `yaml:"apiAddress" envconfig:"ORACLE_API_ADDRESS"`
 }
 
 type LoggingConfig struct {
@@ -69,7 +75,7 @@ type WalletConfig struct {
 // Singleton config instance with default values
 var globalConfig = &Config{
 	Network:       "mainnet",
-	Profiles:      []string{"spectrum", "teddyswap"},
+	Profiles:      []string{"spectrum"},
 	ListenPort:    3000,
 	ListenPortNtc: 3099,
 	Logging: LoggingConfig{

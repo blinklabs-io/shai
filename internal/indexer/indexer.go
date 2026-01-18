@@ -1,4 +1,4 @@
-// Copyright 2025 Blink Labs Software
+// Copyright 2026 Blink Labs Software
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -44,8 +44,8 @@ type Indexer struct {
 	tipHash      string
 	tipReached   bool
 	syncLogTimer *time.Timer
-	//lastBlockData any
-	eventFuncs []EventFunc
+	eventFuncs   []EventFunc
+	watchMgr     *WatchManager
 }
 
 type EventFunc func(event.Event) error
@@ -57,11 +57,12 @@ func New() *Indexer {
 func (i *Indexer) Start() error {
 	cfg := config.GetConfig()
 	logger := logging.GetLogger()
+	// Initialize watch manager
+	i.watchMgr = NewWatchManager()
 	// Create pipeline
 	i.pipeline = pipeline.New()
 	// Configure pipeline input
 	inputOpts := []input_chainsync.ChainSyncOptionFunc{
-		input_chainsync.WithBulkMode(true),
 		input_chainsync.WithAutoReconnect(true),
 		input_chainsync.WithLogger(logging.GetLogger()),
 		input_chainsync.WithStatusUpdateFunc(i.updateStatus),
@@ -136,11 +137,9 @@ func (i *Indexer) Start() error {
 	output := output_embedded.New(
 		output_embedded.WithCallbackFunc(
 			func(evt event.Event) error {
-				// TODO: run these in parallel
 				// Call each registered event handler func
 				for _, eventFunc := range i.eventFuncs {
 					if err := eventFunc(evt); err != nil {
-						fmt.Printf("err = %s\n", err)
 						return err
 					}
 				}
@@ -175,11 +174,15 @@ func (i *Indexer) AddEventFunc(eventFunc EventFunc) {
 
 func (i *Indexer) handleEvent(evt event.Event) error {
 	//logger := logging.GetLogger()
+	// Check watches for this event
+	if i.watchMgr != nil {
+		i.watchMgr.CheckEvent(evt)
+	}
 	switch evt.Payload.(type) {
-	case input_chainsync.TransactionEvent:
+	case event.TransactionEvent:
 		bursa := wallet.GetWallet()
-		eventTx := evt.Payload.(input_chainsync.TransactionEvent)
-		eventCtx := evt.Context.(input_chainsync.TransactionContext)
+		eventTx := evt.Payload.(event.TransactionEvent)
+		eventCtx := evt.Context.(event.TransactionContext)
 		// Delete used UTXOs
 		for _, txInput := range eventTx.Transaction.Consumed() {
 			//logger.Debugf("UTxO %s.%d consumed in transaction %s", txInput.Id().String(), txInput.Index(), eventCtx.TransactionHash)
@@ -237,4 +240,47 @@ func (i *Indexer) updateStatus(status input_chainsync.ChainSyncStatus) {
 	if err := storage.GetStorage().UpdateCursor(status.SlotNumber, status.BlockHash); err != nil {
 		logger.Error("failed to update cursor:", "error", err)
 	}
+}
+
+// RegisterTxWatch registers a watch for a specific transaction ID.
+// The callback will be invoked when a transaction with the given ID is seen.
+func (i *Indexer) RegisterTxWatch(
+	txId string,
+	ttl time.Duration,
+	cb WatchCallback,
+) string {
+	if i.watchMgr == nil {
+		return ""
+	}
+	return i.watchMgr.RegisterTxWatch(txId, ttl, cb)
+}
+
+// RegisterUTxOWatch registers a watch for a specific UTxO being spent.
+// The callback will be invoked when the UTxO is consumed as a transaction input.
+func (i *Indexer) RegisterUTxOWatch(
+	txId string,
+	index uint32,
+	ttl time.Duration,
+	cb WatchCallback,
+) string {
+	if i.watchMgr == nil {
+		return ""
+	}
+	return i.watchMgr.RegisterUTxOWatch(txId, index, ttl, cb)
+}
+
+// UnregisterWatch removes a watch by its ID
+func (i *Indexer) UnregisterWatch(watchId string) {
+	if i.watchMgr == nil {
+		return
+	}
+	i.watchMgr.Unregister(watchId)
+}
+
+// WatchCount returns the number of active watches
+func (i *Indexer) WatchCount() int {
+	if i.watchMgr == nil {
+		return 0
+	}
+	return i.watchMgr.WatchCount()
 }
