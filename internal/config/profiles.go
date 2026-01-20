@@ -141,6 +141,28 @@ var Profiles = map[string]map[string]Profile{
 				},
 			},
 		},
+		"splash-v1": {
+			Name:          "splash-v1",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 98823654,                                                           // Splash deployment (rebrand of Spectrum)
+			InterceptHash: "4666f26d15f4802c0d4c81b841583ea6d90d623d168c77f1e45200eda1f82638", // Splash deployment hash
+			Config: OracleProfileConfig{
+				Protocol: "splash-v1",
+				PoolAddresses: []ProfileConfigAddress{
+					// Splash pool script address (same as Spectrum PoolV2)
+					{
+						Address: "addr1w94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6g03d4zz",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{
+					// Pool reference script (same as Spectrum PoolV2)
+					{
+						TxId:      "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a",
+						OutputIdx: 0,
+					},
+				},
+			},
+		},
 		"spectrum": {
 			Name:          "spectrum",
 			Type:          ProfileTypeSpectrum,
