@@ -165,6 +165,7 @@ func TestMinswapV2ParserParsePoolDatum(t *testing.T) {
 	parser := NewMinswapV2Parser()
 	state, err := parser.ParsePoolDatum(
 		cborData,
+		[]byte{}, // dummy utxo value
 		"abc123",
 		0,
 		12345,

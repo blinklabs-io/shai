@@ -145,6 +145,7 @@ func (o *Oracle) handleTransaction(
 		// Parse the pool state using the protocol-specific parser
 		state, err := o.parser.ParsePoolDatum(
 			utxo.Output.Datum().Cbor(),
+			utxo.Output.Cbor(),
 			ctx.TransactionHash,
 			utxo.Id.Index(),
 			ctx.SlotNumber,

@@ -124,6 +124,23 @@ var Profiles = map[string]map[string]Profile{
 				},
 			},
 		},
+		"sundaeswap-v3": {
+			Name:          "sundaeswap-v3",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 123703740,
+			InterceptHash: "c43d1bb5308d1ad7baa11120291ed2ba620784ebd96ae02a63c5511b3346581a",
+			Config: OracleProfileConfig{
+				Protocol: "sundaeswap-v3",
+				PoolAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1x8srqftqemf0mjlukfszd97ljuxdp44r372txfcr75wrz26rnxqnmtv3hdu2t6chcfhl2zzjh36a87nmd6dwsu3jenqsslnz7e",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{
+					// TODO: Add reference inputs if needed
+				},
+			},
+		},
 		"spectrum": {
 			Name:          "spectrum",
 			Type:          ProfileTypeSpectrum,

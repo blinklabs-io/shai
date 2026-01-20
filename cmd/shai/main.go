@@ -187,6 +187,8 @@ func getOracleParser(protocol string) oracle.PoolParser {
 	switch protocol {
 	case "minswap-v2", "minswap":
 		return oracle.NewMinswapV2Parser()
+	case "sundaeswap-v3", "sundaeswap":
+		return oracle.NewSundaeSwapV3Parser()
 	default:
 		return nil
 	}
