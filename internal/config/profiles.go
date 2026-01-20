@@ -1,10 +1,13 @@
 package config
 
+import "slices"
+
 type ProfileType int
 
 const (
 	ProfileTypeNone ProfileType = iota
 	ProfileTypeSpectrum
+	ProfileTypeOracle
 )
 
 type Profile struct {
@@ -33,15 +36,24 @@ type SpectrumProfileConfig struct {
 	PoolV2InputRef  ProfileConfigInputRef
 }
 
+// ProfileConfigAddress represents a script address to monitor
+type ProfileConfigAddress struct {
+	Address string
+}
+
+// OracleProfileConfig contains configuration for oracle price tracking
+type OracleProfileConfig struct {
+	Protocol      string                  // Protocol name (e.g., "minswap", "sundaeswap")
+	PoolAddresses []ProfileConfigAddress  // Pool addresses to monitor
+	InputRefs     []ProfileConfigInputRef // Reference inputs if needed
+}
+
 func GetProfiles() []Profile {
 	var ret []Profile
 	if networkProfiles, ok := Profiles[globalConfig.Network]; ok {
 		for k, profile := range networkProfiles {
-			for _, tmpProfile := range globalConfig.Profiles {
-				if k == tmpProfile {
-					ret = append(ret, profile)
-					break
-				}
+			if slices.Contains(globalConfig.Profiles, k) {
+				ret = append(ret, profile)
 			}
 		}
 	}
@@ -90,6 +102,28 @@ var Profiles = map[string]map[string]Profile{
 		},
 	},
 	"mainnet": {
+		"minswap-v2": {
+			Name:          "minswap-v2",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 72316896, // Minswap V2 deployment
+			InterceptHash: "3e86a51cdabb354e5fe4b2511f91c4e8e323af5e50ef5eb2d5f3d5a7dab1f3b1",
+			Config: OracleProfileConfig{
+				Protocol: "minswap-v2",
+				PoolAddresses: []ProfileConfigAddress{
+					// Minswap V2 pool script address (mainnet)
+					{
+						Address: "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{
+					// Pool reference script
+					{
+						TxId:      "2536194d2a976370a932174c10975493ab58fd7c16395d50e62b7c0e1949baea",
+						OutputIdx: 0,
+					},
+				},
+			},
+		},
 		"spectrum": {
 			Name:          "spectrum",
 			Type:          ProfileTypeSpectrum,

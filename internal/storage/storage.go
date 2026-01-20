@@ -243,8 +243,8 @@ func (s *Storage) RemoveUtxo(
 			err = addressItem.Value(func(utxosVal []byte) error {
 				// Remove UTxO from list
 				var newUtxos []string
-				utxoItems := strings.Split(string(utxosVal), ",")
-				for _, utxoItem := range utxoItems {
+				utxoItems := strings.SplitSeq(string(utxosVal), ",")
+				for utxoItem := range utxoItems {
 					if utxoItem != utxoId {
 						newUtxos = append(newUtxos, utxoItem)
 					}
