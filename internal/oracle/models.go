@@ -106,6 +106,7 @@ type PoolParser interface {
 	// ParsePoolDatum parses a pool datum and returns the pool state
 	ParsePoolDatum(
 		datum []byte,
+		utxoValue []byte, // CBOR-encoded UTXO value containing token amounts
 		txHash string,
 		txIndex uint32,
 		slot uint64,

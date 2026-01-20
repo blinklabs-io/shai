@@ -17,26 +17,26 @@ package oracle
 import (
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/oracle/minswap"
+	"github.com/blinklabs-io/shai/internal/oracle/sundaeswap"
 )
 
-// MinswapParser wraps minswap.Parser to implement oracle.PoolParser
-type MinswapParser struct {
-	parser *minswap.Parser
+// SundaeSwapParser wraps sundaeswap.Parser to implement oracle.PoolParser
+type SundaeSwapParser struct {
+	parser *sundaeswap.Parser
 }
 
-// NewMinswapV2Parser creates a parser for Minswap V2 pools
-func NewMinswapV2Parser() *MinswapParser {
-	return &MinswapParser{parser: minswap.NewV2Parser()}
+// NewSundaeSwapV3Parser creates a parser for SundaeSwap V3 pools
+func NewSundaeSwapV3Parser() *SundaeSwapParser {
+	return &SundaeSwapParser{parser: sundaeswap.NewV3Parser()}
 }
 
 // Protocol returns the protocol name
-func (p *MinswapParser) Protocol() string {
+func (p *SundaeSwapParser) Protocol() string {
 	return p.parser.Protocol()
 }
 
-// ParsePoolDatum parses a Minswap pool datum
-func (p *MinswapParser) ParsePoolDatum(
+// ParsePoolDatum parses a SundaeSwap pool datum
+func (p *SundaeSwapParser) ParsePoolDatum(
 	datum []byte,
 	utxoValue []byte,
 	txHash string,

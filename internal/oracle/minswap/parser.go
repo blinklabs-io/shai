@@ -54,6 +54,7 @@ func (p *Parser) Protocol() string {
 // ParsePoolDatum parses a Minswap V2 pool datum
 func (p *Parser) ParsePoolDatum(
 	datum []byte,
+	utxoValue []byte, // Not used for Minswap v2
 	txHash string,
 	txIndex uint32,
 	slot uint64,
