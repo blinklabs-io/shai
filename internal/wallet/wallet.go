@@ -37,7 +37,7 @@ func Setup() {
 			logger.Info("read mnemonic from seed.txt")
 			mnemonic = string(data)
 		} else if errors.Is(err, os.ErrNotExist) {
-			mnemonic, err = bursa.NewMnemonic()
+			mnemonic, err = bursa.GenerateMnemonic()
 			if err != nil {
 				panic(err)
 			}
@@ -65,8 +65,7 @@ func Setup() {
 	}
 	wallet, err := bursa.NewWallet(
 		mnemonic,
-		cfg.Network,
-		"", 0, 0, 0, 0,
+		bursa.WithNetwork(cfg.Network),
 	)
 	if err != nil {
 		panic(err)
