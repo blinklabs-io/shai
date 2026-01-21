@@ -159,7 +159,8 @@ func (p *Parser) getAssetAmount(
 				assetName,
 			)
 		}
-		return txOut.Amount(), nil
+		amount := txOut.Amount()
+		return amount.Uint64(), nil
 	}
 
 	// Get native assets
@@ -188,7 +189,8 @@ func (p *Parser) getAssetAmount(
 		if policy == policyHash {
 			for _, name := range assets.Assets(policy) {
 				if bytes.Equal(name, assetName) {
-					return assets.Asset(policy, name), nil
+					amount := assets.Asset(policy, name)
+					return amount.Uint64(), nil
 				}
 			}
 		}

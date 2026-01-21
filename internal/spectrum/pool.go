@@ -92,12 +92,14 @@ func getAssetAmountFromTransactionOutput(
 ) uint64 {
 	if len(assetClass.PolicyId) == 0 {
 		// ADA
-		return txOutput.Amount()
+		amount := txOutput.Amount()
+		return amount.Uint64()
 	}
-	return txOutput.Assets().Asset(
+	amount := txOutput.Assets().Asset(
 		ledger.NewBlake2b224(assetClass.PolicyId),
 		assetClass.Name,
 	)
+	return amount.Uint64()
 }
 
 func NewPoolFromUtxoBytes(utxoBytes []byte) (*Pool, error) {

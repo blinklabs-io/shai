@@ -196,7 +196,8 @@ func (p *Parser) getAssetAmount(
 ) (uint64, error) {
 	// Check if this is ADA (empty policy ID)
 	if len(policyId) == 0 {
-		return txOut.Amount(), nil
+		amount := txOut.Amount()
+		return amount.Uint64(), nil
 	}
 
 	// Get native assets
@@ -225,7 +226,8 @@ func (p *Parser) getAssetAmount(
 		if policy == policyHash {
 			for _, name := range assets.Assets(policy) {
 				if bytes.Equal(name, assetName) {
-					return assets.Asset(policy, name), nil
+					amount := assets.Asset(policy, name)
+					return amount.Uint64(), nil
 				}
 			}
 		}
