@@ -163,6 +163,22 @@ var Profiles = map[string]map[string]Profile{
 				},
 			},
 		},
+		"wingriders-v2": {
+			Name:          "wingriders-v2",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 61318994, // WingRiders V2 launch
+			InterceptHash: "c1c2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6c1c2",
+			Config: OracleProfileConfig{
+				Protocol: "wingriders-v2",
+				PoolAddresses: []ProfileConfigAddress{
+					// WingRiders V2 pool script address (mainnet)
+					{
+						Address: "addr1w8nvjzjeydcn4atcd93aac8allvrpjn7pjr2qsweukpnayghhwcpj",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
 		"spectrum": {
 			Name:          "spectrum",
 			Type:          ProfileTypeSpectrum,
