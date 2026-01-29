@@ -44,8 +44,14 @@ type V3PoolDatum struct {
 }
 
 func (d *V3PoolDatum) UnmarshalCBOR(cborData []byte) error {
+	type tV3PoolDatum V3PoolDatum
+	var tmp tV3PoolDatum
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*d = V3PoolDatum(tmp)
 	d.SetCbor(cborData)
-	return cbor.DecodeGeneric(cborData, d)
+	return nil
 }
 
 // Assets represents the asset pair in SundaeSwap datum
@@ -56,7 +62,13 @@ type Assets struct {
 }
 
 func (a *Assets) UnmarshalCBOR(cborData []byte) error {
-	return cbor.DecodeGeneric(cborData, a)
+	type tAssets Assets
+	var tmp tAssets
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*a = Assets(tmp)
+	return nil
 }
 
 // AssetClass represents an asset class (policy ID + asset name)
@@ -67,7 +79,13 @@ type AssetClass struct {
 }
 
 func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
-	return cbor.DecodeGeneric(cborData, a)
+	type tAssetClass AssetClass
+	var tmp tAssetClass
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*a = AssetClass(tmp)
+	return nil
 }
 
 // ToCommonAssetClass converts to common.AssetClass
@@ -86,7 +104,13 @@ type Fees struct {
 }
 
 func (f *Fees) UnmarshalCBOR(cborData []byte) error {
-	return cbor.DecodeGeneric(cborData, f)
+	type tFees Fees
+	var tmp tFees
+	if _, err := cbor.Decode(cborData, &tmp); err != nil {
+		return err
+	}
+	*f = Fees(tmp)
+	return nil
 }
 
 // OptionalMultisigScript represents an optional multisig script
@@ -109,9 +133,18 @@ func (o *OptionalMultisigScript) UnmarshalCBOR(cborData []byte) error {
 			cbor.StructAsArray
 			Script cbor.RawMessage
 		}
-		if err := cbor.DecodeGeneric(tmpConstr.FieldsCbor(), &fields); err != nil {
+		type tFields struct {
+			cbor.StructAsArray
+			Script cbor.RawMessage
+		}
+		var tmp tFields
+		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
 			return fmt.Errorf("failed to decode Optional Some fields: %w", err)
 		}
+		fields = struct {
+			cbor.StructAsArray
+			Script cbor.RawMessage
+		}(tmp)
 		// Now decode the script
 		if _, err := cbor.Decode(fields.Script, &o.Value); err != nil {
 			return fmt.Errorf("failed to decode MultisigScript: %w", err)
@@ -162,12 +195,21 @@ func (m *MultisigScript) UnmarshalCBOR(cborData []byte) error {
 			cbor.StructAsArray
 			PubKeyHash []byte
 		}
-		if err := cbor.DecodeGeneric(tmpConstr.FieldsCbor(), &fields); err != nil {
+		type tFields struct {
+			cbor.StructAsArray
+			PubKeyHash []byte
+		}
+		var tmp tFields
+		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
 			return fmt.Errorf(
 				"failed to decode Signature script fields: %w",
 				err,
 			)
 		}
+		fields = struct {
+			cbor.StructAsArray
+			PubKeyHash []byte
+		}(tmp)
 		m.Signature = fields.PubKeyHash
 	case 1, 2, 3, 4, 5:
 		// AllOf, AnyOf, AtLeast, TimeBefore, TimeAfter

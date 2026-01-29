@@ -44,7 +44,6 @@ type V2PoolDatum struct {
 }
 
 func (d *V2PoolDatum) UnmarshalCBOR(cborData []byte) error {
-	d.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -55,7 +54,15 @@ func (d *V2PoolDatum) UnmarshalCBOR(cborData []byte) error {
 			tmpConstr.Constructor(),
 		)
 	}
-	return cbor.DecodeGeneric(tmpConstr.FieldsCbor(), d)
+
+	type tV2PoolDatum V2PoolDatum
+	var tmp tV2PoolDatum
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*d = V2PoolDatum(tmp)
+	d.SetCbor(cborData)
+	return nil
 }
 
 // Bool represents a Plutus boolean (Constructor 0 = false, Constructor 1 = true)
@@ -92,7 +99,14 @@ func (a *Asset) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	return cbor.DecodeGeneric(tmpConstr.FieldsCbor(), a)
+
+	type tAsset Asset
+	var tmp tAsset
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*a = Asset(tmp)
+	return nil
 }
 
 // ToCommonAssetClass converts to common.AssetClass
@@ -127,9 +141,18 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 		cbor.StructAsArray
 		Hash []byte
 	}
-	if err := cbor.DecodeGeneric(tmpConstr.FieldsCbor(), &wrapper); err != nil {
+	type tWrapper struct {
+		cbor.StructAsArray
+		Hash []byte
+	}
+	var tmp tWrapper
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
 		return err
 	}
+	wrapper = struct {
+		cbor.StructAsArray
+		Hash []byte
+	}(tmp)
 	c.Hash = wrapper.Hash
 	return nil
 }
@@ -146,7 +169,14 @@ func (f *BaseFee) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	return cbor.DecodeGeneric(tmpConstr.FieldsCbor(), f)
+
+	type tBaseFee BaseFee
+	var tmp tBaseFee
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*f = BaseFee(tmp)
+	return nil
 }
 
 // OptionalUint64 represents an optional uint64 value
@@ -167,9 +197,18 @@ func (o *OptionalUint64) UnmarshalCBOR(cborData []byte) error {
 			cbor.StructAsArray
 			Value uint64
 		}
-		if err := cbor.DecodeGeneric(tmpConstr.FieldsCbor(), &wrapper); err != nil {
+		type tWrapper struct {
+			cbor.StructAsArray
+			Value uint64
+		}
+		var tmp tWrapper
+		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
 			return err
 		}
+		wrapper = struct {
+			cbor.StructAsArray
+			Value uint64
+		}(tmp)
 		o.Value = wrapper.Value
 	case 1:
 		o.IsPresent = false

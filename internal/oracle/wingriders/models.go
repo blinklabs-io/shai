@@ -48,7 +48,6 @@ type PoolDatum struct {
 }
 
 func (p *PoolDatum) UnmarshalCBOR(cborData []byte) error {
-	p.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -59,7 +58,15 @@ func (p *PoolDatum) UnmarshalCBOR(cborData []byte) error {
 			tmpConstr.Constructor(),
 		)
 	}
-	return cbor.DecodeGeneric(tmpConstr.FieldsCbor(), p)
+
+	type tPoolDatum PoolDatum
+	var tmp tPoolDatum
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*p = PoolDatum(tmp)
+	p.SetCbor(cborData)
+	return nil
 }
 
 func (p PoolDatum) String() string {
@@ -93,10 +100,14 @@ func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
 			tmpConstr.Constructor(),
 		)
 	}
-	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
-		a,
-	)
+
+	type tAssetClass AssetClass
+	var tmp tAssetClass
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*a = AssetClass(tmp)
+	return nil
 }
 
 func (a *AssetClass) MarshalCBOR() ([]byte, error) {
