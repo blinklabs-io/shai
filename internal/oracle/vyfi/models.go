@@ -39,7 +39,6 @@ type PoolDatum struct {
 }
 
 func (p *PoolDatum) UnmarshalCBOR(cborData []byte) error {
-	p.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -50,7 +49,15 @@ func (p *PoolDatum) UnmarshalCBOR(cborData []byte) error {
 			tmpConstr.Constructor(),
 		)
 	}
-	return cbor.DecodeGeneric(tmpConstr.FieldsCbor(), p)
+
+	type tPoolDatum PoolDatum
+	var tmp tPoolDatum
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*p = PoolDatum(tmp)
+	p.SetCbor(cborData)
+	return nil
 }
 
 func (p PoolDatum) String() string {
@@ -73,7 +80,6 @@ type OrderDatum struct {
 }
 
 func (d *OrderDatum) UnmarshalCBOR(cborData []byte) error {
-	d.SetCbor(cborData)
 	var tmpConstr cbor.Constructor
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -84,7 +90,15 @@ func (d *OrderDatum) UnmarshalCBOR(cborData []byte) error {
 			tmpConstr.Constructor(),
 		)
 	}
-	return cbor.DecodeGeneric(tmpConstr.FieldsCbor(), d)
+
+	type tOrderDatum OrderDatum
+	var tmp tOrderDatum
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*d = OrderDatum(tmp)
+	d.SetCbor(cborData)
+	return nil
 }
 
 // OrderDetails represents the order type and parameters
@@ -140,9 +154,18 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 			cbor.StructAsArray
 			MinWantedShares uint64
 		}
-		if err := cbor.DecodeGeneric(tmpConstr.FieldsCbor(), &wrapper); err != nil {
+		type tWrapper struct {
+			cbor.StructAsArray
+			MinWantedShares uint64
+		}
+		var tmp tWrapper
+		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
 			return err
 		}
+		wrapper = struct {
+			cbor.StructAsArray
+			MinWantedShares uint64
+		}(tmp)
 		o.MinWantedShares = wrapper.MinWantedShares
 
 	case OrderTypeRemoveLiquidity:
@@ -156,9 +179,20 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 			MinWantedTokensA uint64
 			MinWantedTokensB uint64
 		}
-		if err := cbor.DecodeGeneric(innerConstr.FieldsCbor(), &wrapper); err != nil {
+		type tWrapper struct {
+			cbor.StructAsArray
+			MinWantedTokensA uint64
+			MinWantedTokensB uint64
+		}
+		var tmp tWrapper
+		if _, err := cbor.Decode(innerConstr.FieldsCbor(), &tmp); err != nil {
 			return err
 		}
+		wrapper = struct {
+			cbor.StructAsArray
+			MinWantedTokensA uint64
+			MinWantedTokensB uint64
+		}(tmp)
 		o.MinWantedTokensA = wrapper.MinWantedTokensA
 		o.MinWantedTokensB = wrapper.MinWantedTokensB
 
@@ -171,9 +205,18 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 			cbor.StructAsArray
 			MinWantedTokens uint64
 		}
-		if err := cbor.DecodeGeneric(tmpConstr.FieldsCbor(), &wrapper); err != nil {
+		type tWrapper struct {
+			cbor.StructAsArray
+			MinWantedTokens uint64
+		}
+		var tmp tWrapper
+		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
 			return err
 		}
+		wrapper = struct {
+			cbor.StructAsArray
+			MinWantedTokens uint64
+		}(tmp)
 		o.MinWantedTokens = wrapper.MinWantedTokens
 
 	default:
