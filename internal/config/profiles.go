@@ -179,6 +179,22 @@ var Profiles = map[string]map[string]Profile{
 				InputRefs: []ProfileConfigInputRef{},
 			},
 		},
+		"vyfi": {
+			Name:          "vyfi",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 92346471, // VyFi launch (May 15, 2023)
+			InterceptHash: "b0ce8bc8fbdcb803287e2b67d8eca865ef93be7e3d2473bfa81d89a8d58b7ee3",
+			Config: OracleProfileConfig{
+				Protocol: "vyfi",
+				PoolAddresses: []ProfileConfigAddress{
+					// VyFi pool script address (mainnet)
+					{
+						Address: "addr1z9vgl40qezca5s8ajz6wnpuwevt98l3jqx2ce5nlu8h8nnw60wckas4haxwwclas0g39cc8cvt2r8yalrfa9e8vxx92qsss9sx",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
 		"spectrum": {
 			Name:          "spectrum",
 			Type:          ProfileTypeSpectrum,
