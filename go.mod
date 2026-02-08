@@ -7,7 +7,7 @@ require (
 	github.com/blinklabs-io/adder v0.37.0
 	github.com/blinklabs-io/bursa v0.12.0
 	github.com/blinklabs-io/dingo v0.3.3
-	github.com/blinklabs-io/gouroboros v0.151.0
+	github.com/blinklabs-io/gouroboros v0.152.1
 	github.com/dgraph-io/badger/v4 v4.9.0
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.11.1
