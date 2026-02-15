@@ -8,7 +8,7 @@ require (
 	github.com/blinklabs-io/bursa v0.14.0
 	github.com/blinklabs-io/dingo v0.3.3
 	github.com/blinklabs-io/gouroboros v0.153.1
-	github.com/dgraph-io/badger/v4 v4.9.0
+	github.com/dgraph-io/badger/v4 v4.9.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/automaxprocs v1.6.0
