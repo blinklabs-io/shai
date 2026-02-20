@@ -191,6 +191,10 @@ func getOracleParser(protocol string) oracle.PoolParser {
 		return oracle.NewSundaeSwapV3Parser()
 	case "splash-v1", "splash":
 		return oracle.NewSplashV1Parser()
+	case "wingriders-v2", "wingriders":
+		return oracle.NewWingRidersV2Parser()
+	case "vyfi":
+		return oracle.NewVyFiParser()
 	default:
 		return nil
 	}
