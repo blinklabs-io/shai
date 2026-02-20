@@ -18,10 +18,8 @@ func (n *Node) localTxsubmissionServerSubmitTx(
 	tx, err := ledger.NewTransactionFromCbor(txEraId, txBytes)
 	if err != nil {
 		logger.Error(
-			"failed to add TX to mempool:",
-			"txHash",
-			tx.Hash(),
-			"error:",
+			"failed to parse TX from CBOR",
+			"error",
 			err,
 		)
 		// XXX: do we want to return the error to the submitter?

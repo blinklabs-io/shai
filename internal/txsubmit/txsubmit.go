@@ -51,5 +51,8 @@ func Start(n *node.Node) error {
 }
 
 func SubmitTx(txRawBytes []byte) {
+	if globalTxSubmit == nil {
+		panic("txsubmit: SubmitTx called before Start")
+	}
 	globalTxSubmit.transactionChan <- txRawBytes
 }

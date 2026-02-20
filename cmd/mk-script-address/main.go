@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"log"
 	"os"
 
 	ouroboros "github.com/blinklabs-io/gouroboros"
@@ -86,7 +87,10 @@ func main() {
 		fmt.Printf("innerScriptData(%d) = %x\n", len(innerScriptData), innerScriptData)
 	*/
 
-	hash, _ := blake2b.New(28, nil)
+	hash, err := blake2b.New(28, nil)
+	if err != nil {
+		log.Fatalf("failed to create blake2b hash: %s", err)
+	}
 	hash.Write([]byte{byte(cmdlineFlags.plutusVersion)})
 	//hash.Write(innerScriptData[:])
 	hash.Write(scriptData[:])
