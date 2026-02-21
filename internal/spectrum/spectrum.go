@@ -163,9 +163,15 @@ func (s *Spectrum) handleTransactionOutput(
 			}
 			// Determine which pool contract input ref to use
 			var poolInputRef config.ProfileConfigInputRef
-			tmpPoolAddr, _ := ledger.NewAddress(poolAddr)
-			poolPaymentAddr := tmpPoolAddr.PaymentAddress().String()
-			switch poolPaymentAddr {
+			tmpPoolAddr, err := ledger.NewAddress(poolAddr)
+			if err != nil {
+				return fmt.Errorf("failed to parse pool address: %w", err)
+			}
+			poolPaymentAddr := tmpPoolAddr.PaymentAddress()
+			if poolPaymentAddr == nil {
+				return fmt.Errorf("pool address has no payment component")
+			}
+			switch poolPaymentAddr.String() {
 			case s.poolV1Address:
 				poolInputRef = s.config.PoolV1InputRef
 			case s.poolV2Address:
