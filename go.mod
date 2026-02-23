@@ -7,7 +7,7 @@ require (
 	github.com/blinklabs-io/adder v0.37.0
 	github.com/blinklabs-io/bursa v0.15.0
 	github.com/blinklabs-io/dingo v0.3.3
-	github.com/blinklabs-io/gouroboros v0.153.1
+	github.com/blinklabs-io/gouroboros v0.158.3
 	github.com/dgraph-io/badger/v4 v4.9.1
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.11.1
@@ -30,7 +30,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.20.0 // indirect
 	github.com/blinklabs-io/go-bip39 v0.2.0 // indirect
-	github.com/blinklabs-io/plutigo v0.0.22 // indirect
+	github.com/blinklabs-io/plutigo v0.0.25 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.6 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.6 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
