@@ -16,13 +16,20 @@ package oracle
 
 import (
 	"fmt"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/adder/event"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
+)
+
+const (
+	subscriberBufferSize = 100
+	dropLogSampleRate    = 100
 )
 
 // Oracle tracks pool states from on-chain data
@@ -35,6 +42,10 @@ type Oracle struct {
 	poolAddresses map[string]struct{} // Set for O(1) lookup
 	storage       *OracleStorage
 	stopChan      chan struct{}
+	subscribers   []chan *PriceUpdate
+	subMu         sync.RWMutex
+	stopped       bool
+	dropCount     atomic.Uint64
 }
 
 // New creates a new Oracle instance
@@ -93,6 +104,18 @@ func (o *Oracle) Start() error {
 
 // Stop stops the oracle
 func (o *Oracle) Stop() {
+	o.subMu.Lock()
+	if o.stopped {
+		o.subMu.Unlock()
+		return
+	}
+	o.stopped = true
+	for _, ch := range o.subscribers {
+		close(ch)
+	}
+	o.subscribers = nil
+	o.subMu.Unlock()
+
 	close(o.stopChan)
 	if o.storage != nil {
 		if err := o.storage.Close(); err != nil {
@@ -100,6 +123,97 @@ func (o *Oracle) Stop() {
 			logger.Error("failed to close oracle storage", "error", err)
 		}
 	}
+}
+
+// Subscribe returns a receive-only channel that receives price updates.
+// The caller should call Unsubscribe when done to prevent leaks.
+func (o *Oracle) Subscribe() <-chan *PriceUpdate {
+	o.subMu.Lock()
+	defer o.subMu.Unlock()
+
+	ch := make(chan *PriceUpdate, subscriberBufferSize)
+	if o.stopped {
+		close(ch)
+		return ch
+	}
+	o.subscribers = append(o.subscribers, ch)
+	return ch
+}
+
+// Unsubscribe removes a subscriber channel.
+func (o *Oracle) Unsubscribe(ch <-chan *PriceUpdate) {
+	o.subMu.Lock()
+	defer o.subMu.Unlock()
+
+	for i, sub := range o.subscribers {
+		if (<-chan *PriceUpdate)(sub) == ch {
+			o.subscribers = append(o.subscribers[:i], o.subscribers[i+1:]...)
+			close(sub)
+			return
+		}
+	}
+}
+
+// notifySubscribers sends a price update to all subscribers.
+func (o *Oracle) notifySubscribers(state *PoolState, prevPrice float64) {
+	update := NewPriceUpdate(state, prevPrice)
+	if update == nil {
+		return
+	}
+	logger := logging.GetLogger()
+
+	o.subMu.RLock()
+	defer o.subMu.RUnlock()
+
+	for i, ch := range o.subscribers {
+		updateCopy := clonePriceUpdate(update)
+		select {
+		case ch <- updateCopy:
+		default:
+			// Subscriber channel is full. Drop oldest buffered update and try
+			// to enqueue the newest one so slow subscribers receive fresher data.
+			select {
+			case <-ch:
+				o.recordDrop(logger, i, updateCopy)
+			default:
+			}
+			select {
+			case ch <- updateCopy:
+			default:
+				o.recordDrop(logger, i, updateCopy)
+			}
+		}
+	}
+}
+
+func clonePriceUpdate(update *PriceUpdate) *PriceUpdate {
+	if update == nil {
+		return nil
+	}
+	copy := *update
+	return &copy
+}
+
+func (o *Oracle) recordDrop(
+	logger *slog.Logger,
+	subscriberIndex int,
+	update *PriceUpdate,
+) {
+	drops := o.dropCount.Add(1)
+	if drops == 1 || drops%dropLogSampleRate == 0 {
+		logger.Debug(
+			"oracle subscriber update dropped",
+			"subscriberIndex", subscriberIndex,
+			"updateType", "price_update",
+			"poolId", update.PoolId,
+			"drops", drops,
+		)
+	}
+}
+
+// DroppedNotifications returns the total number of subscriber updates dropped.
+func (o *Oracle) DroppedNotifications() uint64 {
+	return o.dropCount.Load()
 }
 
 // HandleChainsyncEvent processes chain sync events
@@ -163,8 +277,15 @@ func (o *Oracle) handleTransaction(
 
 		// Update pool state
 		o.poolsMu.Lock()
+		var prevPrice float64
+		if prev, ok := o.pools[state.PoolId]; ok {
+			prevPrice = prev.PriceXY()
+		}
 		o.pools[state.PoolId] = state
 		o.poolsMu.Unlock()
+
+		// Notify subscribers of price update
+		o.notifySubscribers(state, prevPrice)
 
 		// Persist to storage
 		if err := o.storage.SavePoolState(state); err != nil {
