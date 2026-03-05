@@ -20,6 +20,7 @@ type Config struct {
 	Storage          StorageConfig  `yaml:"storage"`
 	Indexer          IndexerConfig  `yaml:"indexer"`
 	Wallet           WalletConfig   `yaml:"wallet"`
+	Oracle           OracleConfig   `yaml:"oracle"`
 	Network          string         `yaml:"network"          envconfig:"NETWORK"`
 	Profiles         []string       `yaml:"profiles"         envconfig:"PROFILES"`
 	ListenAddress    string         `yaml:"listenAddress"    envconfig:"LISTEN_ADDRESS"`
@@ -67,6 +68,11 @@ type WalletConfig struct {
 	Mnemonic string `yaml:"mnemonic" envconfig:"MNEMONIC"`
 }
 
+type OracleConfig struct {
+	APIEnabled bool   `yaml:"apiEnabled" envconfig:"ORACLE_API_ENABLED"`
+	APIAddress string `yaml:"apiAddress" envconfig:"ORACLE_API_ADDRESS"`
+}
+
 // Singleton config instance with default values
 var globalConfig = &Config{
 	Network:       "mainnet",
@@ -83,6 +89,10 @@ var globalConfig = &Config{
 	Storage: StorageConfig{
 		// TODO: pick a better location
 		Directory: "./.shai",
+	},
+	Oracle: OracleConfig{
+		APIEnabled: false,
+		APIAddress: ":8090",
 	},
 }
 

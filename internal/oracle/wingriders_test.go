@@ -86,16 +86,16 @@ func TestWingRidersV2ParserParsePoolDatum(t *testing.T) {
 		requestValidatorHash,
 		assetA,
 		assetB,
-		uint64(30),    // swapFeeInBasis (0.3%)
-		uint64(5),     // protocolFeeInBasis (0.05%)
-		uint64(10),    // projectFeeInBasis (0.1%)
-		uint64(10000), // feeBasis
-		uint64(2000000), // agentFeeAda (2 ADA)
+		uint64(30),            // swapFeeInBasis (0.3%)
+		uint64(5),             // protocolFeeInBasis (0.05%)
+		uint64(10),            // projectFeeInBasis (0.1%)
+		uint64(10000),         // feeBasis
+		uint64(2000000),       // agentFeeAda (2 ADA)
 		uint64(1662811586000), // lastInteraction
-		uint64(100000000), // treasuryA (100 ADA)
-		uint64(200000000), // treasuryB (200 WING)
-		uint64(1000000),   // projectTreasuryA (1 ADA)
-		uint64(2000000),   // projectTreasuryB (2 WING)
+		uint64(100000000),     // treasuryA (100 ADA)
+		uint64(200000000),     // treasuryB (200 WING)
+		uint64(1000000),       // projectTreasuryA (1 ADA)
+		uint64(2000000),       // projectTreasuryB (2 WING)
 	})
 
 	cborData, err := cbor.Encode(&datum)
