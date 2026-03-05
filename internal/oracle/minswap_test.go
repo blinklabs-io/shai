@@ -15,10 +15,13 @@
 package oracle
 
 import (
+	"math/big"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/shai/internal/oracle/minswap"
 )
 
@@ -29,6 +32,16 @@ func TestNewMinswapV2Parser(t *testing.T) {
 	}
 	if parser.Protocol() != "minswap-v2" {
 		t.Errorf("expected protocol 'minswap-v2', got %s", parser.Protocol())
+	}
+}
+
+func TestNewMinswapV1Parser(t *testing.T) {
+	parser := NewMinswapV1Parser()
+	if parser == nil {
+		t.Fatal("expected non-nil parser")
+	}
+	if parser.Protocol() != "minswap-v1" {
+		t.Errorf("expected protocol 'minswap-v1', got %s", parser.Protocol())
 	}
 }
 
@@ -234,4 +247,171 @@ func TestMinswapOptionalUint64(t *testing.T) {
 	if optSome.Value != 42 {
 		t.Errorf("expected value 42, got %d", optSome.Value)
 	}
+}
+
+func TestMinswapV1DatumUnmarshal(t *testing.T) {
+	assetA := cbor.NewConstructor(0, cbor.IndefLengthList{
+		[]byte{}, // Empty policy = ADA
+		[]byte{},
+	})
+
+	assetB := cbor.NewConstructor(0, cbor.IndefLengthList{
+		[]byte{0xab, 0xcd, 0xef},
+		[]byte("MIN"),
+	})
+
+	feeSharingNone := cbor.NewConstructor(1, cbor.IndefLengthList{})
+
+	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+		assetA,
+		assetB,
+		uint64(1000000000), // totalLiquidity
+		uint64(12345678),   // rootKLast
+		feeSharingNone,
+	})
+
+	cborData, err := cbor.Encode(&datum)
+	if err != nil {
+		t.Fatalf("failed to encode test datum: %v", err)
+	}
+
+	var poolDatum minswap.V1PoolDatum
+	if _, err := cbor.Decode(cborData, &poolDatum); err != nil {
+		t.Fatalf("failed to decode datum: %v", err)
+	}
+
+	if poolDatum.TotalLiquidity != 1000000000 {
+		t.Errorf(
+			"expected totalLiquidity 1000000000, got %d",
+			poolDatum.TotalLiquidity,
+		)
+	}
+	if poolDatum.RootKLast != 12345678 {
+		t.Errorf("expected rootKLast 12345678, got %d", poolDatum.RootKLast)
+	}
+	if poolDatum.FeeSharing.IsPresent {
+		t.Error("expected FeeSharing.IsPresent to be false")
+	}
+}
+
+func TestMinswapV1ParserParsePoolDatum(t *testing.T) {
+	tokenPolicy := make([]byte, 28)
+	for i := range tokenPolicy {
+		tokenPolicy[i] = 0xab
+	}
+
+	assetA := cbor.NewConstructor(0, cbor.IndefLengthList{
+		[]byte{},
+		[]byte{},
+	})
+
+	assetB := cbor.NewConstructor(0, cbor.IndefLengthList{
+		tokenPolicy,
+		[]byte("TEST"),
+	})
+
+	feeSharingNone := cbor.NewConstructor(1, cbor.IndefLengthList{})
+
+	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+		assetA,
+		assetB,
+		uint64(1000000000), // totalLiquidity
+		uint64(12345678),   // rootKLast
+		feeSharingNone,
+	})
+
+	cborData, err := cbor.Encode(&datum)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+	utxoValue, err := buildMaryOutputCbor(
+		100000000, // 100 ADA
+		tokenPolicy,
+		[]byte("TEST"),
+		200000000, // 200 TEST
+	)
+	if err != nil {
+		t.Fatalf("failed to build UTxO output: %v", err)
+	}
+
+	parser := NewMinswapV1Parser()
+	state, err := parser.ParsePoolDatum(
+		cborData,
+		utxoValue,
+		"def456",
+		1,
+		67890,
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("failed to parse datum: %v", err)
+	}
+
+	if state.Protocol != "minswap-v1" {
+		t.Errorf("expected protocol 'minswap-v1', got %s", state.Protocol)
+	}
+	if state.Slot != 67890 {
+		t.Errorf("expected slot 67890, got %d", state.Slot)
+	}
+	if state.TxHash != "def456" {
+		t.Errorf("expected txHash 'def456', got %s", state.TxHash)
+	}
+	if state.TxIndex != 1 {
+		t.Errorf("expected txIndex 1, got %d", state.TxIndex)
+	}
+	if state.AssetX.Amount != 100000000 {
+		t.Errorf("expected assetX amount 100000000, got %d", state.AssetX.Amount)
+	}
+	if state.AssetY.Amount != 200000000 {
+		t.Errorf("expected assetY amount 200000000, got %d", state.AssetY.Amount)
+	}
+	if state.FeeNum != 9970 {
+		t.Errorf("expected feeNum 9970, got %d", state.FeeNum)
+	}
+	if state.FeeDenom != 10000 {
+		t.Errorf("expected feeDenom 10000, got %d", state.FeeDenom)
+	}
+
+	// Check price calculation: 200 TEST / 100 ADA = 2.0
+	if state.PriceXY() != 2.0 {
+		t.Errorf("expected price 2.0, got %f", state.PriceXY())
+	}
+}
+
+func buildMaryOutputCbor(
+	lovelace uint64,
+	tokenPolicy []byte,
+	tokenName []byte,
+	tokenAmount uint64,
+) ([]byte, error) {
+	addr, err := lcommon.NewAddressFromParts(
+		lcommon.AddressTypeKeyKey,
+		lcommon.AddressNetworkMainnet,
+		make([]byte, 28),
+		make([]byte, 28),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var policyHash lcommon.Blake2b224
+	copy(policyHash[:], tokenPolicy)
+
+	assets := lcommon.NewMultiAsset[lcommon.MultiAssetTypeOutput](
+		map[lcommon.Blake2b224]map[cbor.ByteString]lcommon.MultiAssetTypeOutput{
+			policyHash: {
+				cbor.NewByteString(tokenName): new(big.Int).SetUint64(tokenAmount),
+			},
+		},
+	)
+
+	txOut := mary.MaryTransactionOutput{
+		OutputAddress: addr,
+		OutputAmount: mary.MaryTransactionOutputValue{
+			Amount: lovelace,
+			Assets: &assets,
+		},
+	}
+
+	return cbor.Encode(&txOut)
 }

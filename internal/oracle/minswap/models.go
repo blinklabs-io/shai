@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package minswap provides datum types and parsing for Minswap V2 DEX protocol.
+// Package minswap provides datum types and parsing for Minswap DEX protocols.
 package minswap
 
 import (
@@ -41,6 +41,39 @@ type V2PoolDatum struct {
 	BaseFee             BaseFee
 	FeeSharingNumerator OptionalUint64
 	AllowDynamicFee     Bool
+}
+
+// V1PoolDatum represents the Minswap V1 pool datum structure
+type V1PoolDatum struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	AssetA         Asset
+	AssetB         Asset
+	TotalLiquidity uint64
+	RootKLast      uint64
+	FeeSharing     FeeSharing
+}
+
+func (d *V1PoolDatum) UnmarshalCBOR(cborData []byte) error {
+	var tmpConstr cbor.Constructor
+	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
+		return err
+	}
+	if tmpConstr.Constructor() != 0 {
+		return fmt.Errorf(
+			"expected constructor 0, got %d",
+			tmpConstr.Constructor(),
+		)
+	}
+
+	type tV1PoolDatum V1PoolDatum
+	var tmp tV1PoolDatum
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		return err
+	}
+	*d = V1PoolDatum(tmp)
+	d.SetCbor(cborData)
+	return nil
 }
 
 func (d *V2PoolDatum) UnmarshalCBOR(cborData []byte) error {
@@ -176,6 +209,45 @@ func (f *BaseFee) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	*f = BaseFee(tmp)
+	return nil
+}
+
+// FeeSharing represents optional fee sharing in V1
+type FeeSharing struct {
+	IsPresent      bool
+	FeeTo          []byte
+	FeeToDatumHash []byte
+}
+
+func (f *FeeSharing) UnmarshalCBOR(cborData []byte) error {
+	var tmpConstr cbor.Constructor
+	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
+		return err
+	}
+	switch tmpConstr.Constructor() {
+	case 1:
+		f.IsPresent = false
+		f.FeeTo = nil
+		f.FeeToDatumHash = nil
+		return nil
+	case 0:
+		f.IsPresent = true
+	default:
+		return fmt.Errorf(
+			"invalid FeeSharing constructor: expected 0 or 1, got %d",
+			tmpConstr.Constructor(),
+		)
+	}
+	var wrapper struct {
+		cbor.StructAsArray
+		FeeTo          []byte
+		FeeToDatumHash []byte
+	}
+	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &wrapper); err != nil {
+		return err
+	}
+	f.FeeTo = wrapper.FeeTo
+	f.FeeToDatumHash = wrapper.FeeToDatumHash
 	return nil
 }
 
