@@ -18,6 +18,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/logging"
@@ -110,6 +111,83 @@ func (s *OracleStorage) LoadAllPoolStates() ([]*PoolState, error) {
 	return states, nil
 }
 
+// LoadPoolState loads a single pool state by network, protocol, and pool ID.
+func (s *OracleStorage) LoadPoolState(
+	network,
+	protocol,
+	poolId string,
+) (*PoolState, error) {
+	key := poolStateKey(network, protocol, poolId)
+
+	var state *PoolState
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			state = &PoolState{}
+			return json.Unmarshal(val, state)
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load pool state: %w", err)
+	}
+
+	return state, nil
+}
+
+// LoadPoolStatesByProtocol loads all pool states for a specific protocol.
+func (s *OracleStorage) LoadPoolStatesByProtocol(
+	protocol string,
+) ([]*PoolState, error) {
+	logger := logging.GetLogger()
+	poolStates := make([]*PoolState, 0)
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte(poolStateKeyPrefix)
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			_, keyProtocol, _, err := ParsePoolStateKey(string(item.Key()))
+			if err != nil {
+				logger.Warn(
+					"skipping malformed oracle pool key",
+					"key", string(item.Key()),
+					"error", err,
+				)
+				continue
+			}
+			if keyProtocol != protocol {
+				continue
+			}
+
+			if err := item.Value(func(val []byte) error {
+				var state PoolState
+				if err := json.Unmarshal(val, &state); err != nil {
+					logger.Warn(
+						"skipping malformed oracle pool state payload",
+						"key", string(item.Key()),
+						"error", err,
+					)
+					return nil
+				}
+				poolStates = append(poolStates, &state)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load pool states by protocol: %w", err)
+	}
+	return poolStates, nil
+}
+
 // DeletePoolState removes a pool state from storage
 func (s *OracleStorage) DeletePoolState(state *PoolState) error {
 	key := poolStateKey(state.Network, state.Protocol, state.PoolId)
@@ -127,4 +205,20 @@ func (s *OracleStorage) DeletePoolState(state *PoolState) error {
 // poolStateKey generates the storage key for a pool state
 func poolStateKey(network, protocol, poolId string) string {
 	return poolStateKeyPrefix + network + ":" + protocol + ":" + poolId
+}
+
+// ParsePoolStateKey extracts network, protocol, and poolId from a pool key.
+func ParsePoolStateKey(key string) (network, protocol, poolId string, err error) {
+	if !strings.HasPrefix(key, poolStateKeyPrefix) {
+		return "", "", "", fmt.Errorf("invalid pool state key: %s", key)
+	}
+	trimmed := strings.TrimPrefix(key, poolStateKeyPrefix)
+	parts := strings.SplitN(trimmed, ":", 3)
+	if len(parts) != 3 {
+		return "", "", "", fmt.Errorf("invalid pool state key: %s", key)
+	}
+	if parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", fmt.Errorf("invalid pool state key: %s", key)
+	}
+	return parts[0], parts[1], parts[2], nil
 }
