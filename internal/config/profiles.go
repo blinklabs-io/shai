@@ -102,6 +102,22 @@ var Profiles = map[string]map[string]Profile{
 		},
 	},
 	"mainnet": {
+		"minswap-v1": {
+			Name:          "minswap-v1",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 51340496, // Minswap V1 deployment (March 2022)
+			InterceptHash: "ba74da9715acfd2a01c88b52e41b574621c65c91e8eda35c9c3cd8e8c5f64d4c",
+			Config: OracleProfileConfig{
+				Protocol: "minswap-v1",
+				PoolAddresses: []ProfileConfigAddress{
+					// Minswap V1 pool script address (mainnet)
+					{
+						Address: "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxzfgf2ypu62xjxel6aqdmr333p0ds377t4phv8098c8s8fmqffc3l3",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
 		"minswap-v2": {
 			Name:          "minswap-v2",
 			Type:          ProfileTypeOracle,

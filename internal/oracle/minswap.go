@@ -25,6 +25,11 @@ type MinswapParser struct {
 	parser *minswap.Parser
 }
 
+// NewMinswapV1Parser creates a parser for Minswap V1 pools
+func NewMinswapV1Parser() *MinswapParser {
+	return &MinswapParser{parser: minswap.NewV1Parser()}
+}
+
 // NewMinswapV2Parser creates a parser for Minswap V2 pools
 func NewMinswapV2Parser() *MinswapParser {
 	return &MinswapParser{parser: minswap.NewV2Parser()}

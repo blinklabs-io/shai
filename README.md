@@ -5,7 +5,7 @@ Shai is a Cardano Multi-DEX oracle and matcher bot. It monitors the blockchain f
 ## Features
 
 - DEX Oracle: Real-time pool state tracking from on-chain data
-- Multi-DEX Support: Minswap v2, SundaeSwap v3, Splash v1, WingRiders v2, VyFi
+- Multi-DEX Support: Minswap v1/v2, SundaeSwap v3, Splash v1, WingRiders v2, VyFi
 - Spectrum Batching: Matcher bot for Spectrum-compatible DEXs
 - Mempool Monitoring: Track pending transactions for faster matching
 - Cardano Node: Acts as both NtN (Node-to-Node) and NtC (Node-to-Client) peer
@@ -61,6 +61,7 @@ Shai can be configured via YAML file, environment variables, or both.
 ```yaml
 network: mainnet
 profiles:
+  - minswap-v1
   - minswap-v2
   - sundaeswap-v3
   - splash-v1
@@ -87,6 +88,7 @@ wallet:
 ### Available Profiles
 
 Oracle profiles (price tracking):
+- `minswap-v1` - Minswap V1 pools (legacy)
 - `minswap-v2` - Minswap V2 pools
 - `sundaeswap-v3` - SundaeSwap V3 pools
 - `splash-v1` - Splash (formerly Spectrum) pools
@@ -116,7 +118,7 @@ Track pool prices across multiple DEXs:
 
 ```bash
 export NETWORK=mainnet
-export PROFILES=minswap-v2,sundaeswap-v3,splash-v1,wingriders-v2,vyfi
+export PROFILES=minswap-v1,minswap-v2,sundaeswap-v3,splash-v1,wingriders-v2,vyfi
 export INDEXER_TCP_ADDRESS=localhost:3001
 ./shai
 ```
