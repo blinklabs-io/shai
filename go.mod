@@ -1,6 +1,6 @@
 module github.com/blinklabs-io/shai
 
-go 1.24.0
+go 1.25.0
 
 require (
 	github.com/Salvionied/apollo v1.6.0
@@ -13,7 +13,7 @@ require (
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/crypto v0.48.0
-	golang.org/x/sys v0.41.0
+	golang.org/x/sys v0.42.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
