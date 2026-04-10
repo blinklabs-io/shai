@@ -211,6 +211,23 @@ var Profiles = map[string]map[string]Profile{
 				InputRefs: []ProfileConfigInputRef{},
 			},
 		},
+		"cswap": {
+			Name: "cswap",
+			Type: ProfileTypeOracle,
+			// CSWAP DEX pool script launch (mainnet)
+			InterceptSlot: 149650740,
+			InterceptHash: "6027a8e3af4cd1cd2b3de0a1b583882573953c200c0ccf120119a04d1def5b49",
+			Config: OracleProfileConfig{
+				Protocol: "cswap",
+				PoolAddresses: []ProfileConfigAddress{
+					// CSWAP DEX pool script address (mainnet)
+					{
+						Address: "addr1z8ke0c9p89rjfwmuh98jpt8ky74uy5mffjft3zlcld9h7ml3lmln3mwk0y3zsh3gs3dzqlwa9rjzrxawkwm4udw9axhs6fuu6e",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
 		"spectrum": {
 			Name:          "spectrum",
 			Type:          ProfileTypeSpectrum,

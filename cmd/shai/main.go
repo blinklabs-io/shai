@@ -216,6 +216,8 @@ func getOracleParser(protocol string) oracle.PoolParser {
 		return oracle.NewWingRidersV2Parser()
 	case "vyfi":
 		return oracle.NewVyFiParser()
+	case "cswap":
+		return oracle.NewCSwapParser()
 	default:
 		return nil
 	}

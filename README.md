@@ -5,7 +5,7 @@ Shai is a Cardano Multi-DEX oracle and matcher bot. It monitors the blockchain f
 ## Features
 
 - DEX Oracle: Real-time pool state tracking from on-chain data
-- Multi-DEX Support: Minswap v1/v2, SundaeSwap v3, Splash v1, WingRiders v2, VyFi
+- Multi-DEX Support: Minswap v1/v2, SundaeSwap v3, Splash v1, WingRiders v2, VyFi, CSWAP
 - Spectrum Batching: Matcher bot for Spectrum-compatible DEXs
 - Mempool Monitoring: Track pending transactions for faster matching
 - Cardano Node: Acts as both NtN (Node-to-Node) and NtC (Node-to-Client) peer
@@ -94,6 +94,7 @@ Oracle profiles (price tracking):
 - `splash-v1` - Splash (formerly Spectrum) pools
 - `wingriders-v2` - WingRiders V2 pools
 - `vyfi` - VyFi pools
+- `cswap` - CSWAP pools
 
 Spectrum batching profiles (matcher bot):
 - `spectrum` - Spectrum DEX on mainnet
@@ -118,10 +119,13 @@ Track pool prices across multiple DEXs:
 
 ```bash
 export NETWORK=mainnet
-export PROFILES=minswap-v1,minswap-v2,sundaeswap-v3,splash-v1,wingriders-v2,vyfi
+export PROFILES=minswap-v1,minswap-v2,sundaeswap-v3,splash-v1,wingriders-v2,vyfi,cswap
 export INDEXER_TCP_ADDRESS=localhost:3001
 ./shai
 ```
+
+`cswap` is wired to the verified mainnet DEX pool contract address and can be enabled like the other oracle profiles.
+The bundled profile values were sourced from the public CRFA offchain registry plus CSWAP's live contract registry, and the intercept point was verified from the earliest on-chain `dex` contract transaction.
 
 ### Example: Batcher Mode
 
