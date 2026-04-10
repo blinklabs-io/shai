@@ -94,6 +94,7 @@ func main() {
 	// Initialize indexer and node
 	idx := indexer.New()
 	n := node.New(idx)
+	var oracles []*oracle.Oracle
 
 	// Setup profiles
 	for _, profile := range config.GetProfiles() {
@@ -151,12 +152,30 @@ func main() {
 				)
 				os.Exit(1)
 			}
+			oracles = append(oracles, o)
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
 		default:
 			logger.Error("unknown profile type", "name", profile.Name)
 			os.Exit(1)
+		}
+	}
+
+	// Start Oracle API if enabled and at least one oracle profile is active
+	if cfg.Oracle.APIEnabled {
+		if len(oracles) == 0 {
+			logger.Warn(
+				"oracle API enabled but no oracle profiles initialized; API server not started",
+			)
+		} else {
+			api := oracle.NewMultiOracleAPI(oracles)
+			go func() {
+				if err := api.StartServer(cfg.Oracle.APIAddress); err != nil {
+					logger.Error("oracle API server failed", "error", err)
+					os.Exit(1)
+				}
+			}()
 		}
 	}
 

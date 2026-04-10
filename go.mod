@@ -9,6 +9,7 @@ require (
 	github.com/blinklabs-io/dingo v0.3.3
 	github.com/blinklabs-io/gouroboros v0.153.1
 	github.com/dgraph-io/badger/v4 v4.9.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/automaxprocs v1.6.0
@@ -48,7 +49,6 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
