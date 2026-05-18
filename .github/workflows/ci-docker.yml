@@ -5,6 +5,9 @@ on:
     branches: ['main']
     paths: ['Dockerfile','*.go','go.*','.github/workflows/ci-docker.yml']
 
+permissions:
+  contents: read
+
 env:
   GHCR_IMAGE_NAME: ghcr.io/blinklabs-io/shai
 
