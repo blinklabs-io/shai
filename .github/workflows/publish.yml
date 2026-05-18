@@ -8,6 +8,8 @@ on:
 
 concurrency: ${{ github.ref }}
 
+permissions: {}
+
 jobs:
   create-draft-release:
     runs-on: ubuntu-latest
@@ -46,6 +48,8 @@ jobs:
         os: [linux]
         arch: [amd64, arm64]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     needs: [create-draft-release]
     steps:
       - run: "echo \"RELEASE_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
@@ -71,6 +75,9 @@ jobs:
 
   build-images:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     needs: [create-draft-release]
     steps:
       - run: "echo \"RELEASE_TAG=${GITHUB_REF#refs/tags/}\" >> $GITHUB_ENV"
