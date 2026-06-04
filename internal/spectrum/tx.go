@@ -466,7 +466,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 					Steps: 165_000_000,
 				},
 				Data: PlutusData.PlutusData{
-					Value: cbor.NewConstructor(
+					Value: cbor.NewConstructorEncoder(
 						0,
 						cbor.IndefLengthList{
 							2,                 // action (swap)
@@ -490,7 +490,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 					Steps: 140_000_000,
 				},
 				Data: PlutusData.PlutusData{
-					Value: cbor.NewConstructor(
+					Value: cbor.NewConstructorEncoder(
 						0,
 						cbor.IndefLengthList{
 							datumPoolInputIdx, // pool input index

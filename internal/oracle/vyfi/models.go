@@ -39,20 +39,20 @@ type PoolDatum struct {
 }
 
 func (p *PoolDatum) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Constructor() != 0 {
+	if tmpConstr.Tag() != 0 {
 		return fmt.Errorf(
 			"expected constructor 0, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 
 	type tPoolDatum PoolDatum
 	var tmp tPoolDatum
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*p = PoolDatum(tmp)
@@ -80,20 +80,20 @@ type OrderDatum struct {
 }
 
 func (d *OrderDatum) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Constructor() != 0 {
+	if tmpConstr.Tag() != 0 {
 		return fmt.Errorf(
 			"expected constructor 0 for Order, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 
 	type tOrderDatum OrderDatum
 	var tmp tOrderDatum
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*d = OrderDatum(tmp)
@@ -138,14 +138,14 @@ const (
 )
 
 func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 
 	// Map CBOR constructor tag to order type
 	// CDDL uses #6.121-#6.127, which map to constructor indices 0-6
-	o.Type = OrderType(tmpConstr.Constructor())
+	o.Type = OrderType(tmpConstr.Tag())
 
 	switch o.Type {
 	case OrderTypeAddLiquidity, OrderTypeZapInA, OrderTypeZapInB:
@@ -159,7 +159,7 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 			MinWantedShares uint64
 		}
 		var tmp tWrapper
-		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 			return err
 		}
 		wrapper = struct {
@@ -170,8 +170,8 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 
 	case OrderTypeRemoveLiquidity:
 		// RemoveLiquidityDetails = #6.122([minWantedTokensA: int, minWantedTokensB: int])
-		var innerConstr cbor.Constructor
-		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &innerConstr); err != nil {
+		var innerConstr cbor.ConstructorDecoder
+		if _, err := cbor.Decode(tmpConstr.Fields(), &innerConstr); err != nil {
 			return err
 		}
 		var wrapper struct {
@@ -185,7 +185,7 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 			MinWantedTokensB uint64
 		}
 		var tmp tWrapper
-		if _, err := cbor.Decode(innerConstr.FieldsCbor(), &tmp); err != nil {
+		if _, err := cbor.Decode(innerConstr.Fields(), &tmp); err != nil {
 			return err
 		}
 		wrapper = struct {
@@ -210,7 +210,7 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 			MinWantedTokens uint64
 		}
 		var tmp tWrapper
-		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 			return err
 		}
 		wrapper = struct {
@@ -220,7 +220,7 @@ func (o *OrderDetails) UnmarshalCBOR(cborData []byte) error {
 		o.MinWantedTokens = wrapper.MinWantedTokens
 
 	default:
-		return fmt.Errorf("unknown order type constructor: %d", tmpConstr.Constructor())
+		return fmt.Errorf("unknown order type constructor: %d", tmpConstr.Tag())
 	}
 
 	return nil

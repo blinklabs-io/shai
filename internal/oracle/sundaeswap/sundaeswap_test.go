@@ -75,7 +75,7 @@ func TestFeesUnmarshal(t *testing.T) {
 
 func TestOptionalMultisigScriptNone(t *testing.T) {
 	// None case: Constructor 1 with no fields
-	noneConstr := cbor.NewConstructor(1, cbor.IndefLengthList{})
+	noneConstr := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 	cborData, err := cbor.Encode(&noneConstr)
 	require.NoError(t, err, "failed to encode None")
 
@@ -91,12 +91,12 @@ func TestOptionalMultisigScriptSome(t *testing.T) {
 	// MultisigScript Signature is Constructor 0 with a single field (pubkey hash)
 	signatureBytes := []byte{0x01, 0x02, 0x03}
 	// Signature script: Constructor 0 with [pubkey_hash]
-	signatureScript := cbor.NewConstructor(
+	signatureScript := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{signatureBytes},
 	)
 	// Optional Some: Constructor 0 wrapping the script
-	someConstr := cbor.NewConstructor(0, cbor.IndefLengthList{signatureScript})
+	someConstr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{signatureScript})
 	cborData, err := cbor.Encode(&someConstr)
 	require.NoError(t, err, "failed to encode Some")
 
@@ -162,7 +162,7 @@ func TestMultisigScriptAllConstructors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			constr := cbor.NewConstructor(tt.constructor, tt.fields)
+			constr := cbor.NewConstructorEncoder(tt.constructor, tt.fields)
 			cborData, err := cbor.Encode(&constr)
 			require.NoError(t, err)
 
@@ -200,7 +200,7 @@ func TestV3PoolDatumUnmarshal(t *testing.T) {
 	askFees := cbor.IndefLengthList{uint64(30), uint64(10000)}
 
 	// FeeManager: None (Constructor 1)
-	feeManagerNone := cbor.NewConstructor(1, cbor.IndefLengthList{})
+	feeManagerNone := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 
 	// Build the full datum as an array
 	datum := cbor.IndefLengthList{

@@ -251,7 +251,11 @@ func TestHandlePriceStreamBroadcast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to dial websocket: %v", err)
 	}
-	defer conn.Close()
+	defer func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("failed to close websocket: %v", err)
+		}
+	}()
 	waitForWebSocketClients(t, api, 1)
 
 	o.notifySubscribers(

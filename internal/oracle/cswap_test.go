@@ -183,7 +183,7 @@ func newCSwapPoolDatum(
 ) []byte {
 	t.Helper()
 
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		totalLP,
 		poolFee,
 		quotePolicy,

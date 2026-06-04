@@ -32,19 +32,19 @@ type AssetClass struct {
 
 // UnmarshalCBOR decodes CBOR data into an AssetClass
 func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
+		tmpConstr.Fields(),
 		a,
 	)
 }
 
 // MarshalCBOR encodes an AssetClass to CBOR
 func (a *AssetClass) MarshalCBOR() ([]byte, error) {
-	tmpConstr := cbor.NewConstructor(
+	tmpConstr := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
 			a.PolicyId,

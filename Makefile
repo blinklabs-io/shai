@@ -10,6 +10,8 @@ BINARIES=$(shell cd $(ROOT_DIR)/cmd && ls -1)
 # Extract Go module name from go.mod
 GOMODULE=$(shell grep ^module $(ROOT_DIR)/go.mod | awk '{ print $$2 }')
 
+NILAWAY_FLAGS ?= -include-pkgs=$(GOMODULE)
+
 # Set version strings based on git tag and current ref
 GO_LDFLAGS=-ldflags "-s -w -X '$(GOMODULE)/internal/version.Version=$(shell git describe --tags --exact-match 2>/dev/null)' -X '$(GOMODULE)/internal/version.CommitHash=$(shell git rev-parse --short HEAD)'"
 
@@ -39,7 +41,7 @@ test: mod-tidy
 	go test -v ./...
 
 nilaway: mod-tidy
-	go run go.uber.org/nilaway/cmd/nilaway@latest ./...
+	go run go.uber.org/nilaway/cmd/nilaway@latest $(NILAWAY_FLAGS) ./...
 
 # Build our program binaries
 # Depends on GO_FILES to determine when rebuild is needed

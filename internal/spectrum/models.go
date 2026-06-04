@@ -14,30 +14,30 @@ type WrappedPkh struct {
 }
 
 func (w *WrappedPkh) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return nil
 	}
-	if tmpConstr.Constructor() != 0 {
+	if tmpConstr.Tag() != 0 {
 		return nil
 	}
 	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
+		tmpConstr.Fields(),
 		w,
 	)
 }
 
 func (w *WrappedPkh) MarshalCBOR() ([]byte, error) {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorEncoder
 	if w.Pkh != nil {
-		tmpConstr = cbor.NewConstructor(
+		tmpConstr = cbor.NewConstructorEncoder(
 			0,
 			cbor.IndefLengthList{
 				w.Pkh,
 			},
 		)
 	} else {
-		tmpConstr = cbor.NewConstructor(
+		tmpConstr = cbor.NewConstructorEncoder(
 			1,
 			cbor.IndefLengthList{},
 		)
@@ -62,18 +62,18 @@ type SwapConfig struct {
 
 func (s *SwapConfig) UnmarshalCBOR(cborData []byte) error {
 	s.SetCbor(cborData)
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
+		tmpConstr.Fields(),
 		s,
 	)
 }
 
 func (s *SwapConfig) MarshalCBOR() ([]byte, error) {
-	tmpConstr := cbor.NewConstructor(
+	tmpConstr := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
 			s.Base,
@@ -114,18 +114,18 @@ type AssetClass struct {
 }
 
 func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
+		tmpConstr.Fields(),
 		a,
 	)
 }
 
 func (a *AssetClass) MarshalCBOR() ([]byte, error) {
-	tmpConstr := cbor.NewConstructor(
+	tmpConstr := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
 			a.PolicyId,
@@ -162,18 +162,18 @@ type DepositConfig struct {
 
 func (d *DepositConfig) UnmarshalCBOR(cborData []byte) error {
 	d.SetCbor(cborData)
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
+		tmpConstr.Fields(),
 		d,
 	)
 }
 
 func (d *DepositConfig) MarshalCBOR() ([]byte, error) {
-	tmpConstr := cbor.NewConstructor(
+	tmpConstr := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
 			d.PoolId,
@@ -217,18 +217,18 @@ type RedeemConfig struct {
 
 func (r *RedeemConfig) UnmarshalCBOR(cborData []byte) error {
 	r.SetCbor(cborData)
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
+		tmpConstr.Fields(),
 		r,
 	)
 }
 
 func (r *RedeemConfig) MarshalCBOR() ([]byte, error) {
-	tmpConstr := cbor.NewConstructor(
+	tmpConstr := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
 			r.PoolId,
@@ -270,12 +270,12 @@ type PoolConfig struct {
 
 func (p *PoolConfig) UnmarshalCBOR(cborData []byte) error {
 	p.SetCbor(cborData)
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 	return cbor.DecodeGeneric(
-		tmpConstr.FieldsCbor(),
+		tmpConstr.Fields(),
 		p,
 	)
 }
@@ -289,7 +289,7 @@ func (p *PoolConfig) MarshalCBOR() ([]byte, error) {
 		}
 		tmpAdminPolicy = cbor.IndefLengthList(tmpAdminPolicyItems)
 	}
-	tmpConstr := cbor.NewConstructor(
+	tmpConstr := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
 			p.Nft,

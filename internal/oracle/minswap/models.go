@@ -55,20 +55,20 @@ type V1PoolDatum struct {
 }
 
 func (d *V1PoolDatum) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Constructor() != 0 {
+	if tmpConstr.Tag() != 0 {
 		return fmt.Errorf(
 			"expected constructor 0, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 
 	type tV1PoolDatum V1PoolDatum
 	var tmp tV1PoolDatum
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*d = V1PoolDatum(tmp)
@@ -77,20 +77,20 @@ func (d *V1PoolDatum) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (d *V2PoolDatum) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Constructor() != 0 {
+	if tmpConstr.Tag() != 0 {
 		return fmt.Errorf(
 			"expected constructor 0, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 
 	type tV2PoolDatum V2PoolDatum
 	var tmp tV2PoolDatum
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*d = V2PoolDatum(tmp)
@@ -102,11 +102,11 @@ func (d *V2PoolDatum) UnmarshalCBOR(cborData []byte) error {
 type Bool bool
 
 func (b *Bool) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	switch tmpConstr.Constructor() {
+	switch tmpConstr.Tag() {
 	case 0:
 		*b = false
 	case 1:
@@ -114,7 +114,7 @@ func (b *Bool) UnmarshalCBOR(cborData []byte) error {
 	default:
 		return fmt.Errorf(
 			"invalid Bool constructor: expected 0 or 1, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 	return nil
@@ -128,14 +128,14 @@ type Asset struct {
 }
 
 func (a *Asset) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 
 	type tAsset Asset
 	var tmp tAsset
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*a = Asset(tmp)
@@ -158,11 +158,11 @@ type Credential struct {
 }
 
 func (c *Credential) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	constr := tmpConstr.Constructor()
+	constr := tmpConstr.Tag()
 	if constr != 0 && constr != 1 {
 		return fmt.Errorf(
 			"invalid Credential constructor: expected 0 or 1, got %d",
@@ -179,7 +179,7 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 		Hash []byte
 	}
 	var tmp tWrapper
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	wrapper = struct {
@@ -198,14 +198,14 @@ type BaseFee struct {
 }
 
 func (f *BaseFee) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 
 	type tBaseFee BaseFee
 	var tmp tBaseFee
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*f = BaseFee(tmp)
@@ -220,11 +220,11 @@ type FeeSharing struct {
 }
 
 func (f *FeeSharing) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	switch tmpConstr.Constructor() {
+	switch tmpConstr.Tag() {
 	case 1:
 		f.IsPresent = false
 		f.FeeTo = nil
@@ -235,7 +235,7 @@ func (f *FeeSharing) UnmarshalCBOR(cborData []byte) error {
 	default:
 		return fmt.Errorf(
 			"invalid FeeSharing constructor: expected 0 or 1, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 	var wrapper struct {
@@ -243,7 +243,7 @@ func (f *FeeSharing) UnmarshalCBOR(cborData []byte) error {
 		FeeTo          []byte
 		FeeToDatumHash []byte
 	}
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &wrapper); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
 	f.FeeTo = wrapper.FeeTo
@@ -258,11 +258,11 @@ type OptionalUint64 struct {
 }
 
 func (o *OptionalUint64) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	switch tmpConstr.Constructor() {
+	switch tmpConstr.Tag() {
 	case 0:
 		o.IsPresent = true
 		var wrapper struct {
@@ -274,7 +274,7 @@ func (o *OptionalUint64) UnmarshalCBOR(cborData []byte) error {
 			Value uint64
 		}
 		var tmp tWrapper
-		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 			return err
 		}
 		wrapper = struct {
@@ -288,7 +288,7 @@ func (o *OptionalUint64) UnmarshalCBOR(cborData []byte) error {
 	default:
 		return fmt.Errorf(
 			"invalid OptionalUint64 constructor: expected 0 or 1, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 	return nil
