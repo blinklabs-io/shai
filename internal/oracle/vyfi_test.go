@@ -58,7 +58,7 @@ func TestVyFiGeneratePoolId(t *testing.T) {
 
 func TestVyFiPoolDatumUnmarshal(t *testing.T) {
 	// Build a pool datum: Pool = #6.121([treasuryA, treasuryB, issuedShares])
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(1000000000), // treasuryA (1000 ADA worth)
 		uint64(500000000),  // treasuryB
 		uint64(750000000),  // issuedShares
@@ -90,7 +90,7 @@ func TestVyFiPoolDatumUnmarshal(t *testing.T) {
 
 func TestVyFiOrderTypeAddLiquidity(t *testing.T) {
 	// AddLiquidity = #6.121([minWantedShares])
-	orderDetails := cbor.NewConstructor(0, cbor.IndefLengthList{
+	orderDetails := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(100000),
 	})
 
@@ -121,7 +121,7 @@ func TestVyFiOrderTypeAddLiquidity(t *testing.T) {
 func TestVyFiOrderTypeTradeAToB(t *testing.T) {
 	// TradeAToB = #6.124([minWantedTokens])
 	// Constructor 3 in our mapping
-	orderDetails := cbor.NewConstructor(3, cbor.IndefLengthList{
+	orderDetails := cbor.NewConstructorEncoder(3, cbor.IndefLengthList{
 		uint64(50000),
 	})
 
@@ -151,7 +151,7 @@ func TestVyFiOrderTypeTradeAToB(t *testing.T) {
 
 func TestVyFiParserParsePoolDatum(t *testing.T) {
 	// Build a pool datum
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(2000000000), // treasuryA
 		uint64(1000000000), // treasuryB
 		uint64(1500000000), // issuedShares
@@ -223,7 +223,7 @@ func TestVyFiParserParsePoolDatum(t *testing.T) {
 
 func TestVyFiParserParsePoolDatumSimple(t *testing.T) {
 	// Build a pool datum
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(500000000),
 		uint64(250000000),
 		uint64(375000000),

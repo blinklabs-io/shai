@@ -72,17 +72,17 @@ func TestWingRidersV2ParserParsePoolDatum(t *testing.T) {
 		0xba, 0x01, 0x59, 0x59,
 	}
 
-	assetA := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetA := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{}, // Empty policy = ADA
 		[]byte{},
 	})
 
-	assetB := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetB := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{0xab, 0xcd, 0xef},
 		[]byte("WING"),
 	})
 
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		requestValidatorHash,
 		assetA,
 		assetB,

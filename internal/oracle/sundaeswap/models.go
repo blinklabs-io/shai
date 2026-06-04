@@ -120,11 +120,11 @@ type OptionalMultisigScript struct {
 }
 
 func (o *OptionalMultisigScript) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	switch tmpConstr.Constructor() {
+	switch tmpConstr.Tag() {
 	case 0:
 		o.IsPresent = true
 		// The field is a nested Constructor (MultisigScript)
@@ -138,7 +138,7 @@ func (o *OptionalMultisigScript) UnmarshalCBOR(cborData []byte) error {
 			Script cbor.RawMessage
 		}
 		var tmp tFields
-		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 			return fmt.Errorf("failed to decode Optional Some fields: %w", err)
 		}
 		fields = struct {
@@ -155,7 +155,7 @@ func (o *OptionalMultisigScript) UnmarshalCBOR(cborData []byte) error {
 	default:
 		return fmt.Errorf(
 			"invalid OptionalMultisigScript constructor: expected 0 or 1, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 	return nil
@@ -180,15 +180,15 @@ type MultisigScript struct {
 }
 
 func (m *MultisigScript) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 
-	m.Constructor = tmpConstr.Constructor()
+	m.Constructor = tmpConstr.Tag()
 	m.RawCbor = cborData
 
-	switch tmpConstr.Constructor() {
+	switch tmpConstr.Tag() {
 	case 0: // Signature - extract the pubkey hash
 		// The fields are encoded as a CBOR array containing the pubkey hash
 		var fields struct {
@@ -200,7 +200,7 @@ func (m *MultisigScript) UnmarshalCBOR(cborData []byte) error {
 			PubKeyHash []byte
 		}
 		var tmp tFields
-		if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+		if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 			return fmt.Errorf(
 				"failed to decode Signature script fields: %w",
 				err,
@@ -218,7 +218,7 @@ func (m *MultisigScript) UnmarshalCBOR(cborData []byte) error {
 	default:
 		return fmt.Errorf(
 			"unknown MultisigScript constructor: %d (expected 0-5)",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 	return nil

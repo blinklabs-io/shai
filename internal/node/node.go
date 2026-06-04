@@ -201,8 +201,20 @@ func (n *Node) acceptConnections() {
 			logger.Error("failed to setup connection", "error", err)
 			continue
 		}
-		// Add to connection manager
-		n.connManager.AddConnection(oConn)
+		// Add to connection manager. On rejection the manager has already
+		// closed the connection, so we only skip it here.
+		peerAddr := "unknown"
+		if conn.RemoteAddr() != nil {
+			peerAddr = conn.RemoteAddr().String()
+		}
+		if !n.connManager.AddConnection(oConn, true, peerAddr) {
+			logger.Error(
+				"connection rejected by connection manager",
+				"remoteAddr",
+				peerAddr,
+			)
+			continue
+		}
 	}
 }
 
@@ -240,8 +252,20 @@ func (n *Node) acceptConnectionsNtc() {
 			logger.Error("failed to setup connection", "error", err)
 			continue
 		}
-		// Add to connection manager
-		n.connManager.AddConnection(oConn)
+		// Add to connection manager. On rejection the manager has already
+		// closed the connection, so we only skip it here.
+		peerAddr := "unknown"
+		if conn.RemoteAddr() != nil {
+			peerAddr = conn.RemoteAddr().String()
+		}
+		if !n.connManager.AddConnection(oConn, true, peerAddr) {
+			logger.Error(
+				"connection rejected by connection manager",
+				"remoteAddr",
+				peerAddr,
+			)
+			continue
+		}
 	}
 }
 
@@ -314,8 +338,14 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 		return err
 	}
 	logger.Info("connected to node", "address", peer.Address)
-	// Add to connection manager
-	n.connManager.AddConnection(oConn)
+	// Add to connection manager. On rejection the manager has already
+	// closed the connection, so we report an error to trigger a reconnect.
+	if !n.connManager.AddConnection(oConn, false, peer.Address) {
+		return fmt.Errorf(
+			"connection rejected by connection manager: %s",
+			peer.Address,
+		)
+	}
 	// Add to outbound connection tracking
 	n.outboundConnsMutex.Lock()
 	n.outboundConns[oConn.Id()] = peer
@@ -382,12 +412,9 @@ func (n *Node) connectionManagerConnClosed(
 	} else {
 		logger.Info("connection closed", "connId", connId.String())
 	}
-	conn := n.connManager.GetConnectionById(connId)
-	if conn == nil {
-		return
-	}
-	// Remove connection
-	n.connManager.RemoveConnection(connId)
+	// The connection manager has already removed the connection from its
+	// registry before invoking this callback, so we only need to clean up
+	// our own per-connection state here.
 	// Clean up chainsync server state for connection
 	if serverState, ok := n.chainsyncServerState[connId]; ok {
 		// Unsub from chainsync updates

@@ -66,7 +66,7 @@ func TestGeneratePoolId(t *testing.T) {
 
 func TestPoolDatumUnmarshal(t *testing.T) {
 	// Build a pool datum: Pool = #6.121([treasuryA, treasuryB, issuedShares])
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(1000000000), // treasuryA (1000 ADA worth)
 		uint64(500000000),  // treasuryB
 		uint64(750000000),  // issuedShares
@@ -98,7 +98,7 @@ func TestPoolDatumUnmarshal(t *testing.T) {
 
 func TestOrderTypeAddLiquidity(t *testing.T) {
 	// AddLiquidity = #6.121([minWantedShares])
-	orderDetails := cbor.NewConstructor(0, cbor.IndefLengthList{
+	orderDetails := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(100000),
 	})
 
@@ -129,7 +129,7 @@ func TestOrderTypeAddLiquidity(t *testing.T) {
 func TestOrderTypeTradeAToB(t *testing.T) {
 	// TradeAToB = #6.124([minWantedTokens])
 	// Constructor 3 in our mapping
-	orderDetails := cbor.NewConstructor(3, cbor.IndefLengthList{
+	orderDetails := cbor.NewConstructorEncoder(3, cbor.IndefLengthList{
 		uint64(50000),
 	})
 
@@ -160,7 +160,7 @@ func TestOrderTypeTradeAToB(t *testing.T) {
 func TestOrderTypeTradeBToA(t *testing.T) {
 	// TradeBToA = #6.125([minWantedTokens])
 	// Constructor 4 in our mapping
-	orderDetails := cbor.NewConstructor(4, cbor.IndefLengthList{
+	orderDetails := cbor.NewConstructorEncoder(4, cbor.IndefLengthList{
 		uint64(75000),
 	})
 
@@ -191,7 +191,7 @@ func TestOrderTypeTradeBToA(t *testing.T) {
 func TestOrderTypeServe(t *testing.T) {
 	// Serve = #6.123([])
 	// Constructor 2 with no fields
-	orderDetails := cbor.NewConstructor(2, cbor.IndefLengthList{})
+	orderDetails := cbor.NewConstructorEncoder(2, cbor.IndefLengthList{})
 
 	cborData, err := cbor.Encode(&orderDetails)
 	if err != nil {
@@ -216,7 +216,7 @@ func TestOrderTypeServe(t *testing.T) {
 
 func TestParserParsePoolDatum(t *testing.T) {
 	// Build a pool datum
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(2000000000), // treasuryA
 		uint64(1000000000), // treasuryB
 		uint64(1500000000), // issuedShares
@@ -288,7 +288,7 @@ func TestParserParsePoolDatum(t *testing.T) {
 
 func TestParserParsePoolDatumSimple(t *testing.T) {
 	// Build a pool datum
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(500000000),
 		uint64(250000000),
 		uint64(375000000),

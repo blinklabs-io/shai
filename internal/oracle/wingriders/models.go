@@ -48,20 +48,20 @@ type PoolDatum struct {
 }
 
 func (p *PoolDatum) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Constructor() != 0 {
+	if tmpConstr.Tag() != 0 {
 		return fmt.Errorf(
 			"expected constructor 0, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 
 	type tPoolDatum PoolDatum
 	var tmp tPoolDatum
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*p = PoolDatum(tmp)
@@ -90,20 +90,20 @@ type AssetClass struct {
 }
 
 func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.Constructor
+	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Constructor() != 0 {
+	if tmpConstr.Tag() != 0 {
 		return fmt.Errorf(
 			"AssetClass: expected constructor 0, got %d",
-			tmpConstr.Constructor(),
+			tmpConstr.Tag(),
 		)
 	}
 
 	type tAssetClass AssetClass
 	var tmp tAssetClass
-	if _, err := cbor.Decode(tmpConstr.FieldsCbor(), &tmp); err != nil {
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
 		return err
 	}
 	*a = AssetClass(tmp)
@@ -111,7 +111,7 @@ func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
 }
 
 func (a *AssetClass) MarshalCBOR() ([]byte, error) {
-	tmpConstr := cbor.NewConstructor(
+	tmpConstr := cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
 			a.PolicyId,

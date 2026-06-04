@@ -76,32 +76,32 @@ func TestGenerateMinswapPoolId(t *testing.T) {
 
 func TestMinswapV2DatumUnmarshal(t *testing.T) {
 	// Build a test V2 datum
-	stakeCredential := cbor.NewConstructor(0, cbor.IndefLengthList{
+	stakeCredential := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
 			0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
 			0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
 			0x19, 0x1a, 0x1b, 0x1c},
 	})
 
-	assetA := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetA := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{}, // Empty policy = ADA
 		[]byte{},
 	})
 
-	assetB := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetB := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{0xab, 0xcd, 0xef},
 		[]byte("MIN"),
 	})
 
-	baseFee := cbor.NewConstructor(0, cbor.IndefLengthList{
+	baseFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(30), // 0.3% fee
 		uint64(30),
 	})
 
-	feeSharingNone := cbor.NewConstructor(1, cbor.IndefLengthList{})
-	allowDynamicFalse := cbor.NewConstructor(1, cbor.IndefLengthList{})
+	feeSharingNone := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	allowDynamicFalse := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		stakeCredential,
 		assetA,
 		assetB,
@@ -136,29 +136,29 @@ func TestMinswapV2DatumUnmarshal(t *testing.T) {
 
 func TestMinswapV2ParserParsePoolDatum(t *testing.T) {
 	// Build test datum
-	stakeCredential := cbor.NewConstructor(0, cbor.IndefLengthList{
+	stakeCredential := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		make([]byte, 28),
 	})
 
-	assetA := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetA := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{},
 		[]byte{},
 	})
 
-	assetB := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetB := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{0xab, 0xcd},
 		[]byte("TEST"),
 	})
 
-	baseFee := cbor.NewConstructor(0, cbor.IndefLengthList{
+	baseFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(30),
 		uint64(30),
 	})
 
-	feeSharingNone := cbor.NewConstructor(1, cbor.IndefLengthList{})
-	allowDynamicFalse := cbor.NewConstructor(1, cbor.IndefLengthList{})
+	feeSharingNone := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	allowDynamicFalse := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		stakeCredential,
 		assetA,
 		assetB,
@@ -216,7 +216,7 @@ func TestMinswapV2ParserParsePoolDatum(t *testing.T) {
 
 func TestMinswapOptionalUint64(t *testing.T) {
 	// Test None case
-	noneConstr := cbor.NewConstructor(1, cbor.IndefLengthList{})
+	noneConstr := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 	noneData, err := cbor.Encode(&noneConstr)
 	if err != nil {
 		t.Fatalf("failed to encode None: %v", err)
@@ -231,7 +231,7 @@ func TestMinswapOptionalUint64(t *testing.T) {
 	}
 
 	// Test Some case
-	someConstr := cbor.NewConstructor(0, cbor.IndefLengthList{uint64(42)})
+	someConstr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{uint64(42)})
 	someData, err := cbor.Encode(&someConstr)
 	if err != nil {
 		t.Fatalf("failed to encode Some: %v", err)
@@ -250,19 +250,19 @@ func TestMinswapOptionalUint64(t *testing.T) {
 }
 
 func TestMinswapV1DatumUnmarshal(t *testing.T) {
-	assetA := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetA := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{}, // Empty policy = ADA
 		[]byte{},
 	})
 
-	assetB := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetB := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{0xab, 0xcd, 0xef},
 		[]byte("MIN"),
 	})
 
-	feeSharingNone := cbor.NewConstructor(1, cbor.IndefLengthList{})
+	feeSharingNone := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		assetA,
 		assetB,
 		uint64(1000000000), // totalLiquidity
@@ -300,19 +300,19 @@ func TestMinswapV1ParserParsePoolDatum(t *testing.T) {
 		tokenPolicy[i] = 0xab
 	}
 
-	assetA := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetA := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{},
 		[]byte{},
 	})
 
-	assetB := cbor.NewConstructor(0, cbor.IndefLengthList{
+	assetB := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		tokenPolicy,
 		[]byte("TEST"),
 	})
 
-	feeSharingNone := cbor.NewConstructor(1, cbor.IndefLengthList{})
+	feeSharingNone := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 
-	datum := cbor.NewConstructor(0, cbor.IndefLengthList{
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		assetA,
 		assetB,
 		uint64(1000000000), // totalLiquidity
