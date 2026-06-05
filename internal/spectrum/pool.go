@@ -16,6 +16,7 @@ package spectrum
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
@@ -175,7 +176,7 @@ func (p *Pool) Asset(asset AssetClass) AssetAmount {
 func (p *Pool) CalculateReturnToPool(
 	inputAsset AssetAmount,
 	rewardAsset AssetAmount,
-) (uint64, []AssetAmount) {
+) (uint64, []AssetAmount, error) {
 	var retAda uint64
 	retUnits := []AssetAmount{
 		{
@@ -187,6 +188,15 @@ func (p *Pool) CalculateReturnToPool(
 	inAsset := p.Asset(inputAsset.Class)
 	inAsset.Amount += inputAsset.Amount
 	outAsset := p.Asset(rewardAsset.Class)
+	// Guard against uint64 underflow: the pool cannot pay out more of the
+	// output asset than it holds in reserve.
+	if outAsset.Amount < rewardAsset.Amount {
+		return 0, nil, fmt.Errorf(
+			"pool underflow: outAsset amount (%d) < reward amount (%d)",
+			outAsset.Amount,
+			rewardAsset.Amount,
+		)
+	}
 	outAsset.Amount -= rewardAsset.Amount
 	if inAsset.IsLovelace() {
 		retAda = inAsset.Amount
@@ -195,5 +205,5 @@ func (p *Pool) CalculateReturnToPool(
 		retAda = outAsset.Amount
 		retUnits = append(retUnits, inAsset)
 	}
-	return retAda, retUnits
+	return retAda, retUnits, nil
 }
