@@ -2,6 +2,7 @@ package spectrum
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -356,14 +357,25 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		)
 	}
 
+	// Reward amount must be non-zero, otherwise the swap order is malformed
+	// and there is nothing to pay out to the trader.
+	if rewardAsset.Amount == 0 {
+		return nil, errors.New(
+			"calculated reward amount is zero for swap order",
+		)
+	}
+
 	// Calculate lovelace and assets to return to pool
-	poolReturnLovelace, poolReturnAssets := opts.pool.CalculateReturnToPool(
+	poolReturnLovelace, poolReturnAssets, err := opts.pool.CalculateReturnToPool(
 		AssetAmount{
 			Class:  opts.swapConfig.Base,
 			Amount: opts.swapConfig.BaseAmount,
 		},
 		rewardAsset,
 	)
+	if err != nil {
+		return nil, fmt.Errorf("pool return calculation failed: %w", err)
+	}
 	poolReturnUnits := []apollo.Unit{}
 	for _, asset := range poolReturnAssets {
 		poolReturnUnits = append(
@@ -373,6 +385,21 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 				string(asset.Class.Name),
 				int(asset.Amount),
 			),
+		)
+	}
+
+	// Guard against a nil numerator, which would panic in big.Float.SetInt
+	// during the matcher fee calculation below.
+	if opts.swapConfig.FeePerTokenNum == nil {
+		return nil, errors.New(
+			"FeePerTokenNum is nil for swap order",
+		)
+	}
+	// Guard against division-by-zero in the matcher fee calculation below.
+	if opts.swapConfig.FeePerTokenDen == nil ||
+		opts.swapConfig.FeePerTokenDen.Sign() == 0 {
+		return nil, errors.New(
+			"FeePerTokenDen is zero for swap order",
 		)
 	}
 
@@ -390,13 +417,40 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	).Uint64()
 
 	// Calculate leftover lovelace from swap order UTxO for return with reward
-	leftoverSwapLovelace := uint64(
-		swapUtxo.Output.GetAmount().GetCoin(),
-	) - matcherFee
+	swapUtxoCoin := uint64(swapUtxo.Output.GetAmount().GetCoin())
+	// Guard against uint64 underflow: the swap UTxO must hold at least the
+	// matcher fee.
+	if swapUtxoCoin < matcherFee {
+		return nil, fmt.Errorf(
+			"swap UTxO coin (%d) is less than matcher fee (%d)",
+			swapUtxoCoin,
+			matcherFee,
+		)
+	}
+	leftoverSwapLovelace := swapUtxoCoin - matcherFee
 	if len(opts.swapConfig.Base.PolicyId) == 0 {
+		// Guard against uint64 underflow: for ADA-base swaps the leftover
+		// lovelace must cover the base amount being sent to the pool.
+		if leftoverSwapLovelace < opts.swapConfig.BaseAmount {
+			return nil, fmt.Errorf(
+				"leftover swap lovelace (%d) is less than base amount (%d)",
+				leftoverSwapLovelace,
+				opts.swapConfig.BaseAmount,
+			)
+		}
 		leftoverSwapLovelace -= opts.swapConfig.BaseAmount
 	}
 	rewardLovelace += leftoverSwapLovelace
+
+	// Guard against a non-positive change output: the matcher fee must exceed
+	// the transaction fee, otherwise the change output below would underflow.
+	if matcherFee <= swapTxFee {
+		return nil, fmt.Errorf(
+			"matcher fee (%d) does not exceed tx fee (%d)",
+			matcherFee,
+			swapTxFee,
+		)
+	}
 
 	// Generate addresses
 	tmpRewardAddr := addressFromKeys(
