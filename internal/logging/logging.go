@@ -3,14 +3,49 @@ package logging
 import (
 	"log/slog"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/blinklabs-io/shai/internal/config"
 )
 
-var globalLogger *slog.Logger
+var (
+	mu           sync.RWMutex
+	globalLogger *slog.Logger
+)
 
+// Configure builds the global logger from the current configuration, replacing
+// any previously configured logger. It is safe for concurrent use.
 func Configure() {
+	logger := buildLogger()
+	mu.Lock()
+	globalLogger = logger
+	mu.Unlock()
+}
+
+// GetLogger returns the global logger, configuring it on first use. It is safe
+// for concurrent use.
+func GetLogger() *slog.Logger {
+	mu.RLock()
+	logger := globalLogger
+	mu.RUnlock()
+	if logger != nil {
+		return logger
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	// Re-check under the write lock: another goroutine may have configured the
+	// logger between releasing the read lock and acquiring the write lock.
+	if globalLogger == nil {
+		globalLogger = buildLogger()
+	}
+	return globalLogger
+}
+
+// buildLogger constructs a logger from the current configuration. It touches no
+// shared state, so it runs outside the lock.
+func buildLogger() *slog.Logger {
 	cfg := config.GetConfig()
 	var level slog.Level
 	switch cfg.Logging.Level {
@@ -40,13 +75,5 @@ func Configure() {
 		},
 		Level: level,
 	})
-	globalLogger = slog.New(handler).With("component", "main")
-
-}
-
-func GetLogger() *slog.Logger {
-	if globalLogger == nil {
-		Configure()
-	}
-	return globalLogger
+	return slog.New(handler).With("component", "main")
 }
