@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	github.com/Salvionied/apollo v1.6.0
-	github.com/blinklabs-io/adder v0.37.0
+	github.com/blinklabs-io/adder v0.39.1
 	github.com/blinklabs-io/bursa v0.16.0
 	github.com/blinklabs-io/dingo v0.50.2
 	github.com/blinklabs-io/gouroboros v0.179.0
