@@ -3,7 +3,7 @@ module github.com/blinklabs-io/shai
 go 1.26.0
 
 require (
-	github.com/Salvionied/apollo v1.6.0
+	github.com/Salvionied/apollo v1.8.2
 	github.com/blinklabs-io/adder v0.39.1
 	github.com/blinklabs-io/bursa v0.16.0
 	github.com/blinklabs-io/dingo v0.50.2
@@ -27,7 +27,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProjectZKM/Ziren/crates/go-runtime/zkvm_runtime v0.0.0-20251230134950-44c893854e3f // indirect
 	github.com/SundaeSwap-finance/kugo v1.3.0 // indirect
-	github.com/SundaeSwap-finance/ogmigo/v6 v6.2.0 // indirect
+	github.com/SundaeSwap-finance/ogmigo/v6 v6.2.1 // indirect
 	github.com/aws/aws-sdk-go v1.55.6 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
@@ -64,7 +64,6 @@ require (
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	github.com/utxorpc/go-codegen v0.19.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
