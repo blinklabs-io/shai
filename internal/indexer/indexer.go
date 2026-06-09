@@ -260,8 +260,14 @@ func (i *Indexer) scheduleSyncStatusLogLocked() {
 
 func (i *Indexer) syncStatusLog() {
 	// Snapshot the cursor fields under the lock, then log and reschedule
-	// without holding it.
+	// without holding it. Bail out if logging has been stopped (by Stop or by
+	// reaching the chain tip): a timer callback that was already in flight when
+	// that happened must not emit a stale catch-up message.
 	i.mu.Lock()
+	if i.syncLogDone {
+		i.mu.Unlock()
+		return
+	}
 	cursorSlot := i.cursorSlot
 	cursorHash := i.cursorHash
 	tipSlot := i.tipSlot

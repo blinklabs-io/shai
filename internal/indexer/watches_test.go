@@ -16,6 +16,7 @@ package indexer
 
 import (
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -223,6 +224,58 @@ func TestStopIdempotent(t *testing.T) {
 	// Stopping multiple times must not panic
 	wm.Stop()
 	wm.Stop()
+}
+
+func TestStopWaitsForInFlightCallbacks(t *testing.T) {
+	wm := NewWatchManager()
+
+	txHash := "abc123def456"
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var finished atomic.Bool
+
+	// A callback that parks until released, simulating a slow in-flight
+	// callback that is still running when Stop is called.
+	wm.RegisterTxWatch(txHash, time.Hour, func(id string, evt event.Event) {
+		close(started)
+		<-release
+		finished.Store(true)
+	})
+
+	tx := mockledger.NewTransactionBuilder()
+	evt := event.Event{
+		Type:    "chainsync.transaction",
+		Payload: event.TransactionEvent{Transaction: tx},
+		Context: event.TransactionContext{TransactionHash: txHash},
+	}
+	wm.CheckEvent(evt)
+
+	// Ensure the callback goroutine is actually running before we stop.
+	<-started
+
+	stopReturned := make(chan struct{})
+	go func() {
+		wm.Stop()
+		close(stopReturned)
+	}()
+
+	// Stop must not return while the callback is still in flight.
+	select {
+	case <-stopReturned:
+		t.Fatal("Stop returned before in-flight callback finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Release the callback; Stop must return only after it has completed.
+	close(release)
+	select {
+	case <-stopReturned:
+		if !finished.Load() {
+			t.Error("Stop returned before the callback finished running")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return after the in-flight callback completed")
+	}
 }
 
 func TestCheckEventNilTxCallbackDoesNotPanic(t *testing.T) {
