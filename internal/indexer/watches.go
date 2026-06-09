@@ -67,6 +67,9 @@ type WatchManager struct {
 	nextId    uint64
 	stopChan  chan struct{}
 	stopped   bool
+	// callbackWg tracks in-flight callback goroutines spawned by fireWatches so
+	// Stop can wait for them to finish before returning.
+	callbackWg sync.WaitGroup
 }
 
 // utxoPattern builds the lookup key used for UTxO watches.
@@ -252,17 +255,20 @@ func (wm *WatchManager) CheckEvent(evt event.Event) {
 
 // fireWatches invokes the callback for each of the given watch ids, each in
 // its own goroutine so a slow callback cannot block the event loop or hold the
-// lock. Watches with a nil callback are skipped so a registration that omitted
-// a callback cannot panic the process. A panic from within a callback is
-// recovered and logged so a misbehaving watch cannot crash the process. The
-// caller must hold the lock.
+// lock. Each goroutine is tracked on callbackWg so Stop can wait for in-flight
+// callbacks to finish. Watches with a nil callback are skipped so a
+// registration that omitted a callback cannot panic the process. A panic from
+// within a callback is recovered and logged so a misbehaving watch cannot crash
+// the process. The caller must hold the lock.
 func (wm *WatchManager) fireWatches(watchIds []string, evt event.Event) {
 	for _, watchId := range watchIds {
 		watch, ok := wm.watches[watchId]
 		if !ok || watch.Callback == nil {
 			continue
 		}
+		wm.callbackWg.Add(1)
 		go func(id string, callback WatchCallback) {
+			defer wm.callbackWg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					logging.GetLogger().Error(
@@ -315,11 +321,13 @@ func (wm *WatchManager) expirationLoop() {
 
 // Stop halts the background expiration loop and clears all registered watches.
 // After Stop, CheckEvent delivers no further callbacks and Register* calls are
-// rejected. It is idempotent and safe to call multiple times.
+// rejected. Stop also blocks until any callback goroutines that were already in
+// flight have finished, so no callback runs after Stop returns. It is
+// idempotent and safe to call multiple times.
 func (wm *WatchManager) Stop() {
 	wm.Lock()
-	defer wm.Unlock()
 	if wm.stopped {
+		wm.Unlock()
 		return
 	}
 	wm.stopped = true
@@ -327,6 +335,13 @@ func (wm *WatchManager) Stop() {
 	wm.watches = make(map[string]*Watch)
 	wm.txIdIndex = make(map[string][]string)
 	wm.utxoIndex = make(map[string][]string)
+	wm.Unlock()
+
+	// Wait for in-flight callbacks outside the lock. CheckEvent gates on
+	// stopped under the read lock, so once the write lock above is released no
+	// new callbacks can be spawned; waiting without the lock held lets a
+	// callback that re-enters the manager finish instead of deadlocking.
+	wm.callbackWg.Wait()
 }
 
 // WatchCount returns the number of active watches.

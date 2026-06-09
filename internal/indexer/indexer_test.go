@@ -15,12 +15,47 @@
 package indexer
 
 import (
+	"bytes"
+	"io"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	input_chainsync "github.com/blinklabs-io/adder/input/chainsync"
+	"github.com/blinklabs-io/shai/internal/logging"
 )
+
+// captureStdout redirects the global logger's output (os.Stdout) for the
+// duration of fn and returns everything written. The logger is rebuilt to point
+// at the pipe and restored afterwards.
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("failed to create pipe: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = w
+	logging.Configure()
+
+	done := make(chan string, 1)
+	go func() {
+		var buf bytes.Buffer
+		_, _ = io.Copy(&buf, r)
+		done <- buf.String()
+	}()
+
+	fn()
+
+	os.Stdout = orig
+	_ = w.Close()
+	out := <-done
+	_ = r.Close()
+	logging.Configure()
+	return out
+}
 
 func TestIndexerStopHaltsWatchManager(t *testing.T) {
 	idx := New()
@@ -67,6 +102,46 @@ func TestIndexerSyncStatusLogConcurrent(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+}
+
+func TestSyncStatusLogSkipsLoggingAfterStop(t *testing.T) {
+	idx := New()
+	defer idx.Stop()
+
+	// Mark the catch-up sync logger as stopped, as Stop and reaching the chain
+	// tip both do. A timer callback that was already in flight at that point
+	// must not emit a stale catch-up message.
+	idx.mu.Lock()
+	idx.syncLogDone = true
+	idx.mu.Unlock()
+
+	out := captureStdout(t, func() {
+		idx.syncStatusLog()
+	})
+
+	if strings.Contains(out, "catch-up sync in progress") {
+		t.Errorf("syncStatusLog logged after shutdown: %q", out)
+	}
+}
+
+func TestSyncStatusLogEmitsWhenActive(t *testing.T) {
+	idx := New()
+	defer idx.Stop()
+
+	// Positive control: while logging is active, syncStatusLog must emit the
+	// catch-up message. This proves the skip test above is meaningful.
+	out := captureStdout(t, func() {
+		idx.syncStatusLog()
+	})
+
+	// syncStatusLog reschedules itself; halt the timer it armed.
+	idx.mu.Lock()
+	idx.stopSyncLogTimerLocked()
+	idx.mu.Unlock()
+
+	if !strings.Contains(out, "catch-up sync in progress") {
+		t.Errorf("expected catch-up message while active, got %q", out)
+	}
 }
 
 func TestIndexerStopHaltsSyncLogTimer(t *testing.T) {
