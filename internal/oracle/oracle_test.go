@@ -19,8 +19,130 @@ import (
 	"testing"
 	"time"
 
+	"github.com/blinklabs-io/adder/event"
 	"github.com/blinklabs-io/shai/internal/common"
 )
+
+func TestOracleRollbackClearsMempoolState(t *testing.T) {
+	o := &Oracle{
+		pools:      make(map[string]*PoolState),
+		stopChan:   make(chan struct{}),
+		storage:    newTestOracleStorage(t),
+		mempoolMgr: NewMempoolStateManager(),
+	}
+
+	// A confirmed pool state at slot 100, tracked in o.pools, storage, and the
+	// mempool manager (as handleTransaction would have done).
+	state := &PoolState{
+		PoolId:   "pool1",
+		Network:  "mainnet",
+		Protocol: "test",
+		TxHash:   "tx100",
+		Slot:     100,
+		AssetX:   common.AssetAmount{Amount: 1000},
+		AssetY:   common.AssetAmount{Amount: 2000},
+	}
+	o.pools[state.PoolId] = state
+	if err := o.storage.SavePoolState(state); err != nil {
+		t.Fatalf("failed to save pool state: %v", err)
+	}
+	o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
+	if o.mempoolMgr.PoolCount() != 1 {
+		t.Fatalf(
+			"expected mempool manager to track the pool, got %d",
+			o.mempoolMgr.PoolCount(),
+		)
+	}
+
+	// Roll back to slot 50 (< 100): the pool's state is reorged away.
+	if err := o.handleRollback(
+		event.RollbackEvent{SlotNumber: 50, BlockHash: "abc"},
+	); err != nil {
+		t.Fatalf("handleRollback returned error: %v", err)
+	}
+
+	// Existing behavior: removed from the in-memory map.
+	if _, ok := o.GetPoolState("pool1"); ok {
+		t.Error("expected pool removed from o.pools after rollback")
+	}
+	// Fix: the mempool manager must not keep the reorged confirmed state.
+	if _, ok := o.mempoolMgr.GetPoolState("pool1"); ok {
+		t.Error("expected mempool manager to drop reorged pool state")
+	}
+	if o.mempoolMgr.PoolCount() != 0 {
+		t.Errorf(
+			"expected 0 tracked pools in mempool manager, got %d",
+			o.mempoolMgr.PoolCount(),
+		)
+	}
+}
+
+func TestOracleLoadPersistedStatesSeedsMempoolManager(t *testing.T) {
+	o := &Oracle{
+		pools:      make(map[string]*PoolState),
+		stopChan:   make(chan struct{}),
+		storage:    newTestOracleStorage(t),
+		mempoolMgr: NewMempoolStateManager(),
+	}
+	state := &PoolState{
+		PoolId:   "pool1",
+		Network:  "mainnet",
+		Protocol: "test",
+		TxHash:   "tx100",
+		AssetX:   common.AssetAmount{Amount: 1000},
+		AssetY:   common.AssetAmount{Amount: 2000},
+	}
+	if err := o.storage.SavePoolState(state); err != nil {
+		t.Fatalf("failed to save pool state: %v", err)
+	}
+
+	if err := o.loadPersistedStates(); err != nil {
+		t.Fatalf("failed to load persisted states: %v", err)
+	}
+
+	if o.PoolCount() != 1 {
+		t.Fatalf("expected 1 loaded pool, got %d", o.PoolCount())
+	}
+	ps, ok := o.mempoolMgr.GetPoolState("pool1")
+	if !ok || ps == nil {
+		t.Fatal("expected mempool manager to track loaded pool")
+	}
+	confirmed := ps.GetConfirmedState()
+	if confirmed == nil {
+		t.Fatal("expected loaded confirmed state in mempool manager")
+	}
+	if confirmed.AssetX.Amount != 1000 || confirmed.AssetY.Amount != 2000 {
+		t.Fatalf(
+			"expected restored reserves 1000/2000, got %d/%d",
+			confirmed.AssetX.Amount,
+			confirmed.AssetY.Amount,
+		)
+	}
+
+	pending := &PoolState{
+		PoolId:   "pool1",
+		Protocol: "test",
+		TxHash:   "tx-pending",
+		AssetX:   common.AssetAmount{Amount: 1100},
+		AssetY:   common.AssetAmount{Amount: 1900},
+	}
+	effect := o.mempoolMgr.AddPendingTx(
+		"pool1",
+		"test",
+		"tx-pending",
+		pending,
+	)
+	if effect == nil {
+		t.Fatal("expected pending effect")
+	}
+	if effect.DeltaX != 100 || effect.DeltaY != -100 {
+		t.Fatalf(
+			"expected deltas against restored reserves 100/-100, got %d/%d",
+			effect.DeltaX,
+			effect.DeltaY,
+		)
+	}
+}
 
 func TestOracleSubscribeNotifyUnsubscribe(t *testing.T) {
 	o := &Oracle{

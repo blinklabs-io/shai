@@ -40,6 +40,34 @@ type PoolState struct {
 	FromMempool bool               `json:"fromMempool"` // True if state is from mempool (unconfirmed)
 }
 
+func clonePoolState(state *PoolState) *PoolState {
+	if state == nil {
+		return nil
+	}
+	clone := *state
+	clone.AssetX = cloneAssetAmount(state.AssetX)
+	clone.AssetY = cloneAssetAmount(state.AssetY)
+	return &clone
+}
+
+func cloneAssetAmount(amount common.AssetAmount) common.AssetAmount {
+	amount.Class.PolicyId = cloneBytes(amount.Class.PolicyId)
+	amount.Class.Name = cloneBytes(amount.Class.Name)
+	return amount
+}
+
+func cloneBytes(src []byte) []byte {
+	if src == nil {
+		return nil
+	}
+	// Use make+copy rather than append([]byte(nil), src...): appending zero
+	// elements to a nil slice returns nil, which would normalize an empty
+	// (non-nil) slice to nil and change the serialized asset class.
+	dst := make([]byte, len(src))
+	copy(dst, src)
+	return dst
+}
+
 // PriceXY returns the price of X in terms of Y (Y per X)
 func (p *PoolState) PriceXY() float64 {
 	if p.AssetX.Amount == 0 {

@@ -15,6 +15,7 @@
 package oracle
 
 import (
+	"bytes"
 	"encoding/json"
 	"testing"
 
@@ -88,6 +89,64 @@ func TestPoolStateKey(t *testing.T) {
 	expected := "mainnet:spectrum:pool123"
 	if state.Key() != expected {
 		t.Errorf("expected key %s, got %s", expected, state.Key())
+	}
+}
+
+func TestClonePoolStatePreservesEmptyAssetSlices(t *testing.T) {
+	state := &PoolState{
+		// Empty but non-nil slices (e.g. lovelace via NewAssetClass("", "")).
+		AssetX: common.AssetAmount{
+			Class: common.AssetClass{PolicyId: []byte{}, Name: []byte{}},
+		},
+		// Nil slices (e.g. lovelace via the zero-value AssetClass).
+		AssetY: common.AssetAmount{
+			Class: common.AssetClass{PolicyId: nil, Name: nil},
+		},
+	}
+
+	clone := clonePoolState(state)
+
+	if clone.AssetX.Class.PolicyId == nil {
+		t.Error("expected empty (non-nil) PolicyId to stay non-nil after clone")
+	}
+	if clone.AssetX.Class.Name == nil {
+		t.Error("expected empty (non-nil) Name to stay non-nil after clone")
+	}
+	if clone.AssetY.Class.PolicyId != nil {
+		t.Error("expected nil PolicyId to stay nil after clone")
+	}
+	if clone.AssetY.Class.Name != nil {
+		t.Error("expected nil Name to stay nil after clone")
+	}
+}
+
+func TestClonePoolStatePreservesSerializedState(t *testing.T) {
+	state := &PoolState{
+		PoolId: "pool1",
+		AssetX: common.AssetAmount{
+			Class:  common.AssetClass{PolicyId: []byte{}, Name: []byte{}},
+			Amount: 1000,
+		},
+		AssetY: common.AssetAmount{
+			Class:  common.AssetClass{PolicyId: []byte{}, Name: []byte{}},
+			Amount: 2000,
+		},
+	}
+
+	before, err := json.Marshal(state)
+	if err != nil {
+		t.Fatalf("marshal original: %v", err)
+	}
+	after, err := json.Marshal(clonePoolState(state))
+	if err != nil {
+		t.Fatalf("marshal clone: %v", err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf(
+			"clone changed serialized state:\n before: %s\n after:  %s",
+			before,
+			after,
+		)
 	}
 }
 

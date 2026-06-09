@@ -46,6 +46,7 @@ type Oracle struct {
 	subMu         sync.RWMutex
 	stopped       bool
 	dropCount     atomic.Uint64
+	mempoolMgr    *MempoolStateManager
 }
 
 // New creates a new Oracle instance
@@ -61,6 +62,7 @@ func New(
 		pools:         make(map[string]*PoolState),
 		poolAddresses: make(map[string]struct{}),
 		stopChan:      make(chan struct{}),
+		mempoolMgr:    NewMempoolStateManager(),
 	}
 
 	// Extract pool addresses from profile config
@@ -287,6 +289,9 @@ func (o *Oracle) handleTransaction(
 		// Notify subscribers of price update
 		o.notifySubscribers(state, prevPrice)
 
+		// Update mempool manager's confirmed state for this pool
+		o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
+
 		// Persist to storage
 		if err := o.storage.SavePoolState(state); err != nil {
 			logger.Error(
@@ -332,6 +337,13 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		delete(o.pools, state.PoolId)
 	}
 	o.poolsMu.Unlock()
+
+	// Invalidate mempool tracking for rolled-back pools. Otherwise the reorged
+	// confirmed state stays visible to consumers and seeds future pending-tx
+	// delta calculations with stale data.
+	for _, state := range toDelete {
+		o.mempoolMgr.RemovePoolState(state.PoolId)
+	}
 
 	// Delete from persistent storage
 	var errs []error
@@ -383,6 +395,13 @@ func (o *Oracle) loadPersistedStates() error {
 	}
 	o.poolsMu.Unlock()
 
+	if o.mempoolMgr == nil {
+		o.mempoolMgr = NewMempoolStateManager()
+	}
+	for _, state := range states {
+		o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
+	}
+
 	logger := logging.GetLogger()
 	logger.Info("loaded persisted pool states", "count", len(states))
 
@@ -416,6 +435,9 @@ func (o *Oracle) PoolCount() int {
 	defer o.poolsMu.RUnlock()
 	return len(o.pools)
 }
+
+// GetMempoolManager returns the mempool state manager.
+func (o *Oracle) GetMempoolManager() *MempoolStateManager { return o.mempoolMgr }
 
 // GetPrice returns the price of assetX in terms of assetY for a pool
 func (o *Oracle) GetPrice(poolId string) (float64, bool) {
