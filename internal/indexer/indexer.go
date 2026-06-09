@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/blinklabs-io/adder/event"
@@ -37,20 +38,28 @@ const (
 )
 
 type Indexer struct {
-	pipeline     *pipeline.Pipeline
+	pipeline *pipeline.Pipeline
+	// mu guards the catch-up sync log timer and the cached cursor/tip fields,
+	// which are touched by the chainsync status goroutine, the sync log timer
+	// goroutine, and Stop.
+	mu           sync.Mutex
 	cursorSlot   uint64
 	cursorHash   string
 	tipSlot      uint64
 	tipHash      string
 	tipReached   bool
 	syncLogTimer *time.Timer
+	syncLogDone  bool
 	eventFuncs   []EventFunc
+	Watches      *WatchManager
 }
 
 type EventFunc func(event.Event) error
 
 func New() *Indexer {
-	return &Indexer{}
+	return &Indexer{
+		Watches: NewWatchManager(),
+	}
 }
 
 func (i *Indexer) Start() error {
@@ -165,15 +174,45 @@ func (i *Indexer) Start() error {
 	return nil
 }
 
+// Stop halts the indexer's background workers: the watch manager's expiration
+// goroutine and the catch-up sync log timer. It is safe to call even if the
+// indexer was never started and may be called more than once.
+func (i *Indexer) Stop() {
+	if i.Watches != nil {
+		i.Watches.Stop()
+	}
+	i.mu.Lock()
+	i.stopSyncLogTimerLocked()
+	i.mu.Unlock()
+}
+
+// stopSyncLogTimerLocked stops the catch-up sync log timer and prevents it from
+// being rescheduled. The caller must hold i.mu.
+func (i *Indexer) stopSyncLogTimerLocked() {
+	i.syncLogDone = true
+	if i.syncLogTimer != nil {
+		i.syncLogTimer.Stop()
+	}
+}
+
 func (i *Indexer) AddEventFunc(eventFunc EventFunc) {
 	i.eventFuncs = append(i.eventFuncs, eventFunc)
 }
 
 func (i *Indexer) handleEvent(evt event.Event) error {
+	// Notify any registered watches about this event
+	if i.Watches != nil {
+		i.Watches.CheckEvent(evt)
+	}
 	switch evt.Payload.(type) {
 	case event.TransactionEvent:
-		bursa := wallet.GetWallet()
 		eventTx := evt.Payload.(event.TransactionEvent)
+		// A TransactionEvent may carry a nil Transaction; there is nothing to
+		// reconcile in that case, so skip rather than dereferencing it.
+		if eventTx.Transaction == nil {
+			return nil
+		}
+		bursa := wallet.GetWallet()
 		eventCtx := evt.Context.(event.TransactionContext)
 		// Delete used UTXOs
 		for _, txInput := range eventTx.Transaction.Consumed() {
@@ -202,34 +241,60 @@ func (i *Indexer) handleEvent(evt event.Event) error {
 }
 
 func (i *Indexer) scheduleSyncStatusLog() {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.scheduleSyncStatusLogLocked()
+}
+
+// scheduleSyncStatusLogLocked arms the catch-up sync log timer unless logging
+// has been stopped. The caller must hold i.mu.
+func (i *Indexer) scheduleSyncStatusLogLocked() {
+	if i.syncLogDone {
+		return
+	}
+	if i.syncLogTimer != nil {
+		i.syncLogTimer.Stop()
+	}
 	i.syncLogTimer = time.AfterFunc(syncStatusLogInterval, i.syncStatusLog)
 }
 
 func (i *Indexer) syncStatusLog() {
-	logger := logging.GetLogger()
-	logger.Info(fmt.Sprintf(
+	// Snapshot the cursor fields under the lock, then log and reschedule
+	// without holding it.
+	i.mu.Lock()
+	cursorSlot := i.cursorSlot
+	cursorHash := i.cursorHash
+	tipSlot := i.tipSlot
+	i.mu.Unlock()
+
+	logging.GetLogger().Info(fmt.Sprintf(
 		"catch-up sync in progress: at %d.%s (current tip slot is %d)",
-		i.cursorSlot,
-		i.cursorHash,
-		i.tipSlot),
+		cursorSlot,
+		cursorHash,
+		tipSlot),
 	)
 	i.scheduleSyncStatusLog()
 }
 
 func (i *Indexer) updateStatus(status input_chainsync.ChainSyncStatus) {
-	logger := logging.GetLogger()
+	i.applyStatus(status)
+	if err := storage.GetStorage().UpdateCursor(status.SlotNumber, status.BlockHash); err != nil {
+		logging.GetLogger().Error("failed to update cursor:", "error", err)
+	}
+}
+
+// applyStatus updates the cached cursor/tip fields from a chainsync status
+// update and stops the catch-up sync log timer once the chain tip is reached.
+func (i *Indexer) applyStatus(status input_chainsync.ChainSyncStatus) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	// Check if we've hit chain tip
 	if !i.tipReached && status.TipReached {
-		if i.syncLogTimer != nil {
-			i.syncLogTimer.Stop()
-		}
+		i.stopSyncLogTimerLocked()
 		i.tipReached = true
 	}
 	i.cursorSlot = status.SlotNumber
 	i.cursorHash = status.BlockHash
 	i.tipSlot = status.TipSlotNumber
 	i.tipHash = status.TipBlockHash
-	if err := storage.GetStorage().UpdateCursor(status.SlotNumber, status.BlockHash); err != nil {
-		logger.Error("failed to update cursor:", "error", err)
-	}
 }
