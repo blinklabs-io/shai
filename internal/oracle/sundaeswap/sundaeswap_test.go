@@ -28,9 +28,34 @@ func TestNewV3Parser(t *testing.T) {
 	require.NotNil(t, parser, "NewV3Parser returned nil")
 }
 
+func TestNewV1Parser(t *testing.T) {
+	parser := NewV1Parser()
+	require.NotNil(t, parser, "NewV1Parser returned nil")
+}
+
 func TestParser_Protocol(t *testing.T) {
-	parser := NewV3Parser()
-	assert.Equal(t, "sundaeswap-v3", parser.Protocol())
+	tests := []struct {
+		name string
+		got  string
+		want string
+	}{
+		{
+			name: "V1",
+			got:  NewV1Parser().Protocol(),
+			want: "sundaeswap-v1",
+		},
+		{
+			name: "V3",
+			got:  NewV3Parser().Protocol(),
+			want: "sundaeswap-v3",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.got)
+		})
+	}
 }
 
 func TestGeneratePoolId(t *testing.T) {
@@ -45,6 +70,22 @@ func TestGeneratePoolId(t *testing.T) {
 
 func TestAssetClass_ToCommonAssetClass(t *testing.T) {
 	asset := AssetClass{
+		PolicyId:  []byte{0x01, 0x02, 0x03},
+		AssetName: []byte{0x04, 0x05},
+	}
+
+	expected := common.AssetClass{
+		PolicyId: []byte{0x01, 0x02, 0x03},
+		Name:     []byte{0x04, 0x05},
+	}
+
+	result := asset.ToCommonAssetClass()
+	assert.Equal(t, expected.PolicyId, result.PolicyId)
+	assert.Equal(t, expected.Name, result.Name)
+}
+
+func TestV1AssetClass_ToCommonAssetClass(t *testing.T) {
+	asset := V1AssetClass{
 		PolicyId:  []byte{0x01, 0x02, 0x03},
 		AssetName: []byte{0x04, 0x05},
 	}
@@ -233,6 +274,45 @@ func TestV3PoolDatumUnmarshal(t *testing.T) {
 	assert.Equal(t, "SUNDAE", string(poolDatum.Assets.AssetB.AssetName))
 }
 
+func TestV1PoolDatumUnmarshal(t *testing.T) {
+	ident := make([]byte, 28)
+	for i := range ident {
+		ident[i] = byte(i + 1)
+	}
+
+	assetA := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		[]byte{},
+		[]byte{},
+	})
+
+	assetB := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		[]byte{0xab, 0xcd, 0xef},
+		[]byte("SUNDAE"),
+	})
+
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		ident,
+		assetA,
+		assetB,
+		uint64(1000000000),
+		uint64(30),
+	})
+
+	cborData, err := cbor.Encode(&datum)
+	require.NoError(t, err, "failed to encode datum")
+
+	var poolDatum V1PoolDatum
+	_, err = cbor.Decode(cborData, &poolDatum)
+	require.NoError(t, err, "failed to decode datum")
+
+	assert.Equal(t, ident, poolDatum.Ident)
+	assert.Equal(t, uint64(1000000000), poolDatum.CirculatingLp)
+	assert.Equal(t, uint64(30), poolDatum.FeeNumerator)
+	assert.Empty(t, poolDatum.AssetA.PolicyId, "expected AssetA to be ADA")
+	assert.Equal(t, "SUNDAE", string(poolDatum.AssetB.AssetName))
+	assert.Equal(t, "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c", poolDatum.GetPoolIdent())
+}
+
 func TestGeneratePoolIdWithADA(t *testing.T) {
 	// Test pool ID generation with ADA (empty policy/name)
 	// Empty bytes encode to empty strings, so format is: sundaeswap_._abcd.544f4b454e
@@ -244,4 +324,10 @@ func TestGeneratePoolIdWithADA(t *testing.T) {
 	)
 
 	assert.Equal(t, "sundaeswap_._abcd.544f4b454e", poolId)
+}
+
+func TestGeneratePoolIdentId(t *testing.T) {
+	identifier := []byte{0xab, 0xcd, 0xef}
+
+	assert.Equal(t, "sundaeswap_abcdef", GeneratePoolIdentId(identifier))
 }
