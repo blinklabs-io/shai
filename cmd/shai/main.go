@@ -208,6 +208,8 @@ func getOracleParser(protocol string) oracle.PoolParser {
 		return oracle.NewMinswapV1Parser()
 	case "minswap-v2", "minswap":
 		return oracle.NewMinswapV2Parser()
+	case "sundaeswap-v1":
+		return oracle.NewSundaeSwapV1Parser()
 	case "sundaeswap-v3", "sundaeswap":
 		return oracle.NewSundaeSwapV3Parser()
 	case "splash-v1", "splash":

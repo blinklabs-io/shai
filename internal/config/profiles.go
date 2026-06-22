@@ -140,6 +140,22 @@ var Profiles = map[string]map[string]Profile{
 				},
 			},
 		},
+		"sundaeswap-v1": {
+			Name:          "sundaeswap-v1",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 51337110, // First block at/after the V1 launch slot 51337095
+			InterceptHash: "d1423d7eb6fc87d7ad1a54e44dd8cb70483370877346f3178dd507d7609046c8",
+			Config: OracleProfileConfig{
+				Protocol: "sundaeswap-v1",
+				PoolAddresses: []ProfileConfigAddress{
+					// SundaeSwap V1 pool script address (mainnet)
+					{
+						Address: "addr1wyx22z2s4kasd3w976pnjf9xdty88epjqfvgkmfnfpsdacqe7utc8",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
 		"sundaeswap-v3": {
 			Name:          "sundaeswap-v3",
 			Type:          ProfileTypeOracle,

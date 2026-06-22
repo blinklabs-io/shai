@@ -40,21 +40,107 @@ type PoolState struct {
 	Timestamp time.Time
 }
 
-// Parser implements pool parsing for SundaeSwap V3
-type Parser struct{}
+// Parser implements pool parsing for SundaeSwap
+type Parser struct {
+	version int
+}
+
+// NewV1Parser creates a parser for SundaeSwap V1 pools
+func NewV1Parser() *Parser {
+	return &Parser{version: 1}
+}
 
 // NewV3Parser creates a parser for SundaeSwap V3 pools
 func NewV3Parser() *Parser {
-	return &Parser{}
+	return &Parser{version: 3}
 }
 
 // Protocol returns the protocol name
 func (p *Parser) Protocol() string {
-	return ProtocolName + "-v3"
+	return fmt.Sprintf("%s-v%d", ProtocolName, p.version)
 }
 
-// ParsePoolDatum parses a SundaeSwap V3 pool datum
+// ParsePoolDatum parses a SundaeSwap pool datum
 func (p *Parser) ParsePoolDatum(
+	datum []byte,
+	utxoValue []byte,
+	txHash string,
+	txIndex uint32,
+	slot uint64,
+	timestamp time.Time,
+) (*PoolState, error) {
+	switch p.version {
+	case 1:
+		return p.parseV1Datum(datum, utxoValue, txHash, txIndex, slot, timestamp)
+	case 3:
+		return p.parseV3Datum(datum, utxoValue, txHash, txIndex, slot, timestamp)
+	default:
+		return nil, fmt.Errorf("unsupported SundaeSwap version: %d", p.version)
+	}
+}
+
+func (p *Parser) parseV1Datum(
+	datum []byte,
+	utxoValue []byte,
+	txHash string,
+	txIndex uint32,
+	slot uint64,
+	timestamp time.Time,
+) (*PoolState, error) {
+	var poolDatum V1PoolDatum
+	if _, err := cbor.Decode(datum, &poolDatum); err != nil {
+		return nil, fmt.Errorf("failed to decode SundaeSwap V1 datum: %w", err)
+	}
+
+	poolId, err := GeneratePoolIdentId(poolDatum.Ident)
+	if err != nil {
+		return nil, fmt.Errorf("invalid SundaeSwap V1 pool identifier: %w", err)
+	}
+
+	feeNum := poolDatum.FeeNumerator
+	if feeNum == 0 {
+		feeNum = V1DefaultFee
+	}
+	if feeNum > FeeDenom {
+		return nil, fmt.Errorf(
+			"invalid fee: fee numerator %d exceeds denominator %d",
+			feeNum,
+			FeeDenom,
+		)
+	}
+
+	assetA := poolDatum.AssetA.ToCommonAssetClass()
+	assetB := poolDatum.AssetB.ToCommonAssetClass()
+	reserveA, reserveB, err := p.extractReservesFromValue(
+		utxoValue,
+		assetA,
+		assetB,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract V1 reserves: %w", err)
+	}
+
+	return &PoolState{
+		PoolId:   poolId,
+		Protocol: p.Protocol(),
+		AssetX: common.AssetAmount{
+			Class:  assetA,
+			Amount: reserveA,
+		},
+		AssetY: common.AssetAmount{
+			Class:  assetB,
+			Amount: reserveB,
+		},
+		FeeNum:    FeeDenom - feeNum,
+		FeeDenom:  FeeDenom,
+		Slot:      slot,
+		TxHash:    txHash,
+		TxIndex:   txIndex,
+		Timestamp: timestamp,
+	}, nil
+}
+
+func (p *Parser) parseV3Datum(
 	datum []byte,
 	utxoValue []byte,
 	txHash string,
@@ -127,8 +213,13 @@ func (p *Parser) ParsePoolDatum(
 		)
 	}
 
-	// Parse the UTXO value to extract token amounts
-	reserveA, reserveB, err := p.extractReservesFromValue(utxoValue, poolDatum)
+	assetA := poolDatum.Assets.AssetA.ToCommonAssetClass()
+	assetB := poolDatum.Assets.AssetB.ToCommonAssetClass()
+	reserveA, reserveB, err := p.extractReservesFromValue(
+		utxoValue,
+		assetA,
+		assetB,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to extract reserves: %w", err)
 	}
@@ -137,11 +228,11 @@ func (p *Parser) ParsePoolDatum(
 		PoolId:   poolId,
 		Protocol: p.Protocol(),
 		AssetX: common.AssetAmount{
-			Class:  poolDatum.Assets.AssetA.ToCommonAssetClass(),
+			Class:  assetA,
 			Amount: reserveA,
 		},
 		AssetY: common.AssetAmount{
-			Class:  poolDatum.Assets.AssetB.ToCommonAssetClass(),
+			Class:  assetB,
 			Amount: reserveB,
 		},
 		FeeNum:    effectiveFeeNum,
@@ -156,7 +247,8 @@ func (p *Parser) ParsePoolDatum(
 // extractReservesFromValue extracts the reserve amounts for AssetA and AssetB from the UTXO value
 func (p *Parser) extractReservesFromValue(
 	utxoValue []byte,
-	poolDatum V3PoolDatum,
+	assetA common.AssetClass,
+	assetB common.AssetClass,
 ) (uint64, uint64, error) {
 	// Parse the UTXO output CBOR using the generic decoder
 	// This handles all eras (Mary, Alonzo, Babbage, Conway)
@@ -168,8 +260,8 @@ func (p *Parser) extractReservesFromValue(
 	// Extract reserve for AssetA
 	reserveA, err := p.getAssetAmount(
 		txOut,
-		poolDatum.Assets.AssetA.PolicyId,
-		poolDatum.Assets.AssetA.AssetName,
+		assetA.PolicyId,
+		assetA.Name,
 	)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get AssetA amount: %w", err)
@@ -178,8 +270,8 @@ func (p *Parser) extractReservesFromValue(
 	// Extract reserve for AssetB
 	reserveB, err := p.getAssetAmount(
 		txOut,
-		poolDatum.Assets.AssetB.PolicyId,
-		poolDatum.Assets.AssetB.AssetName,
+		assetB.PolicyId,
+		assetB.Name,
 	)
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to get AssetB amount: %w", err)
@@ -194,8 +286,14 @@ func (p *Parser) getAssetAmount(
 	policyId []byte,
 	assetName []byte,
 ) (uint64, error) {
-	// Check if this is ADA (empty policy ID)
+	// Check if this is ADA (empty policy ID and empty asset name)
 	if len(policyId) == 0 {
+		if len(assetName) != 0 {
+			return 0, fmt.Errorf(
+				"malformed asset: empty policyId with non-empty assetName %x",
+				assetName,
+			)
+		}
 		amount := txOut.Amount()
 		return amount.Uint64(), nil
 	}
@@ -238,6 +336,18 @@ func (p *Parser) getAssetAmount(
 		policyId,
 		assetName,
 	)
+}
+
+// GeneratePoolIdentId generates a unique pool ID from a pool identifier
+func GeneratePoolIdentId(identifier []byte) (string, error) {
+	if len(identifier) != V1PoolIdentLength {
+		return "", fmt.Errorf(
+			"expected %d-byte identifier, got %d bytes",
+			V1PoolIdentLength,
+			len(identifier),
+		)
+	}
+	return fmt.Sprintf("sundaeswap_%s", hex.EncodeToString(identifier)), nil
 }
 
 // GeneratePoolId generates a unique pool ID from asset pair
