@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package sundaeswap provides datum types and parsing for SundaeSwap V3 DEX protocol.
+// Package sundaeswap provides datum types and parsing for SundaeSwap DEX protocols.
 package sundaeswap
 
 import (
@@ -26,7 +26,87 @@ import (
 const (
 	ProtocolName = "sundaeswap"
 	FeeDenom     = 10000
+
+	// V1DefaultFee is the default SundaeSwap V1 pool fee in basis points.
+	V1DefaultFee = 30
+
+	// V1PoolIdentLength is the byte length of a SundaeSwap V1 pool identifier.
+	V1PoolIdentLength = 28
 )
+
+// V1PoolDatum represents the SundaeSwap V1 pool datum structure.
+type V1PoolDatum struct {
+	cbor.StructAsArray
+	cbor.DecodeStoreCbor
+	Ident         []byte
+	AssetA        V1AssetClass
+	AssetB        V1AssetClass
+	CirculatingLp uint64
+	FeeNumerator  uint64
+}
+
+func (d *V1PoolDatum) UnmarshalCBOR(cborData []byte) error {
+	var tmpConstr cbor.ConstructorDecoder
+	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
+		return err
+	}
+	if tmpConstr.Tag() != 0 {
+		return fmt.Errorf(
+			"expected constructor 0, got %d",
+			tmpConstr.Tag(),
+		)
+	}
+
+	type tV1PoolDatum V1PoolDatum
+	var tmp tV1PoolDatum
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
+		return err
+	}
+	*d = V1PoolDatum(tmp)
+	d.SetCbor(cborData)
+	return nil
+}
+
+// V1AssetClass represents a constructor-wrapped asset class in V1 datums.
+type V1AssetClass struct {
+	cbor.StructAsArray
+	PolicyId  []byte
+	AssetName []byte
+}
+
+func (a *V1AssetClass) UnmarshalCBOR(cborData []byte) error {
+	var tmpConstr cbor.ConstructorDecoder
+	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
+		return err
+	}
+	if tmpConstr.Tag() != 0 {
+		return fmt.Errorf(
+			"expected constructor 0, got %d",
+			tmpConstr.Tag(),
+		)
+	}
+
+	type tV1AssetClass V1AssetClass
+	var tmp tV1AssetClass
+	if _, err := cbor.Decode(tmpConstr.Fields(), &tmp); err != nil {
+		return err
+	}
+	*a = V1AssetClass(tmp)
+	return nil
+}
+
+// ToCommonAssetClass converts to common.AssetClass.
+func (a V1AssetClass) ToCommonAssetClass() common.AssetClass {
+	return common.AssetClass{
+		PolicyId: a.PolicyId,
+		Name:     a.AssetName,
+	}
+}
+
+// GetPoolIdent returns the pool identifier as hex string.
+func (d *V1PoolDatum) GetPoolIdent() string {
+	return fmt.Sprintf("%x", d.Ident)
+}
 
 // V3PoolDatum represents the SundaeSwap V3 pool datum structure
 type V3PoolDatum struct {

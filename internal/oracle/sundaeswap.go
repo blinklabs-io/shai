@@ -25,6 +25,11 @@ type SundaeSwapParser struct {
 	parser *sundaeswap.Parser
 }
 
+// NewSundaeSwapV1Parser creates a parser for SundaeSwap V1 pools
+func NewSundaeSwapV1Parser() *SundaeSwapParser {
+	return &SundaeSwapParser{parser: sundaeswap.NewV1Parser()}
+}
+
 // NewSundaeSwapV3Parser creates a parser for SundaeSwap V3 pools
 func NewSundaeSwapV3Parser() *SundaeSwapParser {
 	return &SundaeSwapParser{parser: sundaeswap.NewV3Parser()}
