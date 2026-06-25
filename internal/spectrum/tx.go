@@ -7,16 +7,11 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/Salvionied/apollo"
-	serAddress "github.com/Salvionied/apollo/serialization/Address"
-	"github.com/Salvionied/apollo/serialization/Key"
-	"github.com/Salvionied/apollo/serialization/PlutusData"
-	"github.com/Salvionied/apollo/serialization/Redeemer"
-	"github.com/Salvionied/apollo/serialization/TransactionInput"
-	"github.com/Salvionied/apollo/serialization/UTxO"
-
-	// txBuildingUtils "github.com/Salvionied/apollo/txBuilding/Utils"
+	"github.com/blinklabs-io/apollo/v2"
+	"github.com/blinklabs-io/apollo/v2/backend/fixed"
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/storage"
 	"github.com/blinklabs-io/shai/internal/wallet"
@@ -305,14 +300,14 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	bursa := wallet.GetWallet()
 
 	// Decode pool UTxO
-	var poolUtxo UTxO.UTxO
-	if _, err := cbor.Decode(opts.poolUtxoBytes, &poolUtxo); err != nil {
+	poolUtxo, err := decodeUtxo(opts.poolUtxoBytes)
+	if err != nil {
 		return nil, err
 	}
 
 	// Decode swap UTxO
-	var swapUtxo UTxO.UTxO
-	if _, err := cbor.Decode(opts.swapUtxoBytes, &swapUtxo); err != nil {
+	swapUtxo, err := decodeUtxo(opts.swapUtxoBytes)
+	if err != nil {
 		return nil, err
 	}
 
@@ -321,10 +316,10 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	utxos := []UTxO.UTxO{}
+	utxos := []common.Utxo{}
 	for _, utxoBytes := range utxosBytes {
-		var utxo UTxO.UTxO
-		if _, err := cbor.Decode(utxoBytes, &utxo); err != nil {
+		utxo, err := decodeUtxo(utxoBytes)
+		if err != nil {
 			return nil, err
 		}
 		utxos = append(utxos, utxo)
@@ -352,7 +347,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 			apollo.NewUnit(
 				hex.EncodeToString(rewardAsset.Class.PolicyId),
 				string(rewardAsset.Class.Name),
-				int(rewardAsset.Amount),
+				int64(rewardAsset.Amount),
 			),
 		)
 	}
@@ -383,7 +378,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 			apollo.NewUnit(
 				hex.EncodeToString(asset.Class.PolicyId),
 				string(asset.Class.Name),
-				int(asset.Amount),
+				int64(asset.Amount),
 			),
 		)
 	}
@@ -417,7 +412,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	).Uint64()
 
 	// Calculate leftover lovelace from swap order UTxO for return with reward
-	swapUtxoCoin := uint64(swapUtxo.Output.GetAmount().GetCoin())
+	swapUtxoCoin := swapUtxo.Output.Amount().Uint64()
 	// Guard against uint64 underflow: the swap UTxO must hold at least the
 	// matcher fee.
 	if swapUtxoCoin < matcherFee {
@@ -457,11 +452,11 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		opts.swapConfig.RewardPkh,
 		opts.swapConfig.StakePkh.Pkh,
 	)
-	rewardAddress, _ := serAddress.DecodeAddress(tmpRewardAddr)
+	rewardAddress, _ := common.NewAddress(tmpRewardAddr)
 
-	poolAddress, _ := serAddress.DecodeAddress(opts.outputPoolAddress)
+	poolAddress, _ := common.NewAddress(opts.outputPoolAddress)
 
-	changeAddress, _ := serAddress.DecodeAddress(bursa.PaymentAddress)
+	changeAddress, _ := common.NewAddress(bursa.PaymentAddress)
 
 	currentSlot := unixTimeToSlot(time.Now().Unix())
 
@@ -470,11 +465,11 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	// sorted order of the TX inputs, and the smart contract uses the same mapping
 	// for redeemer datum input indexes
 	datumPoolInputIdx := sortedInputIndex(
-		[]UTxO.UTxO{
+		[]common.Utxo{
 			poolUtxo,
 			swapUtxo,
 		},
-		poolUtxo.Input,
+		poolUtxo.Id,
 	)
 	// We can safely assume that the swap input index is whichever one that the pool
 	// input index isn't
@@ -483,107 +478,103 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		datumSwapInputIdx = 1
 	}
 
-	cc := apollo.NewEmptyBackend()
-	apollob := apollo.New(&cc)
+	// Build the pool datum from the pool's stored Plutus-data CBOR so the
+	// returned pool output carries the exact datum bytes seen on-chain.
+	var poolDatum common.Datum
+	if _, err := cbor.Decode(opts.pool.Datum.Cbor(), &poolDatum); err != nil {
+		return nil, fmt.Errorf("failed to decode pool datum: %w", err)
+	}
+
+	// Build the spend redeemers as Plutus constructor data. We encode the same
+	// constructor/indefinite-list structure used on-chain and round-trip it
+	// through CBOR so the bytes are identical to what the validator expects.
+	poolRedeemer, err := plutusDatum(cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{
+			2,                 // action (swap)
+			datumPoolInputIdx, // pool input index
+		},
+	))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build pool redeemer: %w", err)
+	}
+	swapRedeemer, err := plutusDatum(cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{
+			datumPoolInputIdx, // pool input index
+			datumSwapInputIdx, // swap order input index
+			1,                 // reward output index
+			0,                 // action (apply)
+		},
+	))
+	if err != nil {
+		return nil, fmt.Errorf("failed to build swap redeemer: %w", err)
+	}
+
+	apollob := apollo.New(fixed.NewEmptyFixedChainContext())
+	// Set the wallet from our mnemonic so signing produces correct CIP-1852
+	// extended Ed25519 signatures via bursa.
+	apollob, err = apollob.SetWalletFromMnemonic(bursa.Mnemonic)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set wallet: %w", err)
+	}
 	apollob = apollob.
-		//SetWalletFromBech32(bursa.PaymentAddress).
-		//SetWalletAsChangeAddress().
 		AddInputAddress(changeAddress).
 		AddLoadedUTxOs(utxos...).
 		SetTtl(int64(currentSlot+swapTxTtlSlots)).
 		PayToContract(
 			poolAddress,
-			&PlutusData.PlutusData{
-				Value: opts.pool.Datum,
-			},
-			int(poolReturnLovelace),
-			true,
+			&poolDatum,
+			int64(poolReturnLovelace),
 			poolReturnUnits...,
 		).
 		PayToAddress(
-			rewardAddress, int(rewardLovelace), rewardUnits...,
+			rewardAddress, int64(rewardLovelace), rewardUnits...,
 		).
 		PayToAddress(
-			changeAddress, int(matcherFee)-swapTxFee,
-		).
-		AddReferenceInput(
-			opts.poolInputRef.TxId,
-			int(opts.poolInputRef.OutputIdx),
-		).
-		CollectFrom(
-			poolUtxo,
-			Redeemer.Redeemer{
-				Tag: Redeemer.SPEND,
-				// NOTE: these values are estimated
-				ExUnits: Redeemer.ExecutionUnits{
-					Mem:   530_000,
-					Steps: 165_000_000,
-				},
-				Data: PlutusData.PlutusData{
-					Value: cbor.NewConstructorEncoder(
-						0,
-						cbor.IndefLengthList{
-							2,                 // action (swap)
-							datumPoolInputIdx, // pool input index
-						},
-					),
-				},
-			},
-		).
-		AddReferenceInput(
-			s.config.SwapInputRef.TxId,
-			int(s.config.SwapInputRef.OutputIdx),
-		).
-		CollectFrom(
-			swapUtxo,
-			Redeemer.Redeemer{
-				Tag: Redeemer.SPEND,
-				// NOTE: these values are estimated
-				ExUnits: Redeemer.ExecutionUnits{
-					Mem:   270_000,
-					Steps: 140_000_000,
-				},
-				Data: PlutusData.PlutusData{
-					Value: cbor.NewConstructorEncoder(
-						0,
-						cbor.IndefLengthList{
-							datumPoolInputIdx, // pool input index
-							datumSwapInputIdx, // swap order input index
-							1,                 // reward output index
-							0,                 // action (apply)
-						},
-					),
-				},
-			},
+			changeAddress, int64(matcherFee)-swapTxFee,
 		)
+	// AddReferenceInput returns an error in v2, so it can no longer be chained.
+	apollob, err = apollob.AddReferenceInput(
+		opts.poolInputRef.TxId,
+		int(opts.poolInputRef.OutputIdx),
+	)
+	if err != nil {
+		return nil, err
+	}
+	apollob = apollob.CollectFrom(
+		poolUtxo,
+		poolRedeemer,
+		// NOTE: these values are estimated
+		common.ExUnits{Memory: 530_000, Steps: 165_000_000},
+	)
+	apollob, err = apollob.AddReferenceInput(
+		s.config.SwapInputRef.TxId,
+		int(s.config.SwapInputRef.OutputIdx),
+	)
+	if err != nil {
+		return nil, err
+	}
+	apollob = apollob.CollectFrom(
+		swapUtxo,
+		swapRedeemer,
+		// NOTE: these values are estimated
+		common.ExUnits{Memory: 270_000, Steps: 140_000_000},
+	)
 
+	// CompleteExact(fee) is replaced in v2 by SetFee(fee) + Complete().
 	tx, err := apollob.
 		DisableExecutionUnitsEstimation().
-		//Complete()
-		CompleteExact(swapTxFee)
+		SetFee(swapTxFee).
+		Complete()
 	if err != nil {
 		return nil, err
 	}
-	vKeyBytes, err := hex.DecodeString(bursa.PaymentVKey.CborHex)
+	tx, err = tx.Sign()
 	if err != nil {
 		return nil, err
 	}
-	sKeyBytes, err := hex.DecodeString(bursa.PaymentExtendedSKey.CborHex)
-	if err != nil {
-		return nil, err
-	}
-	// Strip off leading 2 bytes as shortcut for CBOR decoding to unwrap bytes
-	vKeyBytes = vKeyBytes[2:]
-	sKeyBytes = sKeyBytes[2:]
-	// Strip out public key portion of extended private key
-	sKeyBytes = append(sKeyBytes[:64], sKeyBytes[96:]...)
-	vkey := Key.VerificationKey{Payload: vKeyBytes}
-	skey := Key.SigningKey{Payload: sKeyBytes}
-	tx, err = tx.SignWithSkey(vkey, skey)
-	if err != nil {
-		return nil, err
-	}
-	txBytes, err := tx.GetTx().Bytes()
+	txBytes, err := tx.GetTxCbor()
 	if err != nil {
 		return nil, err
 	}
@@ -599,16 +590,56 @@ func unixTimeToSlot(unixTime int64) uint64 {
 }
 
 func sortedInputIndex(
-	utxos []UTxO.UTxO,
-	txInput TransactionInput.TransactionInput,
+	utxos []common.Utxo,
+	txInput common.TransactionInput,
 ) int {
 	sortedUtxos := apollo.SortInputs(utxos)
 	for idx, utxo := range sortedUtxos {
-		if string(utxo.Input.TransactionId) == string(txInput.TransactionId) {
-			if utxo.Input.Index == txInput.Index {
-				return idx
-			}
+		if utxo.Id.Id() == txInput.Id() &&
+			utxo.Id.Index() == txInput.Index() {
+			return idx
 		}
 	}
 	return -1
+}
+
+// decodeUtxo reconstructs a gouroboros common.Utxo from the stored CBOR
+// representation (a 2-element array of [input, output]). common.Utxo has no
+// custom CBOR unmarshaler and its Output field is an interface, so the input
+// and output are decoded individually, mirroring internal/storage's handling.
+func decodeUtxo(utxoBytes []byte) (common.Utxo, error) {
+	tmpUnwrap := []cbor.RawMessage{}
+	if _, err := cbor.Decode(utxoBytes, &tmpUnwrap); err != nil {
+		return common.Utxo{}, err
+	}
+	if len(tmpUnwrap) != 2 {
+		return common.Utxo{}, fmt.Errorf(
+			"unexpected UTxO CBOR structure: got %d elements, want 2",
+			len(tmpUnwrap),
+		)
+	}
+	var input ledger.ShelleyTransactionInput
+	if _, err := cbor.Decode(tmpUnwrap[0], &input); err != nil {
+		return common.Utxo{}, err
+	}
+	output, err := ledger.NewTransactionOutputFromCbor(tmpUnwrap[1])
+	if err != nil {
+		return common.Utxo{}, err
+	}
+	return common.Utxo{Id: input, Output: output}, nil
+}
+
+// plutusDatum encodes a value to CBOR and decodes it back into a common.Datum.
+// This builds redeemer data from gouroboros Plutus constructor encoders while
+// producing the exact on-chain CBOR the validator expects.
+func plutusDatum(value any) (common.Datum, error) {
+	cborBytes, err := cbor.Encode(value)
+	if err != nil {
+		return common.Datum{}, err
+	}
+	var datum common.Datum
+	if _, err := cbor.Decode(cborBytes, &datum); err != nil {
+		return common.Datum{}, err
+	}
+	return datum, nil
 }

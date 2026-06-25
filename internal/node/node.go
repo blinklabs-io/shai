@@ -158,6 +158,15 @@ func (n *Node) acceptConnections() {
 		}
 		logger.Info("accepted connection", "remoteAddr", conn.RemoteAddr())
 		// Setup Ouroboros connection
+		blockFetchConfig, err := blockfetch.NewConfig(
+			blockfetch.WithRequestRangeFunc(
+				n.blockfetchServerRequestRange,
+			),
+		)
+		if err != nil {
+			logger.Error("failed to setup blockfetch config", "error", err)
+			continue
+		}
 		oConn, err := ouroboros.NewConnection(
 			ouroboros.WithNetworkMagic(cfg.NetworkMagic),
 			ouroboros.WithNodeToNode(true),
@@ -182,13 +191,7 @@ func (n *Node) acceptConnections() {
 					),
 				),
 			),
-			ouroboros.WithBlockFetchConfig(
-				blockfetch.NewConfig(
-					blockfetch.WithRequestRangeFunc(
-						n.blockfetchServerRequestRange,
-					),
-				),
-			),
+			ouroboros.WithBlockFetchConfig(blockFetchConfig),
 			ouroboros.WithPeerSharingConfig(
 				peersharing.NewConfig(
 					peersharing.WithShareRequestFunc(
@@ -288,6 +291,14 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 		return err
 	}
 	// Setup Ouroboros connection
+	blockFetchConfig, err := blockfetch.NewConfig(
+		blockfetch.WithRequestRangeFunc(
+			n.blockfetchServerRequestRange,
+		),
+	)
+	if err != nil {
+		return err
+	}
 	oConn, err := ouroboros.NewConnection(
 		ouroboros.WithConnection(tmpConn),
 		ouroboros.WithNetworkMagic(cfg.NetworkMagic),
@@ -319,13 +330,7 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 				),
 			),
 		),
-		ouroboros.WithBlockFetchConfig(
-			blockfetch.NewConfig(
-				blockfetch.WithRequestRangeFunc(
-					n.blockfetchServerRequestRange,
-				),
-			),
-		),
+		ouroboros.WithBlockFetchConfig(blockFetchConfig),
 		ouroboros.WithPeerSharingConfig(
 			peersharing.NewConfig(
 				peersharing.WithShareRequestFunc(
