@@ -324,6 +324,10 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		}
 		utxos = append(utxos, utxo)
 	}
+	collateralUtxo, err := selectCollateralUtxo(utxos)
+	if err != nil {
+		return nil, err
+	}
 
 	// Calculate reward lovelace and asset amounts
 	rewardAsset := opts.pool.OutputForInput(
@@ -528,8 +532,8 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		return nil, fmt.Errorf("failed to set wallet: %w", err)
 	}
 	apollob = apollob.
-		AddInputAddress(changeAddress).
-		AddLoadedUTxOs(utxos...).
+		SetChangeAddress(changeAddress).
+		AddCollateral(collateralUtxo).
 		SetTtl(int64(currentSlot+swapTxTtlSlots)).
 		PayToContract(
 			poolAddress,
@@ -579,12 +583,37 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateSwapTxInputs(
+		tx.GetTx().Inputs(),
+		poolUtxo.Id,
+		swapUtxo.Id,
+		datumPoolInputIdx,
+		datumSwapInputIdx,
+	); err != nil {
+		return nil, err
+	}
 	tx, err = tx.Sign()
 	if err != nil {
 		return nil, err
 	}
 	txBytes, err := tx.GetTxCbor()
 	if err != nil {
+		return nil, err
+	}
+	decodedTx, err := ledger.NewTransactionFromCbor(
+		ledger.TxTypeConway,
+		txBytes,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode built transaction CBOR: %w", err)
+	}
+	if err := validateSwapTxInputs(
+		decodedTx.Inputs(),
+		poolUtxo.Id,
+		swapUtxo.Id,
+		datumPoolInputIdx,
+		datumSwapInputIdx,
+	); err != nil {
 		return nil, err
 	}
 	return txBytes, nil
@@ -606,6 +635,73 @@ func sortedInputIndex(
 	for idx, utxo := range sortedUtxos {
 		if utxo.Id.Id() == txInput.Id() &&
 			utxo.Id.Index() == txInput.Index() {
+			return idx
+		}
+	}
+	return -1
+}
+
+func selectCollateralUtxo(utxos []common.Utxo) (common.Utxo, error) {
+	for _, utxo := range utxos {
+		if utxo.Output == nil || utxo.Output.Assets() != nil {
+			continue
+		}
+		addr := utxo.Output.Address()
+		if addr.Type() != common.AddressTypeKeyKey &&
+			addr.Type() != common.AddressTypeKeyNone {
+			continue
+		}
+		amount := utxo.Output.Amount()
+		if amount == nil || amount.Sign() <= 0 {
+			continue
+		}
+		return utxo, nil
+	}
+	return common.Utxo{}, errors.New(
+		"script transaction requires an ADA-only wallet UTxO for collateral",
+	)
+}
+
+func validateSwapTxInputs(
+	inputs []common.TransactionInput,
+	poolInput common.TransactionInput,
+	swapInput common.TransactionInput,
+	datumPoolInputIdx int,
+	datumSwapInputIdx int,
+) error {
+	if len(inputs) != 2 {
+		return fmt.Errorf(
+			"unexpected swap transaction input count: got %d, want 2",
+			len(inputs),
+		)
+	}
+	poolInputIdx := transactionInputIndex(inputs, poolInput)
+	if poolInputIdx < 0 {
+		return errors.New("built transaction is missing pool input")
+	}
+	swapInputIdx := transactionInputIndex(inputs, swapInput)
+	if swapInputIdx < 0 {
+		return errors.New("built transaction is missing swap input")
+	}
+	if poolInputIdx != datumPoolInputIdx ||
+		swapInputIdx != datumSwapInputIdx {
+		return fmt.Errorf(
+			"built transaction input order changed: pool input index got %d want %d, swap input index got %d want %d",
+			poolInputIdx,
+			datumPoolInputIdx,
+			swapInputIdx,
+			datumSwapInputIdx,
+		)
+	}
+	return nil
+}
+
+func transactionInputIndex(
+	inputs []common.TransactionInput,
+	txInput common.TransactionInput,
+) int {
+	for idx, input := range inputs {
+		if input.Id() == txInput.Id() && input.Index() == txInput.Index() {
 			return idx
 		}
 	}

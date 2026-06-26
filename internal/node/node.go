@@ -300,6 +300,7 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 		),
 	)
 	if err != nil {
+		_ = tmpConn.Close()
 		return err
 	}
 	oConn, err := ouroboros.NewConnection(
@@ -343,6 +344,7 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 		),
 	)
 	if err != nil {
+		_ = tmpConn.Close()
 		return err
 	}
 	logger.Info("connected to node", "address", peer.Address)
