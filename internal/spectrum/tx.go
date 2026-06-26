@@ -1,9 +1,11 @@
 package spectrum
 
 import (
+	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -21,6 +23,58 @@ const (
 	swapTxTtlSlots = 30
 	swapTxFee      = 295_000
 )
+
+type swapTxChainContext struct {
+	*fixed.FixedChainContext
+}
+
+func newSwapTxChainContext() *swapTxChainContext {
+	return &swapTxChainContext{
+		FixedChainContext: fixed.NewEmptyFixedChainContext(),
+	}
+}
+
+func (c *swapTxChainContext) MaxTxFee(ctx context.Context) (uint64, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return swapTxFee, nil
+}
+
+// UtxoByRef lets Apollo's reference-script fee lookup proceed while preserving
+// the existing fixed-fee transaction shape. The configured reference inputs are
+// still added to the body; absent local UTxO data only contributes zero extra
+// reference-script fee here.
+func (c *swapTxChainContext) UtxoByRef(
+	ctx context.Context,
+	txHash common.Blake2b256,
+	index uint32,
+) (*common.Utxo, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if utxo, err := c.FixedChainContext.UtxoByRef(
+		ctx,
+		txHash,
+		index,
+	); err == nil {
+		return utxo, nil
+	}
+	input := ledger.ShelleyTransactionInput{
+		TxId:        txHash,
+		OutputIndex: index,
+	}
+	output := ledger.BabbageTransactionOutput{
+		OutputAmount: ledger.MaryTransactionOutputValue{},
+	}
+	return &common.Utxo{Id: input, Output: &output}, nil
+}
 
 /*
 From mainnet TX 627a4e258e346ab5eaa3dcd4c66248c54698af2507d42944118de39b309d4e0a:
@@ -298,6 +352,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	//cfg := config.GetConfig()
 	//logger := logging.GetLogger()
 	bursa := wallet.GetWallet()
+	chainContext := newSwapTxChainContext()
 
 	// Decode pool UTxO
 	poolUtxo, err := decodeUtxo(opts.poolUtxoBytes)
@@ -324,7 +379,18 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		}
 		utxos = append(utxos, utxo)
 	}
-	collateralUtxo, err := selectCollateralUtxo(utxos)
+	requiredCollateral, err := requiredCollateralLovelace(
+		context.Background(),
+		chainContext,
+		swapTxFee,
+	)
+	if err != nil {
+		return nil, err
+	}
+	collateralUtxo, err := selectCollateralUtxo(
+		utxos,
+		requiredCollateral,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -346,12 +412,19 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	if rewardAsset.IsLovelace() {
 		rewardLovelace = rewardAsset.Amount
 	} else {
+		rewardAmount, err := uint64ToInt64(
+			"reward asset amount",
+			rewardAsset.Amount,
+		)
+		if err != nil {
+			return nil, err
+		}
 		rewardUnits = append(
 			rewardUnits,
 			apollo.NewUnit(
 				hex.EncodeToString(rewardAsset.Class.PolicyId),
 				string(rewardAsset.Class.Name),
-				int64(rewardAsset.Amount),
+				rewardAmount,
 			),
 		)
 	}
@@ -377,12 +450,19 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	}
 	poolReturnUnits := []apollo.Unit{}
 	for _, asset := range poolReturnAssets {
+		assetAmount, err := uint64ToInt64(
+			"pool return asset amount",
+			asset.Amount,
+		)
+		if err != nil {
+			return nil, err
+		}
 		poolReturnUnits = append(
 			poolReturnUnits,
 			apollo.NewUnit(
 				hex.EncodeToString(asset.Class.PolicyId),
 				string(asset.Class.Name),
-				int64(asset.Amount),
+				assetAmount,
 			),
 		)
 	}
@@ -416,7 +496,10 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	).Uint64()
 
 	// Calculate leftover lovelace from swap order UTxO for return with reward
-	swapUtxoCoin := swapUtxo.Output.Amount().Uint64()
+	swapUtxoCoin, err := utxoLovelace(swapUtxo, "swap UTxO")
+	if err != nil {
+		return nil, err
+	}
 	// Guard against uint64 underflow: the swap UTxO must hold at least the
 	// matcher fee.
 	if swapUtxoCoin < matcherFee {
@@ -439,6 +522,9 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		}
 		leftoverSwapLovelace -= opts.swapConfig.BaseAmount
 	}
+	if rewardLovelace > math.MaxUint64-leftoverSwapLovelace {
+		return nil, errors.New("reward lovelace amount overflows uint64")
+	}
 	rewardLovelace += leftoverSwapLovelace
 
 	// Guard against a non-positive change output: the matcher fee must exceed
@@ -449,6 +535,27 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 			matcherFee,
 			swapTxFee,
 		)
+	}
+	poolReturnLovelaceInt, err := uint64ToInt64(
+		"pool return lovelace",
+		poolReturnLovelace,
+	)
+	if err != nil {
+		return nil, err
+	}
+	rewardLovelaceInt, err := uint64ToInt64(
+		"reward lovelace",
+		rewardLovelace,
+	)
+	if err != nil {
+		return nil, err
+	}
+	matcherChange, err := uint64ToInt64(
+		"matcher fee change",
+		matcherFee-swapTxFee,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	// Generate addresses
@@ -477,18 +584,20 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	// This is necessary because redeemer indexes reflect the alphanumerically
 	// sorted order of the TX inputs, and the smart contract uses the same mapping
 	// for redeemer datum input indexes
+	inputUtxos := []common.Utxo{
+		poolUtxo,
+		swapUtxo,
+	}
 	datumPoolInputIdx := sortedInputIndex(
-		[]common.Utxo{
-			poolUtxo,
-			swapUtxo,
-		},
+		inputUtxos,
 		poolUtxo.Id,
 	)
-	// We can safely assume that the swap input index is whichever one that the pool
-	// input index isn't
-	datumSwapInputIdx := 0
-	if datumPoolInputIdx == 0 {
-		datumSwapInputIdx = 1
+	datumSwapInputIdx := sortedInputIndex(
+		inputUtxos,
+		swapUtxo.Id,
+	)
+	if datumPoolInputIdx < 0 || datumSwapInputIdx < 0 {
+		return nil, errors.New("failed to determine sorted swap input indexes")
 	}
 
 	// Build the pool datum from the pool's stored Plutus-data CBOR so the
@@ -524,7 +633,7 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		return nil, fmt.Errorf("failed to build swap redeemer: %w", err)
 	}
 
-	apollob := apollo.New(fixed.NewEmptyFixedChainContext())
+	apollob := apollo.New(chainContext)
 	// Set the wallet from our mnemonic so signing produces correct CIP-1852
 	// extended Ed25519 signatures via bursa.
 	apollob, err = apollob.SetWalletFromMnemonic(bursa.Mnemonic)
@@ -538,14 +647,14 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		PayToContract(
 			poolAddress,
 			&poolDatum,
-			int64(poolReturnLovelace),
+			poolReturnLovelaceInt,
 			poolReturnUnits...,
 		).
 		PayToAddress(
-			rewardAddress, int64(rewardLovelace), rewardUnits...,
+			rewardAddress, rewardLovelaceInt, rewardUnits...,
 		).
 		PayToAddress(
-			changeAddress, int64(matcherFee)-swapTxFee,
+			changeAddress, matcherChange,
 		)
 	// AddReferenceInput returns an error in v2, so it can no longer be chained.
 	apollob, err = apollob.AddReferenceInput(
@@ -641,7 +750,41 @@ func sortedInputIndex(
 	return -1
 }
 
-func selectCollateralUtxo(utxos []common.Utxo) (common.Utxo, error) {
+func requiredCollateralLovelace(
+	ctx context.Context,
+	chainContext *swapTxChainContext,
+	fee uint64,
+) (uint64, error) {
+	pp, err := chainContext.ProtocolParams(ctx)
+	if err != nil {
+		return 0, fmt.Errorf(
+			"failed to load protocol params for collateral sizing: %w",
+			err,
+		)
+	}
+	if pp.CollateralPercent <= 0 {
+		return 0, fmt.Errorf(
+			"invalid collateral percent: %d",
+			pp.CollateralPercent,
+		)
+	}
+	percent := uint64(pp.CollateralPercent)
+	if fee > (math.MaxUint64-99)/percent {
+		return 0, fmt.Errorf(
+			"collateral requirement overflows: fee=%d collateralPercent=%d",
+			fee,
+			pp.CollateralPercent,
+		)
+	}
+	return (fee*percent + 99) / 100, nil
+}
+
+func selectCollateralUtxo(
+	utxos []common.Utxo,
+	minLovelace uint64,
+) (common.Utxo, error) {
+	var selected common.Utxo
+	var selectedAmount uint64
 	for _, utxo := range utxos {
 		if utxo.Output == nil || utxo.Output.Assets() != nil {
 			continue
@@ -651,15 +794,44 @@ func selectCollateralUtxo(utxos []common.Utxo) (common.Utxo, error) {
 			addr.Type() != common.AddressTypeKeyNone {
 			continue
 		}
-		amount := utxo.Output.Amount()
-		if amount == nil || amount.Sign() <= 0 {
+		amount, err := utxoLovelace(utxo, "collateral UTxO")
+		if err != nil || amount < minLovelace {
 			continue
 		}
-		return utxo, nil
+		if selected.Output == nil || amount < selectedAmount {
+			selected = utxo
+			selectedAmount = amount
+		}
 	}
-	return common.Utxo{}, errors.New(
-		"script transaction requires an ADA-only wallet UTxO for collateral",
+	if selected.Output != nil {
+		return selected, nil
+	}
+	return common.Utxo{}, fmt.Errorf(
+		"script transaction requires an ADA-only wallet UTxO with at least %d lovelace for collateral",
+		minLovelace,
 	)
+}
+
+func utxoLovelace(utxo common.Utxo, label string) (uint64, error) {
+	if utxo.Output == nil {
+		return 0, fmt.Errorf("%s has no output", label)
+	}
+	amount := utxo.Output.Amount()
+	if amount == nil || !amount.IsUint64() {
+		return 0, fmt.Errorf("%s has an invalid lovelace amount", label)
+	}
+	return amount.Uint64(), nil
+}
+
+func uint64ToInt64(label string, amount uint64) (int64, error) {
+	if amount > math.MaxInt64 {
+		return 0, fmt.Errorf(
+			"%s (%d) exceeds int64 maximum",
+			label,
+			amount,
+		)
+	}
+	return int64(amount), nil
 }
 
 func validateSwapTxInputs(
