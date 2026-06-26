@@ -165,6 +165,7 @@ func (n *Node) acceptConnections() {
 		)
 		if err != nil {
 			logger.Error("failed to setup blockfetch config", "error", err)
+			_ = conn.Close()
 			continue
 		}
 		oConn, err := ouroboros.NewConnection(
@@ -202,6 +203,7 @@ func (n *Node) acceptConnections() {
 		)
 		if err != nil {
 			logger.Error("failed to setup connection", "error", err)
+			_ = conn.Close()
 			continue
 		}
 		// Add to connection manager. On rejection the manager has already
@@ -253,6 +255,7 @@ func (n *Node) acceptConnectionsNtc() {
 		)
 		if err != nil {
 			logger.Error("failed to setup connection", "error", err)
+			_ = conn.Close()
 			continue
 		}
 		// Add to connection manager. On rejection the manager has already

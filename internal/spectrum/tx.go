@@ -452,11 +452,20 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		opts.swapConfig.RewardPkh,
 		opts.swapConfig.StakePkh.Pkh,
 	)
-	rewardAddress, _ := common.NewAddress(tmpRewardAddr)
+	rewardAddress, err := common.NewAddress(tmpRewardAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse reward address: %w", err)
+	}
 
-	poolAddress, _ := common.NewAddress(opts.outputPoolAddress)
+	poolAddress, err := common.NewAddress(opts.outputPoolAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse pool address: %w", err)
+	}
 
-	changeAddress, _ := common.NewAddress(bursa.PaymentAddress)
+	changeAddress, err := common.NewAddress(bursa.PaymentAddress)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse change address: %w", err)
+	}
 
 	currentSlot := unixTimeToSlot(time.Now().Unix())
 
