@@ -25,6 +25,7 @@ const (
 	ProfileTypeSpectrum
 	ProfileTypeOracle
 	ProfileTypeSynthetics
+	ProfileTypeLending
 )
 
 type Profile struct {
@@ -69,6 +70,14 @@ type OracleProfileConfig struct {
 type SyntheticsProfileConfig struct {
 	Protocol     string                 // Protocol name (e.g., "indigo")
 	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+}
+
+// LendingProfileConfig contains configuration for lending protocols.
+type LendingProfileConfig struct {
+	Protocol        string                  // Protocol name (e.g., "liqwid")
+	MarketAddresses []ProfileConfigAddress  // Market contract addresses to monitor
+	OracleAddresses []ProfileConfigAddress  // Oracle feed addresses
+	InputRefs       []ProfileConfigInputRef // Reference inputs if needed
 }
 
 func GetProfiles() []Profile {
@@ -301,6 +310,35 @@ var Profiles = map[string]map[string]Profile{
 						Address: "addr1w80ptp0qgmcklhmeweesqgeurtlma8fsxsr9dt8au30fzss0czhl9",
 					},
 				},
+			},
+		},
+		"liqwid": {
+			Name:          "liqwid",
+			Type:          ProfileTypeLending,
+			InterceptSlot: 82999969, // ~Jan 24 2023 (epoch 389)
+			InterceptHash: "67c0cfdb05dc04f9a0887f862b477b6c921d77bd357ea71aba1512742d7cfc90",
+			Config: LendingProfileConfig{
+				Protocol: "liqwid",
+				MarketAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1w8dprfgfdxnlwu3948579jrwg0ferf5a63ln8xj0mqcdzegayxmqq",
+					},
+					{
+						Address: "addr1w9wjz8tjt87gldh2usu8t5mfe4nkmlngp30a387h8s94fyg5uup5n",
+					},
+					{
+						Address: "addr1wyw3ap36lnepstpjadwg8cg73llvmju4y94kmfld23lkzjggq4hyj",
+					},
+					{
+						Address: "addr1wxrxa3ucywn3lqpkzlyucak0a7aavkudh49fqt06yc05sws4l4zs2",
+					},
+				},
+				OracleAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1wyd8cezjr0gcf8nfxuc9trd4hs7ec520jmkwkqzywx6l5jg0al0ya",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{},
 			},
 		},
 		"spectrum": {

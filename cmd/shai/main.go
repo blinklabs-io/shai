@@ -95,6 +95,8 @@ func main() {
 	idx := indexer.New()
 	n := node.New(idx)
 	var oracles []*oracle.Oracle
+	var lendingOracles []*oracle.LendingOracle
+	var lendingStorage *oracle.LendingStorage
 
 	// Setup profiles
 	for _, profile := range config.GetProfiles() {
@@ -153,6 +155,58 @@ func main() {
 					synthCfg.Protocol,
 				),
 			)
+		case config.ProfileTypeLending:
+			lendingCfg, ok := profile.Config.(config.LendingProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid lending profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			logger.Info(
+				"initializing profile",
+				"name",
+				profile.Name,
+				"type",
+				"Lending",
+				"protocol",
+				lendingCfg.Protocol,
+			)
+			parser := getLendingParser(lendingCfg.Protocol)
+			if parser == nil {
+				logger.Error(
+					"unknown lending protocol",
+					"protocol",
+					lendingCfg.Protocol,
+				)
+				os.Exit(1)
+			}
+			if lendingStorage == nil {
+				var err error
+				lendingStorage, err = oracle.NewLendingStorage()
+				if err != nil {
+					logger.Error(
+						"failed to open lending storage",
+						"error",
+						err,
+					)
+					os.Exit(1)
+				}
+			}
+			o := oracle.NewLendingOracle(idx, &profile, parser, lendingStorage)
+			if err := o.Start(); err != nil {
+				logger.Error(
+					"failed to start lending oracle",
+					"error",
+					err,
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			lendingOracles = append(lendingOracles, o)
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -162,16 +216,31 @@ func main() {
 		}
 	}
 
-	// Start Oracle API if enabled and at least one oracle profile is active
+	// Start Oracle API if enabled and at least one API-backed profile is active
 	if cfg.Oracle.APIEnabled {
-		if len(oracles) == 0 {
+		if len(oracles) == 0 && len(lendingOracles) == 0 {
 			logger.Warn(
-				"oracle API enabled but no oracle profiles initialized; API server not started",
+				"oracle API enabled but no API-backed profiles initialized; API server not started",
 			)
 		} else {
-			api := oracle.NewMultiOracleAPI(oracles)
+			var apiHandlers []oracle.APIHandlerRegistrar
+			if len(oracles) > 0 {
+				apiHandlers = append(
+					apiHandlers,
+					oracle.NewMultiOracleAPI(oracles),
+				)
+			}
+			if len(lendingOracles) > 0 {
+				apiHandlers = append(
+					apiHandlers,
+					oracle.NewMultiLendingOracleAPI(lendingOracles),
+				)
+			}
 			go func() {
-				if err := api.StartServer(cfg.Oracle.APIAddress); err != nil {
+				if err := oracle.StartAPIServer(
+					cfg.Oracle.APIAddress,
+					apiHandlers...,
+				); err != nil {
 					logger.Error("oracle API server failed", "error", err)
 					os.Exit(1)
 				}
@@ -276,4 +345,9 @@ func getSyntheticsParser(protocol string) oracle.PoolParser {
 	default:
 		return nil
 	}
+}
+
+// getLendingParser returns the appropriate parser for a lending protocol.
+func getLendingParser(protocol string) oracle.LendingParser {
+	return oracle.GetLendingParser(protocol)
 }
