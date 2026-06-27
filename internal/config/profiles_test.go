@@ -90,3 +90,55 @@ func TestMainnetSundaeSwapV1ProfileIsWired(t *testing.T) {
 		t.Fatalf("pool address has unexpected format: %q", oracleCfg.PoolAddresses[0].Address)
 	}
 }
+
+func TestMainnetButaneProfileIsWired(t *testing.T) {
+	t.Parallel()
+
+	mainnetProfiles, ok := Profiles["mainnet"]
+	if !ok {
+		t.Fatal("missing mainnet profiles")
+	}
+
+	profile, ok := mainnetProfiles["butane"]
+	if !ok {
+		t.Fatal("missing butane profile")
+	}
+	if profile.Type != ProfileTypeSynthetics {
+		t.Fatalf(
+			"unexpected profile type: got %v want %v",
+			profile.Type,
+			ProfileTypeSynthetics,
+		)
+	}
+	if profile.InterceptSlot == 0 {
+		t.Fatal("butane intercept slot must be non-zero")
+	}
+	if strings.Trim(profile.InterceptHash, "0") == "" {
+		t.Fatal("butane intercept hash must not be the zero hash")
+	}
+	if len(profile.InterceptHash) != 64 {
+		t.Fatalf(
+			"unexpected intercept hash length: got %d want 64",
+			len(profile.InterceptHash),
+		)
+	}
+
+	synthCfg, ok := profile.Config.(SyntheticsProfileConfig)
+	if !ok {
+		t.Fatalf("unexpected config type: %T", profile.Config)
+	}
+	if synthCfg.Protocol != "butane" {
+		t.Fatalf("unexpected protocol: got %q want %q", synthCfg.Protocol, "butane")
+	}
+	if len(synthCfg.CDPAddresses) == 0 {
+		t.Fatal("butane CDP addresses must not be empty")
+	}
+	if len(synthCfg.OracleAddresses) == 0 {
+		t.Fatal("butane oracle addresses must not be empty")
+	}
+	for _, addr := range append(synthCfg.CDPAddresses, synthCfg.OracleAddresses...) {
+		if !strings.HasPrefix(addr.Address, "addr1") {
+			t.Fatalf("address has unexpected format: %q", addr.Address)
+		}
+	}
+}

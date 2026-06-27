@@ -181,7 +181,7 @@ func main() {
 				)
 				os.Exit(1)
 			}
-			o := oracle.New(idx, &profile, parser)
+			o := oracle.NewSynthetics(idx, &profile, parser)
 			if err := o.Start(); err != nil {
 				logger.Error(
 					"failed to start synthetics oracle",
@@ -192,7 +192,6 @@ func main() {
 				)
 				os.Exit(1)
 			}
-			oracles = append(oracles, o)
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -266,7 +265,7 @@ func getOracleParser(protocol string) oracle.PoolParser {
 }
 
 // getSyntheticsParser returns the appropriate parser for a synthetics protocol.
-func getSyntheticsParser(protocol string) oracle.PoolParser {
+func getSyntheticsParser(protocol string) oracle.SyntheticsParser {
 	switch protocol {
 	case "butane":
 		return oracle.NewButaneParser()

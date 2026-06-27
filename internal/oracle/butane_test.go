@@ -51,7 +51,7 @@ func TestGenerateButaneCDPId(t *testing.T) {
 	txIndex := uint32(2)
 
 	cdpId := generateButaneCDPId(txHash, txIndex)
-	expected := "butane_cdp_abc123def4567890#2"
+	expected := "butane_cdp_abc123def456789012345678901234567890#2"
 
 	if cdpId != expected {
 		t.Errorf("expected CDP ID %s, got %s", expected, cdpId)
@@ -93,6 +93,54 @@ func TestButaneCDPCredentialUnmarshal(t *testing.T) {
 	}
 	if len(cred.PubKey) != 28 {
 		t.Errorf("expected 28 byte pubkey, got %d", len(cred.PubKey))
+	}
+}
+
+func TestButaneCDPCredentialConstraintToken(t *testing.T) {
+	asset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		[]byte{0xab, 0xcd},
+		[]byte("owner"),
+	})
+	constraint := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		asset,
+	})
+	credConstr := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
+		constraint,
+	})
+
+	cborData, err := cbor.Encode(&credConstr)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	var cred ButaneCDPCredential
+	if _, err := cbor.Decode(cborData, &cred); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if cred.TokenId == nil {
+		t.Fatal("expected token ID")
+	}
+	if string(cred.TokenId.AssetName) != "owner" {
+		t.Fatalf("expected owner token name, got %q", cred.TokenId.AssetName)
+	}
+}
+
+func TestButaneCDPCredentialConstraintUnsupported(t *testing.T) {
+	withdrawConstraint := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
+		[]byte{0x01},
+	})
+	credConstr := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
+		withdrawConstraint,
+	})
+
+	cborData, err := cbor.Encode(&credConstr)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	var cred ButaneCDPCredential
+	if _, err := cbor.Decode(cborData, &cred); err == nil {
+		t.Fatal("expected unsupported constraint to fail")
 	}
 }
 
@@ -306,5 +354,15 @@ func TestButaneParserPoolDatum(t *testing.T) {
 	}
 	if state != nil {
 		t.Error("expected nil pool state for Butane")
+	}
+}
+
+func TestGetButaneAddresses(t *testing.T) {
+	addrs := GetButaneAddresses()
+	if len(addrs) != 2 {
+		t.Fatalf("expected 2 Butane addresses, got %d", len(addrs))
+	}
+	if addrs[0] == "" || addrs[1] == "" {
+		t.Fatal("expected non-empty Butane addresses")
 	}
 }

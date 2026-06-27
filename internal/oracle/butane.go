@@ -63,6 +63,17 @@ func (p *ButaneParser) ParseMonoDatum(
 	return p.parser.ParseMonoDatum(datum, txHash, txIndex, slot, timestamp)
 }
 
+// ParseSyntheticsDatum parses a Butane synthetics datum.
+func (p *ButaneParser) ParseSyntheticsDatum(
+	datum []byte,
+	txHash string,
+	txIndex uint32,
+	slot uint64,
+	timestamp time.Time,
+) (SyntheticsState, error) {
+	return p.ParseMonoDatum(datum, txHash, txIndex, slot, timestamp)
+}
+
 // ParsePoolDatum implements PoolParser interface for compatibility
 // Butane is a synthetics protocol, not an AMM, so this returns nil
 func (p *ButaneParser) ParsePoolDatum(

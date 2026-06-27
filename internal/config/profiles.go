@@ -256,12 +256,20 @@ var Profiles = map[string]map[string]Profile{
 		"butane": {
 			Name:          "butane",
 			Type:          ProfileTypeSynthetics,
-			InterceptSlot: 145000000,
-			InterceptHash: "0000000000000000000000000000000000000000000000000000000000000000",
+			InterceptSlot: 126083269,
+			InterceptHash: "64818ae4aab96778eae64cc140b13875f42b9b9f432e755f89dafaeadc1c8ee3",
 			Config: SyntheticsProfileConfig{
-				Protocol:        "butane",
-				CDPAddresses:    []ProfileConfigAddress{},
-				OracleAddresses: []ProfileConfigAddress{},
+				Protocol: "butane",
+				CDPAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1w9qx9rs39dztl3ugtq2s588f2jw25jluq95hvfqzqp84wxgytkmex",
+					},
+				},
+				OracleAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1w877ahw80e234u4t5x2yg3tuh6ky8204qfuvxf2smzsqn6q9htprs",
+					},
+				},
 				PriceFeedPolicy: "b41d06ebccb6278d3ee7b4cd2faa321537156c9fd9c8dd40e95f91ea",
 			},
 		},
