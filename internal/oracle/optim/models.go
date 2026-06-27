@@ -23,6 +23,8 @@
 package optim
 
 import (
+	"fmt"
+
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
@@ -185,7 +187,20 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	c.Type = CredentialType(tmpConstr.Tag())
+	switch tmpConstr.Tag() {
+	case 0:
+		c.Type = CredentialTypeVerificationKey
+	case 1:
+		c.Type = CredentialTypeScript
+	default:
+		return fmt.Errorf(
+			"invalid Credential constructor: expected 0 or 1, got %d",
+			tmpConstr.Tag(),
+		)
+	}
+	if err := validateConstructorFieldCount("Credential", tmpConstr, 1); err != nil {
+		return err
+	}
 	var wrapper struct {
 		cbor.StructAsArray
 		Hash []byte
@@ -215,9 +230,31 @@ func (m *MaybeStakeCredential) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Tag() == 1 { // None
+	switch tmpConstr.Tag() {
+	case 0: // Some
+		if err := validateConstructorFieldCount(
+			"MaybeStakeCredential",
+			tmpConstr,
+			1,
+		); err != nil {
+			return err
+		}
+	case 1: // None
+		if err := validateConstructorFieldCount(
+			"MaybeStakeCredential",
+			tmpConstr,
+			0,
+		); err != nil {
+			return err
+		}
 		m.IsPresent = false
+		m.StakeCredential = StakeCredential{}
 		return nil
+	default:
+		return fmt.Errorf(
+			"invalid MaybeStakeCredential constructor: expected 0 or 1, got %d",
+			tmpConstr.Tag(),
+		)
 	}
 	m.IsPresent = true
 	var wrapper struct {
@@ -248,7 +285,11 @@ func (s *StakeCredential) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Tag() == 0 { // Inline
+	switch tmpConstr.Tag() {
+	case 0: // Inline
+		if err := validateConstructorFieldCount("StakeCredential", tmpConstr, 1); err != nil {
+			return err
+		}
 		s.IsInline = true
 		var wrapper struct {
 			cbor.StructAsArray
@@ -259,21 +300,49 @@ func (s *StakeCredential) UnmarshalCBOR(cborData []byte) error {
 		}
 		s.Credential = wrapper.Credential
 		return nil
+	case 1: // Pointer
+		if err := validateConstructorFieldCount("StakeCredential", tmpConstr, 3); err != nil {
+			return err
+		}
+		s.IsInline = false
+		var wrapper struct {
+			cbor.StructAsArray
+			SlotNumber       int64
+			TransactionIndex int64
+			CertificateIndex int64
+		}
+		if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
+			return err
+		}
+		s.SlotNumber = wrapper.SlotNumber
+		s.TransactionIndex = wrapper.TransactionIndex
+		s.CertificateIndex = wrapper.CertificateIndex
+		return nil
+	default:
+		return fmt.Errorf(
+			"invalid StakeCredential constructor: expected 0 or 1, got %d",
+			tmpConstr.Tag(),
+		)
 	}
-	// Pointer
-	s.IsInline = false
-	var wrapper struct {
-		cbor.StructAsArray
-		SlotNumber       int64
-		TransactionIndex int64
-		CertificateIndex int64
+}
+
+func validateConstructorFieldCount(
+	name string,
+	constr cbor.ConstructorDecoder,
+	expected int,
+) error {
+	count, err := cbor.ListLength(constr.Fields())
+	if err != nil {
+		return fmt.Errorf("invalid %s fields: %w", name, err)
 	}
-	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
-		return err
+	if count != expected {
+		return fmt.Errorf(
+			"invalid %s field count: expected %d, got %d",
+			name,
+			expected,
+			count,
+		)
 	}
-	s.SlotNumber = wrapper.SlotNumber
-	s.TransactionIndex = wrapper.TransactionIndex
-	s.CertificateIndex = wrapper.CertificateIndex
 	return nil
 }
 

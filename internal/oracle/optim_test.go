@@ -15,12 +15,29 @@
 package oracle
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	"github.com/blinklabs-io/shai/internal/config"
 )
+
+func mustEncodeOptimConstructor(
+	t *testing.T,
+	constructor uint,
+	fields cbor.IndefLengthList,
+) []byte {
+	t.Helper()
+
+	constr := cbor.NewConstructorEncoder(constructor, fields)
+	cborData, err := cbor.Encode(&constr)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+	return cborData
+}
 
 func TestNewOptimParser(t *testing.T) {
 	parser := NewOptimParser()
@@ -29,21 +46,6 @@ func TestNewOptimParser(t *testing.T) {
 	}
 	if parser.Protocol() != "optim" {
 		t.Errorf("expected protocol 'optim', got %s", parser.Protocol())
-	}
-}
-
-func TestGenerateOptimBondId(t *testing.T) {
-	bondNFT := []byte{
-		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
-		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
-	}
-
-	bondId := generateOptimBondId(bondNFT)
-	expected := "optim_bond_0102030405060708090a0b0c0d0e0f10"
-
-	if bondId != expected {
-		t.Errorf("expected bond ID %s, got %s", expected, bondId)
 	}
 }
 
@@ -113,6 +115,20 @@ func TestOptimCredentialScriptUnmarshal(t *testing.T) {
 	}
 }
 
+func TestOptimCredentialRejectsUnsupportedConstructor(t *testing.T) {
+	pubKeyHash := make([]byte, 28)
+	cborData := mustEncodeOptimConstructor(
+		t,
+		2,
+		cbor.IndefLengthList{pubKeyHash},
+	)
+
+	var cred OptimCredential
+	if _, err := cbor.Decode(cborData, &cred); err == nil {
+		t.Fatal("expected unsupported credential constructor to fail")
+	}
+}
+
 func TestOptimMaybeStakeCredentialNone(t *testing.T) {
 	// Test None (Constructor 1)
 	noneConstr := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
@@ -129,6 +145,152 @@ func TestOptimMaybeStakeCredentialNone(t *testing.T) {
 
 	if maybe.IsPresent {
 		t.Error("expected IsPresent to be false")
+	}
+}
+
+func TestOptimMaybeStakeCredentialSome(t *testing.T) {
+	pubKeyHash := make([]byte, 28)
+	for i := range pubKeyHash {
+		pubKeyHash[i] = byte(i + 1)
+	}
+	credential := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		pubKeyHash,
+	})
+	stakeCredential := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		credential,
+	})
+	cborData := mustEncodeOptimConstructor(
+		t,
+		0,
+		cbor.IndefLengthList{stakeCredential},
+	)
+
+	var maybe OptimMaybeStakeCredential
+	if _, err := cbor.Decode(cborData, &maybe); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	if !maybe.IsPresent {
+		t.Fatal("expected IsPresent to be true")
+	}
+	if !maybe.StakeCredential.IsInline {
+		t.Fatal("expected inline stake credential")
+	}
+	if maybe.StakeCredential.Credential.Type != OptimCredentialTypeVerificationKey {
+		t.Fatalf(
+			"expected verification key credential, got %d",
+			maybe.StakeCredential.Credential.Type,
+		)
+	}
+	if !bytes.Equal(maybe.StakeCredential.Credential.Hash, pubKeyHash) {
+		t.Fatalf(
+			"expected credential hash %x, got %x",
+			pubKeyHash,
+			maybe.StakeCredential.Credential.Hash,
+		)
+	}
+}
+
+func TestOptimMaybeStakeCredentialRejectsUnsupportedConstructor(t *testing.T) {
+	cborData := mustEncodeOptimConstructor(t, 2, cbor.IndefLengthList{})
+
+	var maybe OptimMaybeStakeCredential
+	if _, err := cbor.Decode(cborData, &maybe); err == nil {
+		t.Fatal("expected unsupported maybe stake constructor to fail")
+	}
+}
+
+func TestOptimMaybeStakeCredentialRejectsMalformedNone(t *testing.T) {
+	cborData := mustEncodeOptimConstructor(
+		t,
+		1,
+		cbor.IndefLengthList{uint64(1)},
+	)
+
+	var maybe OptimMaybeStakeCredential
+	if _, err := cbor.Decode(cborData, &maybe); err == nil {
+		t.Fatal("expected malformed none stake credential to fail")
+	}
+}
+
+func TestOptimStakeCredentialPointer(t *testing.T) {
+	cborData := mustEncodeOptimConstructor(
+		t,
+		1,
+		cbor.IndefLengthList{
+			int64(12345),
+			int64(6),
+			int64(7),
+		},
+	)
+
+	var stakeCredential OptimStakeCredential
+	if _, err := cbor.Decode(cborData, &stakeCredential); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+
+	if stakeCredential.IsInline {
+		t.Fatal("expected pointer stake credential")
+	}
+	if stakeCredential.SlotNumber != 12345 {
+		t.Fatalf("expected slot number 12345, got %d", stakeCredential.SlotNumber)
+	}
+	if stakeCredential.TransactionIndex != 6 {
+		t.Fatalf(
+			"expected transaction index 6, got %d",
+			stakeCredential.TransactionIndex,
+		)
+	}
+	if stakeCredential.CertificateIndex != 7 {
+		t.Fatalf(
+			"expected certificate index 7, got %d",
+			stakeCredential.CertificateIndex,
+		)
+	}
+}
+
+func TestOptimStakeCredentialRejectsUnsupportedConstructor(t *testing.T) {
+	cborData := mustEncodeOptimConstructor(
+		t,
+		2,
+		cbor.IndefLengthList{
+			int64(12345),
+			int64(6),
+			int64(7),
+		},
+	)
+
+	var stakeCredential OptimStakeCredential
+	if _, err := cbor.Decode(cborData, &stakeCredential); err == nil {
+		t.Fatal("expected unsupported stake credential constructor to fail")
+	}
+}
+
+func TestOracleNewBondsProfileMonitorsConfiguredAddresses(t *testing.T) {
+	profile := config.Profile{
+		Name: "optim",
+		Type: config.ProfileTypeBonds,
+		Config: config.BondsProfileConfig{
+			Protocol: "optim",
+			BondAddresses: []config.ProfileConfigAddress{
+				{Address: "addr1bond"},
+			},
+			OADAAddresses: []config.ProfileConfigAddress{
+				{Address: "addr1oada"},
+			},
+		},
+	}
+
+	o := New(nil, &profile, NewOptimParser())
+
+	if !o.isPoolAddress("addr1bond") {
+		t.Fatal("expected Optim bond address to be monitored")
+	}
+	if !o.isPoolAddress("addr1oada") {
+		t.Fatal("expected Optim OADA address to be monitored")
+	}
+	if o.isPoolAddress("addr1other") {
+		t.Fatal("unexpected unrelated address match")
 	}
 }
 
@@ -345,6 +507,9 @@ func TestOptimParserParseBondDatum(t *testing.T) {
 
 	if state == nil {
 		t.Fatal("expected non-nil state")
+	}
+	if state.BondId != "optim_bond_000102030405060708090a0b0c0d0e0f" {
+		t.Errorf("unexpected bond ID: %s", state.BondId)
 	}
 	if state.Principal != 5000000000 {
 		t.Errorf("expected principal 5000000000, got %d", state.Principal)

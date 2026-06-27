@@ -92,20 +92,18 @@ func New(
 func (o *Oracle) addProfileAddresses() {
 	switch profileConfig := o.profile.Config.(type) {
 	case config.OracleProfileConfig:
-		for _, addr := range profileConfig.PoolAddresses {
-			o.poolAddresses[addr.Address] = struct{}{}
-		}
+		o.addPoolAddresses(profileConfig.PoolAddresses)
 	case config.SyntheticsProfileConfig:
-		for _, addr := range profileConfig.CDPAddresses {
-			o.poolAddresses[addr.Address] = struct{}{}
-		}
+		o.addPoolAddresses(profileConfig.CDPAddresses)
 	case config.BondsProfileConfig:
-		for _, addr := range profileConfig.BondAddresses {
-			o.poolAddresses[addr.Address] = struct{}{}
-		}
-		for _, addr := range profileConfig.OADAAddresses {
-			o.poolAddresses[addr.Address] = struct{}{}
-		}
+		o.addPoolAddresses(profileConfig.BondAddresses)
+		o.addPoolAddresses(profileConfig.OADAAddresses)
+	}
+}
+
+func (o *Oracle) addPoolAddresses(addresses []config.ProfileConfigAddress) {
+	for _, addr := range addresses {
+		o.poolAddresses[addr.Address] = struct{}{}
 	}
 }
 
