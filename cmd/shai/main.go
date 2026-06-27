@@ -153,6 +153,45 @@ func main() {
 				os.Exit(1)
 			}
 			oracles = append(oracles, o)
+		case config.ProfileTypeLending:
+			lendingCfg, ok := profile.Config.(config.LendingProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid lending profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			logger.Info(
+				"initializing profile",
+				"name",
+				profile.Name,
+				"type",
+				"Lending",
+				"protocol",
+				lendingCfg.Protocol,
+			)
+			parser := getLendingParser(lendingCfg.Protocol)
+			if parser == nil {
+				logger.Error(
+					"unknown lending protocol",
+					"protocol",
+					lendingCfg.Protocol,
+				)
+				os.Exit(1)
+			}
+			o := oracle.NewLendingOracle(idx, &profile, parser)
+			if err := o.Start(); err != nil {
+				logger.Error(
+					"failed to start lending oracle",
+					"error",
+					err,
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -223,4 +262,9 @@ func getOracleParser(protocol string) oracle.PoolParser {
 	default:
 		return nil
 	}
+}
+
+// getLendingParser returns the appropriate parser for a lending protocol.
+func getLendingParser(protocol string) oracle.LendingParser {
+	return oracle.GetLendingParser(protocol)
 }
