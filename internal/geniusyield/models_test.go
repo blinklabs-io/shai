@@ -72,9 +72,97 @@ func TestOptionalPOSIXUnmarshalCBORRejectsInvalidTag(t *testing.T) {
 	}
 }
 
+func TestOrderCredentialUnmarshalCBORRejectsInvalidTag(t *testing.T) {
+	invalid := cbor.NewConstructorEncoder(
+		2,
+		cbor.IndefLengthList{[]byte{0x01}},
+	)
+	invalidBytes, err := cbor.Encode(&invalid)
+	if err != nil {
+		t.Fatalf("failed to encode invalid credential: %v", err)
+	}
+
+	var got OrderCredential
+	if _, err := cbor.Decode(invalidBytes, &got); err == nil {
+		t.Fatal("expected invalid credential tag error")
+	}
+}
+
+func TestOptionalCredentialUnmarshalCBORValidatesTags(t *testing.T) {
+	present := cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{
+			cbor.NewConstructorEncoder(
+				0,
+				cbor.IndefLengthList{[]byte{0x01, 0x02}},
+			),
+		},
+	)
+	presentBytes, err := cbor.Encode(&present)
+	if err != nil {
+		t.Fatalf("failed to encode present credential: %v", err)
+	}
+
+	var got OptionalCredential
+	if _, err := cbor.Decode(presentBytes, &got); err != nil {
+		t.Fatalf("failed to decode present credential: %v", err)
+	}
+	if !got.IsPresent || got.Credential == nil {
+		t.Fatal("expected present credential")
+	}
+
+	absent := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	absentBytes, err := cbor.Encode(&absent)
+	if err != nil {
+		t.Fatalf("failed to encode absent credential: %v", err)
+	}
+
+	got = OptionalCredential{
+		IsPresent:  true,
+		Credential: &OrderCredential{Hash: []byte{0xff}},
+	}
+	if _, err := cbor.Decode(absentBytes, &got); err != nil {
+		t.Fatalf("failed to decode absent credential: %v", err)
+	}
+	if got.IsPresent || got.Credential != nil {
+		t.Fatal("expected absent credential to reset state")
+	}
+
+	invalid := cbor.NewConstructorEncoder(2, cbor.IndefLengthList{})
+	invalidBytes, err := cbor.Encode(&invalid)
+	if err != nil {
+		t.Fatalf("failed to encode invalid credential: %v", err)
+	}
+	if _, err := cbor.Decode(invalidBytes, &got); err == nil {
+		t.Fatal("expected invalid optional credential tag error")
+	}
+}
+
+func TestOrderRationalUnmarshalCBORRejectsZeroDenominator(t *testing.T) {
+	invalid := cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{int64(1), int64(0)},
+	)
+	invalidBytes, err := cbor.Encode(&invalid)
+	if err != nil {
+		t.Fatalf("failed to encode invalid rational: %v", err)
+	}
+
+	var got OrderRational
+	if _, err := cbor.Decode(invalidBytes, &got); err == nil {
+		t.Fatal("expected zero denominator error")
+	}
+}
+
 func TestOrderConfigToStatePreservesPartialFillFields(t *testing.T) {
 	cfg := &OrderConfig{
-		OwnerKey:              []byte{0x01, 0x02},
+		OwnerKey: []byte{0x01, 0x02},
+		OwnerAddr: OrderAddress{
+			PaymentCredential: OrderCredential{
+				Type: 0,
+				Hash: []byte{0x03, 0x04},
+			},
+		},
 		OfferedOriginalAmount: 1000,
 		OfferedAmount:         800,
 		Price: OrderRational{
@@ -101,6 +189,9 @@ func TestOrderConfigToStatePreservesPartialFillFields(t *testing.T) {
 
 	if string(state.NFT) != "order-nft" {
 		t.Fatalf("unexpected NFT: %q", state.NFT)
+	}
+	if string(state.OwnerAddr.PaymentCredential.Hash) != "\x03\x04" {
+		t.Fatalf("unexpected owner address: %+v", state.OwnerAddr)
 	}
 	if state.MakerLovelaceFlatFee != 100 {
 		t.Fatalf("unexpected flat fee: %d", state.MakerLovelaceFlatFee)

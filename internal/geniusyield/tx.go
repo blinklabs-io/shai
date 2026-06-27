@@ -111,22 +111,20 @@ func (gy *GeniusYield) buildMatchTx(
 		utxoId := fmt.Sprintf("%s#%d", leg.TxHash, leg.TxIndex)
 		utxoBytes, err := storage.GetStorage().GetUtxoById(utxoId)
 		if err != nil {
-			logger.Warn(
-				"failed to fetch order UTXO",
-				"utxoId", utxoId,
-				"error", err,
+			return nil, fmt.Errorf(
+				"failed to fetch order UTXO %s: %w",
+				utxoId,
+				err,
 			)
-			continue
 		}
 
 		var utxo UTxO.UTxO
 		if _, err := cbor.Decode(utxoBytes, &utxo); err != nil {
-			logger.Warn(
-				"failed to decode order UTxO",
-				"utxoId", utxoId,
-				"error", err,
+			return nil, fmt.Errorf(
+				"failed to decode order UTxO %s: %w",
+				utxoId,
+				err,
 			)
-			continue
 		}
 
 		orderUtxos = append(orderUtxos, utxo)
@@ -272,8 +270,7 @@ func (gy *GeniusYield) buildMatchTx(
 			// Calculate assets to send to owner
 			ownerLovelace, ownerUnits := calculateOwnerPayment(
 				fillOutput,
-				route,
-				i == 0, // Is this the new order (taker)?
+				orderState,
 			)
 
 			apollob = apollob.PayToAddress(
@@ -309,14 +306,32 @@ func (gy *GeniusYield) buildMatchTx(
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode vkey: %w", err)
 	}
+	if len(vKeyBytes) < 2 {
+		return nil, fmt.Errorf(
+			"vkey CBOR too short: got %d bytes, need at least 2",
+			len(vKeyBytes),
+		)
+	}
 	sKeyBytes, err := hex.DecodeString(bursa.PaymentExtendedSKey.CborHex)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode skey: %w", err)
+	}
+	if len(sKeyBytes) < 2 {
+		return nil, fmt.Errorf(
+			"skey CBOR too short: got %d bytes, need at least 2",
+			len(sKeyBytes),
+		)
 	}
 
 	// Strip CBOR prefix (2 bytes)
 	vKeyBytes = vKeyBytes[2:]
 	sKeyBytes = sKeyBytes[2:]
+	if len(sKeyBytes) < 96 {
+		return nil, fmt.Errorf(
+			"extended skey too short: got %d bytes after CBOR prefix, need at least 96",
+			len(sKeyBytes),
+		)
+	}
 
 	// Strip public key portion from extended private key
 	sKeyBytes = append(sKeyBytes[:64], sKeyBytes[96:]...)
@@ -463,8 +478,14 @@ func buildPartialFillOutput(
 			)
 		}
 		newLovelace = originalCoin - fill.inputAmount
-	}
-	if newLovelace < minUtxoLovelace {
+		if newLovelace < minUtxoLovelace {
+			return nil, 0, nil, fmt.Errorf(
+				"partial ADA fill leaves %d lovelace below minimum %d",
+				newLovelace,
+				minUtxoLovelace,
+			)
+		}
+	} else if newLovelace < minUtxoLovelace {
 		newLovelace = minUtxoLovelace
 	}
 
@@ -528,8 +549,11 @@ func buildUpdatedOrderDatum(
 	datum := cbor.NewConstructorEncoder(
 		0, // PartialOrderDatum constructor
 		cbor.IndefLengthList{
-			ownerKeyBytes,                    // ownerKey
-			buildAddressDatum(ownerKeyBytes), // ownerAddr
+			ownerKeyBytes, // ownerKey
+			buildOrderAddressDatum(
+				order.OwnerAddr,
+				ownerKeyBytes,
+			), // ownerAddr
 			buildAssetDatum(
 				order.OfferedAsset,
 			), // offeredAsset
@@ -631,6 +655,43 @@ func buildAddressDatum(ownerBytes []byte) cbor.ConstructorEncoder {
 	)
 }
 
+func buildOrderAddressDatum(
+	ownerAddr OrderAddress,
+	fallbackOwnerBytes []byte,
+) cbor.ConstructorEncoder {
+	if len(ownerAddr.PaymentCredential.Hash) == 0 {
+		return buildAddressDatum(fallbackOwnerBytes)
+	}
+	return cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{
+			buildCredentialDatum(ownerAddr.PaymentCredential),
+			buildOptionalCredentialDatum(ownerAddr.StakingCredential),
+		},
+	)
+}
+
+func buildCredentialDatum(credential OrderCredential) cbor.ConstructorEncoder {
+	return cbor.NewConstructorEncoder(
+		uint(credential.Type),
+		cbor.IndefLengthList{credential.Hash},
+	)
+}
+
+func buildOptionalCredentialDatum(
+	credential OptionalCredential,
+) cbor.ConstructorEncoder {
+	if !credential.IsPresent || credential.Credential == nil {
+		return cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	}
+	return cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{
+			buildCredentialDatum(*credential.Credential),
+		},
+	)
+}
+
 // buildRationalDatum constructs a rational number datum
 func buildRationalDatum(num, denom int64) cbor.ConstructorEncoder {
 	return cbor.NewConstructorEncoder(
@@ -665,8 +726,15 @@ func buildContainedFeeDatum() cbor.ConstructorEncoder {
 // buildOwnerAddress constructs the owner address from order state
 func buildOwnerAddress(order *OrderState) (serAddress.Address, error) {
 	cfg := config.GetConfig()
+	networkId := byte(1) // mainnet
+	if cfg.Network == "preview" || cfg.Network == "preprod" {
+		networkId = 0
+	}
 
-	// Full implementation would decode from the datum's ownerAddr field
+	if len(order.OwnerAddr.PaymentCredential.Hash) > 0 {
+		return orderAddressToSerAddress(order.OwnerAddr, networkId)
+	}
+
 	ownerBytes, err := hex.DecodeString(order.Owner)
 	if err != nil {
 		return serAddress.Address{}, err
@@ -678,13 +746,8 @@ func buildOwnerAddress(order *OrderState) (serAddress.Address, error) {
 		)
 	}
 
-	networkId := byte(1) // mainnet
-	if cfg.Network == "preview" || cfg.Network == "preprod" {
-		networkId = 0
-	}
 	addressType := byte(serAddress.KEY_NONE)
 
-	// For proper implementation, use the full ownerAddr from datum
 	return serAddress.Address{
 		PaymentPart: ownerBytes,
 		StakingPart: []byte{},
@@ -695,37 +758,96 @@ func buildOwnerAddress(order *OrderState) (serAddress.Address, error) {
 	}, nil
 }
 
+func orderAddressToSerAddress(
+	ownerAddr OrderAddress,
+	networkId byte,
+) (serAddress.Address, error) {
+	paymentCredential := ownerAddr.PaymentCredential
+	if len(paymentCredential.Hash) != 28 {
+		return serAddress.Address{}, fmt.Errorf(
+			"invalid owner payment credential length: got %d, want 28",
+			len(paymentCredential.Hash),
+		)
+	}
+
+	stakingPart := []byte{}
+	stakingType := -1
+	if ownerAddr.StakingCredential.IsPresent {
+		if ownerAddr.StakingCredential.Credential == nil {
+			return serAddress.Address{}, fmt.Errorf(
+				"present staking credential missing inner credential",
+			)
+		}
+		stakingCredential := ownerAddr.StakingCredential.Credential
+		if len(stakingCredential.Hash) != 28 {
+			return serAddress.Address{}, fmt.Errorf(
+				"invalid owner staking credential length: got %d, want 28",
+				len(stakingCredential.Hash),
+			)
+		}
+		stakingPart = stakingCredential.Hash
+		stakingType = stakingCredential.Type
+	}
+
+	addressType, err := ownerAddressType(paymentCredential.Type, stakingType)
+	if err != nil {
+		return serAddress.Address{}, err
+	}
+
+	return serAddress.Address{
+		PaymentPart: paymentCredential.Hash,
+		StakingPart: stakingPart,
+		Network:     networkId,
+		AddressType: addressType,
+		HeaderByte:  (addressType << 4) | networkId,
+		Hrp:         serAddress.ComputeHrp(addressType, networkId),
+	}, nil
+}
+
+func ownerAddressType(paymentType, stakingType int) (byte, error) {
+	switch paymentType {
+	case 0:
+		switch stakingType {
+		case -1:
+			return serAddress.KEY_NONE, nil
+		case 0:
+			return serAddress.KEY_KEY, nil
+		case 1:
+			return serAddress.KEY_SCRIPT, nil
+		}
+	case 1:
+		switch stakingType {
+		case -1:
+			return serAddress.SCRIPT_NONE, nil
+		case 0:
+			return serAddress.SCRIPT_KEY, nil
+		case 1:
+			return serAddress.SCRIPT_SCRIPT, nil
+		}
+	}
+	return 0, fmt.Errorf(
+		"unsupported owner credential types: payment=%d staking=%d",
+		paymentType,
+		stakingType,
+	)
+}
+
 // calculateOwnerPayment calculates the payment to send to order owner
 func calculateOwnerPayment(
 	fill orderFillOutput,
-	route *Route,
-	isTaker bool,
+	order *OrderState,
 ) (uint64, []apollo.Unit) {
 	lovelace := uint64(minUtxoLovelace)
 	var units []apollo.Unit
 
-	if isTaker {
-		// Taker receives the output asset
-		if route.OutputAsset.IsLovelace() {
-			lovelace = fill.outputAmount
-		} else {
-			units = append(units, apollo.NewUnit(
-				hex.EncodeToString(route.OutputAsset.PolicyId),
-				string(route.OutputAsset.Name),
-				int(fill.outputAmount),
-			))
-		}
+	if order.AskedAsset.IsLovelace() {
+		lovelace = fill.outputAmount
 	} else {
-		// Maker receives the input asset (what taker offered)
-		if route.InputAsset.IsLovelace() {
-			lovelace = fill.inputAmount
-		} else {
-			units = append(units, apollo.NewUnit(
-				hex.EncodeToString(route.InputAsset.PolicyId),
-				string(route.InputAsset.Name),
-				int(fill.inputAmount),
-			))
-		}
+		units = append(units, apollo.NewUnit(
+			hex.EncodeToString(order.AskedAsset.PolicyId),
+			string(order.AskedAsset.Name),
+			int(fill.outputAmount),
+		))
 	}
 
 	return lovelace, units

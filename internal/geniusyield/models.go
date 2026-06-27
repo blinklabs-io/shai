@@ -114,6 +114,11 @@ func (c *OrderCredential) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
+	switch tmpConstr.Tag() {
+	case 0, 1:
+	default:
+		return fmt.Errorf("invalid credential constructor tag %d", tmpConstr.Tag())
+	}
 	c.Type = int(tmpConstr.Tag())
 	var wrapper struct {
 		cbor.StructAsArray
@@ -137,10 +142,17 @@ func (o *OptionalCredential) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Tag() == 1 {
+	switch tmpConstr.Tag() {
+	case 0:
+	case 1:
 		o.IsPresent = false
 		o.Credential = nil // Reset to avoid stale data
 		return nil
+	default:
+		return fmt.Errorf(
+			"invalid optional credential constructor tag %d",
+			tmpConstr.Tag(),
+		)
 	}
 	o.IsPresent = true
 	var wrapper struct {
@@ -172,6 +184,9 @@ func (r *OrderRational) UnmarshalCBOR(cborData []byte) error {
 	}
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
+	}
+	if wrapper.Denominator == 0 {
+		return fmt.Errorf("invalid rational with zero denominator")
 	}
 	r.Numerator = wrapper.Numerator
 	r.Denominator = wrapper.Denominator

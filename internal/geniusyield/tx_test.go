@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	serAddress "github.com/Salvionied/apollo/serialization/Address"
 	"github.com/Salvionied/apollo/serialization/TransactionInput"
 	"github.com/Salvionied/apollo/serialization/TransactionOutput"
 	"github.com/Salvionied/apollo/serialization/UTxO"
@@ -377,20 +378,11 @@ func TestCalculateOwnerPayment_TakerLovelace(t *testing.T) {
 		outputAmount: 5000000,
 	}
 
-	route := &Route{
-		InputAsset: common.AssetClass{
-			PolicyId: []byte{0x01, 0x02, 0x03},
-			Name:     []byte("TOKEN"),
-		},
-		OutputAsset: common.AssetClass{
-			PolicyId: []byte{},
-			Name:     []byte{},
-		}, // Lovelace
-		TotalInput:  1000000,
-		TotalOutput: 5000000,
+	order := &OrderState{
+		AskedAsset: common.Lovelace(),
 	}
 
-	lovelace, units := calculateOwnerPayment(fill, route, true)
+	lovelace, units := calculateOwnerPayment(fill, order)
 
 	// Taker receives lovelace (output asset is lovelace)
 	if lovelace != 5000000 {
@@ -410,20 +402,14 @@ func TestCalculateOwnerPayment_TakerToken(t *testing.T) {
 		outputAmount: 1000000,
 	}
 
-	route := &Route{
-		InputAsset: common.AssetClass{
-			PolicyId: []byte{},
-			Name:     []byte{},
-		}, // Lovelace
-		OutputAsset: common.AssetClass{
+	order := &OrderState{
+		AskedAsset: common.AssetClass{
 			PolicyId: []byte{0x01, 0x02, 0x03},
 			Name:     []byte("TOKEN"),
 		},
-		TotalInput:  5000000,
-		TotalOutput: 1000000,
 	}
 
-	lovelace, units := calculateOwnerPayment(fill, route, true)
+	lovelace, units := calculateOwnerPayment(fill, order)
 
 	// Taker receives minimum lovelace plus tokens
 	if lovelace != minUtxoLovelace {
@@ -439,24 +425,15 @@ func TestCalculateOwnerPayment_MakerLovelace(t *testing.T) {
 	fill := orderFillOutput{
 		orderId:      "test-order",
 		isComplete:   true,
-		inputAmount:  1000000,
-		outputAmount: 500000,
+		inputAmount:  500000,
+		outputAmount: 1000000,
 	}
 
-	route := &Route{
-		InputAsset: common.AssetClass{
-			PolicyId: []byte{},
-			Name:     []byte{},
-		}, // Lovelace
-		OutputAsset: common.AssetClass{
-			PolicyId: []byte{0x01, 0x02, 0x03},
-			Name:     []byte("TOKEN"),
-		},
-		TotalInput:  5000000,
-		TotalOutput: 1000000,
+	order := &OrderState{
+		AskedAsset: common.Lovelace(),
 	}
 
-	lovelace, units := calculateOwnerPayment(fill, route, false)
+	lovelace, units := calculateOwnerPayment(fill, order)
 
 	// Maker receives lovelace (input asset is lovelace)
 	if lovelace != 1000000 {
@@ -476,20 +453,14 @@ func TestCalculateOwnerPayment_MakerToken(t *testing.T) {
 		outputAmount: 2500000,
 	}
 
-	route := &Route{
-		InputAsset: common.AssetClass{
+	order := &OrderState{
+		AskedAsset: common.AssetClass{
 			PolicyId: []byte{0x01, 0x02, 0x03},
 			Name:     []byte("TOKEN"),
 		},
-		OutputAsset: common.AssetClass{
-			PolicyId: []byte{},
-			Name:     []byte{},
-		}, // Lovelace
-		TotalInput:  1000000,
-		TotalOutput: 5000000,
 	}
 
-	lovelace, units := calculateOwnerPayment(fill, route, false)
+	lovelace, units := calculateOwnerPayment(fill, order)
 
 	// Maker receives minimum lovelace plus tokens
 	if lovelace != minUtxoLovelace {
@@ -498,6 +469,9 @@ func TestCalculateOwnerPayment_MakerToken(t *testing.T) {
 
 	if len(units) != 1 {
 		t.Errorf("expected 1 unit, got %d", len(units))
+	}
+	if len(units) == 1 && units[0].Quantity != 2500000 {
+		t.Errorf("expected unit quantity 2500000, got %d", units[0].Quantity)
 	}
 }
 
@@ -619,6 +593,19 @@ func TestBuildUpdatedOrderDatum(t *testing.T) {
 	order := &OrderState{
 		OrderId: "test-order-123",
 		Owner:   "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+		OwnerAddr: OrderAddress{
+			PaymentCredential: OrderCredential{
+				Type: 0,
+				Hash: bytes.Repeat([]byte{0xbb}, 28),
+			},
+			StakingCredential: OptionalCredential{
+				IsPresent: true,
+				Credential: &OrderCredential{
+					Type: 1,
+					Hash: bytes.Repeat([]byte{0xcc}, 28),
+				},
+			},
+		},
 		OfferedAsset: common.AssetClass{
 			PolicyId: []byte{0x01},
 			Name:     []byte("TKN"),
@@ -630,6 +617,7 @@ func TestBuildUpdatedOrderDatum(t *testing.T) {
 		PriceNum:       2,
 		PriceDenom:     1,
 		PartialFills:   3,
+		MakerFeeDenom:  1,
 		StartTime:      &now,
 		EndTime:        nil,
 	}
@@ -663,6 +651,27 @@ func TestBuildUpdatedOrderDatum(t *testing.T) {
 	if len(encoded) == 0 {
 		t.Error("expected non-empty encoded datum")
 	}
+
+	var decoded OrderConfig
+	if _, err := cbor.Decode(encoded, &decoded); err != nil {
+		t.Fatalf("failed to decode updated datum: %v", err)
+	}
+	if !bytes.Equal(
+		decoded.OwnerAddr.PaymentCredential.Hash,
+		order.OwnerAddr.PaymentCredential.Hash,
+	) {
+		t.Fatal("owner payment credential was not preserved")
+	}
+	if !decoded.OwnerAddr.StakingCredential.IsPresent ||
+		decoded.OwnerAddr.StakingCredential.Credential == nil {
+		t.Fatal("owner staking credential was not preserved")
+	}
+	if decoded.OwnerAddr.StakingCredential.Credential.Type != 1 {
+		t.Fatalf(
+			"expected script staking credential, got %d",
+			decoded.OwnerAddr.StakingCredential.Credential.Type,
+		)
+	}
 }
 
 func TestBuildUpdatedOrderDatum_InvalidHex(t *testing.T) {
@@ -688,9 +697,10 @@ func TestBuildPartialFillOutput_ReducesLovelaceForAdaOffer(t *testing.T) {
 			PolicyId: []byte{0x01},
 			Name:     []byte("TKN"),
 		},
-		PriceNum:   1,
-		PriceDenom: 2,
-		NFT:        []byte("order-nft"),
+		PriceNum:      1,
+		PriceDenom:    2,
+		MakerFeeDenom: 1,
+		NFT:           []byte("order-nft"),
 	}
 	fill := orderFillOutput{
 		orderId:     order.OrderId,
@@ -713,6 +723,41 @@ func TestBuildPartialFillOutput_ReducesLovelaceForAdaOffer(t *testing.T) {
 	}
 	if len(units) != 0 {
 		t.Fatalf("expected no native units for ADA offer, got %d", len(units))
+	}
+}
+
+func TestBuildPartialFillOutput_RejectsAdaDustRemainder(t *testing.T) {
+	order := &OrderState{
+		OrderId:        "ada-order",
+		Owner:          "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+		OfferedAsset:   common.Lovelace(),
+		OfferedAmount:  3000000,
+		OriginalAmount: 3000000,
+		AskedAsset: common.AssetClass{
+			PolicyId: []byte{0x01},
+			Name:     []byte("TKN"),
+		},
+		PriceNum:      1,
+		PriceDenom:    1,
+		MakerFeeDenom: 1,
+	}
+	fill := orderFillOutput{
+		orderId:      order.OrderId,
+		isComplete:   false,
+		inputAmount:  1500000,
+		outputAmount: 1500000,
+	}
+	utxo := UTxO.UTxO{
+		Output: TransactionOutput.TransactionOutput{
+			PreAlonzo: TransactionOutput.TransactionOutputShelley{
+				Amount: Value.Value{Coin: 3000000},
+			},
+		},
+	}
+
+	_, _, _, err := buildPartialFillOutput(order, fill, utxo)
+	if err == nil {
+		t.Fatal("expected ADA dust remainder error")
 	}
 }
 
@@ -755,6 +800,48 @@ func TestBuildOwnerAddressHeader(t *testing.T) {
 	}
 	if testnetAddr.Network != 0 {
 		t.Fatalf("expected testnet network 0, got %d", testnetAddr.Network)
+	}
+}
+
+func TestBuildOwnerAddressUsesOwnerAddr(t *testing.T) {
+	cfg := config.GetConfig()
+	originalNetwork := cfg.Network
+	defer func() {
+		cfg.Network = originalNetwork
+	}()
+	cfg.Network = "mainnet"
+
+	paymentHash := bytes.Repeat([]byte{0x11}, 28)
+	stakingHash := bytes.Repeat([]byte{0x22}, 28)
+	order := &OrderState{
+		Owner: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+		OwnerAddr: OrderAddress{
+			PaymentCredential: OrderCredential{
+				Type: 0,
+				Hash: paymentHash,
+			},
+			StakingCredential: OptionalCredential{
+				IsPresent: true,
+				Credential: &OrderCredential{
+					Type: 1,
+					Hash: stakingHash,
+				},
+			},
+		},
+	}
+
+	addr, err := buildOwnerAddress(order)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if addr.AddressType != serAddress.KEY_SCRIPT {
+		t.Fatalf("expected KEY_SCRIPT address type, got %d", addr.AddressType)
+	}
+	if !bytes.Equal(addr.PaymentPart, paymentHash) {
+		t.Fatal("payment credential was not preserved")
+	}
+	if !bytes.Equal(addr.StakingPart, stakingHash) {
+		t.Fatal("staking credential was not preserved")
 	}
 }
 
