@@ -153,6 +153,46 @@ func main() {
 				os.Exit(1)
 			}
 			oracles = append(oracles, o)
+		case config.ProfileTypeBonds:
+			bondsCfg, ok := profile.Config.(config.BondsProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid bonds profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			logger.Info(
+				"initializing profile",
+				"name",
+				profile.Name,
+				"type",
+				"Bonds",
+				"protocol",
+				bondsCfg.Protocol,
+			)
+			parser := getBondsParser(bondsCfg.Protocol)
+			if parser == nil {
+				logger.Error(
+					"unknown bonds protocol",
+					"protocol",
+					bondsCfg.Protocol,
+				)
+				os.Exit(1)
+			}
+			o := oracle.New(idx, &profile, parser)
+			if err := o.Start(); err != nil {
+				logger.Error(
+					"failed to start bonds oracle",
+					"error",
+					err,
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			oracles = append(oracles, o)
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -220,6 +260,16 @@ func getOracleParser(protocol string) oracle.PoolParser {
 		return oracle.NewVyFiParser()
 	case "cswap":
 		return oracle.NewCSwapParser()
+	default:
+		return nil
+	}
+}
+
+// getBondsParser returns the appropriate parser for a bonds protocol.
+func getBondsParser(protocol string) oracle.PoolParser {
+	switch protocol {
+	case "optim":
+		return oracle.NewOptimParser()
 	default:
 		return nil
 	}
