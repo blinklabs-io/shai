@@ -143,7 +143,12 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	c.Type = int(tmpConstr.Tag())
+	tag := tmpConstr.Tag()
+	switch tag {
+	case 0, 1:
+	default:
+		return fmt.Errorf("unsupported credential constructor %d", tag)
+	}
 	var wrapper struct {
 		cbor.StructAsArray
 		Hash []byte
@@ -151,6 +156,7 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
+	c.Type = int(tag)
 	c.Hash = wrapper.Hash
 	return nil
 }
@@ -167,13 +173,15 @@ func (o *OptionalCredential) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	// Constructor 0 = Some, Constructor 1 = None
-	if tmpConstr.Tag() == 1 {
+	switch tag := tmpConstr.Tag(); tag {
+	case 0:
+	case 1:
 		o.IsPresent = false
 		o.Credential = nil // Reset to avoid stale data when struct is reused
 		return nil
+	default:
+		return fmt.Errorf("unsupported optional credential constructor %d", tag)
 	}
-	o.IsPresent = true
-	o.Credential = &Credential{}
 	var wrapper struct {
 		cbor.StructAsArray
 		Inner Credential
@@ -181,6 +189,7 @@ func (o *OptionalCredential) UnmarshalCBOR(cborData []byte) error {
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
+	o.IsPresent = true
 	o.Credential = &wrapper.Inner
 	return nil
 }
@@ -229,12 +238,15 @@ func (o *OptionalPOSIX) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	// Constructor 0 = Some, Constructor 1 = None
-	if tmpConstr.Tag() == 1 {
+	switch tag := tmpConstr.Tag(); tag {
+	case 0:
+	case 1:
 		o.IsPresent = false
 		o.Time = 0 // Reset to avoid stale values when struct is reused
 		return nil
+	default:
+		return fmt.Errorf("unsupported optional POSIX constructor %d", tag)
 	}
-	o.IsPresent = true
 	var wrapper struct {
 		cbor.StructAsArray
 		Time int64
@@ -242,6 +254,7 @@ func (o *OptionalPOSIX) UnmarshalCBOR(cborData []byte) error {
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
+	o.IsPresent = true
 	o.Time = wrapper.Time
 	return nil
 }
