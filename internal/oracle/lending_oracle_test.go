@@ -21,19 +21,18 @@ import (
 	"testing"
 
 	"github.com/blinklabs-io/shai/internal/common"
-	"github.com/gorilla/websocket"
 )
 
-func TestLendingOracleStopKeepsWebSocketMapInitialized(t *testing.T) {
+func TestLendingOracleStopWithoutAPIIsIdempotent(t *testing.T) {
 	o := &LendingOracle{
 		stopChan: make(chan struct{}),
-		wsConns:  make(map[*websocket.Conn]bool),
 	}
 
 	o.Stop()
+	o.Stop()
 
-	if o.wsConns == nil {
-		t.Fatal("expected websocket connection map to remain initialized")
+	if o.api != nil {
+		t.Fatal("expected Stop without API usage to avoid creating API")
 	}
 }
 
@@ -69,6 +68,39 @@ func TestLendingOracleGetStateRawIdAmbiguity(t *testing.T) {
 	if state, ok := o.GetState("mainnet:liqwid:duplicate"); !ok ||
 		state.Network != "mainnet" {
 		t.Fatal("expected scoped state ID lookup to succeed")
+	}
+}
+
+func TestLendingOracleRegisterHandlersDelegatesToAPI(t *testing.T) {
+	o := newTestLendingOracleWithStates(&LendingState{
+		StateId:         "market-1",
+		StateType:       LendingStateTypeMarket,
+		Protocol:        "liqwid",
+		Network:         "mainnet",
+		UnderlyingAsset: common.Lovelace(),
+		InterestRate:    200,
+		InterestRatePct: 2.0,
+	})
+
+	mux := http.NewServeMux()
+	o.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/lending/markets", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", rr.Code)
+	}
+
+	var response struct {
+		Markets []*LendingState `json:"markets"`
+		Count   int             `json:"count"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Count != 1 {
+		t.Fatalf("expected count 1, got %d", response.Count)
 	}
 }
 
@@ -163,6 +195,5 @@ func newTestLendingOracleWithStates(states ...*LendingState) *LendingOracle {
 	return &LendingOracle{
 		states:   stateMap,
 		stopChan: make(chan struct{}),
-		wsConns:  make(map[*websocket.Conn]bool),
 	}
 }

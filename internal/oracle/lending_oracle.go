@@ -15,10 +15,8 @@
 package oracle
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -27,7 +25,6 @@ import (
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
-	"github.com/gorilla/websocket"
 )
 
 // LendingStateType indicates the type of lending state
@@ -168,9 +165,8 @@ type LendingOracle struct {
 	storage       *LendingStorage
 	stopChan      chan struct{}
 	stopped       bool
-	upgrader      websocket.Upgrader
-	wsConns       map[*websocket.Conn]bool
-	wsMu          sync.RWMutex
+	api           *LendingOracleAPI
+	apiMu         sync.Mutex
 }
 
 // NewLendingOracle creates a new LendingOracle instance
@@ -185,10 +181,6 @@ func NewLendingOracle(
 		parser:   parser,
 		states:   make(map[string]*LendingState),
 		stopChan: make(chan struct{}),
-		wsConns:  make(map[*websocket.Conn]bool),
-		upgrader: websocket.Upgrader{
-			CheckOrigin: checkWebSocketOrigin,
-		},
 	}
 
 	// Get addresses from parser
@@ -256,13 +248,7 @@ func (o *LendingOracle) Stop() {
 	o.subscribers = nil
 	o.subscribersMu.Unlock()
 
-	// Close WebSocket connections
-	o.wsMu.Lock()
-	for conn := range o.wsConns {
-		_ = conn.Close()
-		delete(o.wsConns, conn)
-	}
-	o.wsMu.Unlock()
+	o.stopAPI()
 
 	// Close storage
 	if o.storage != nil {
@@ -572,18 +558,9 @@ func (o *LendingOracle) GetInterestRate(stateId string) (float64, bool) {
 	return 0, false
 }
 
-// API Handlers
-
 // RegisterHandlers registers HTTP handlers for lending data
 func (o *LendingOracle) RegisterHandlers(mux *http.ServeMux) {
-	mux.HandleFunc("/api/v1/lending/markets", o.HandleListMarkets)
-	mux.HandleFunc("/api/v1/lending/markets/", o.HandleGetMarket)
-	mux.HandleFunc("/api/v1/lending/loans", o.HandleListLoans)
-	mux.HandleFunc("/api/v1/lending/loans/", o.HandleGetLoan)
-	mux.HandleFunc("/api/v1/lending/rates", o.HandleListRates)
-	mux.HandleFunc("/api/v1/lending/utilization", o.HandleListUtilization)
-	mux.HandleFunc("/api/v1/lending/overdue", o.HandleListOverdueLoans)
-	mux.HandleFunc("/ws/lending", o.HandleLendingStream)
+	o.lendingAPI().RegisterHandlers(mux)
 }
 
 // HandleListMarkets returns all lending markets
@@ -591,30 +568,7 @@ func (o *LendingOracle) HandleListMarkets(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	markets := o.GetMarkets()
-
-	// Filter by protocol if specified
-	protocol := r.URL.Query().Get("protocol")
-	if protocol != "" {
-		filtered := make([]*LendingState, 0)
-		for _, market := range markets {
-			if market.Protocol == protocol {
-				filtered = append(filtered, market)
-			}
-		}
-		markets = filtered
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"markets": markets,
-		"count":   len(markets),
-	})
+	o.lendingAPI().HandleListMarkets(w, r)
 }
 
 // HandleGetMarket returns a specific market by ID
@@ -622,25 +576,7 @@ func (o *LendingOracle) HandleGetMarket(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	marketId := strings.TrimPrefix(r.URL.Path, "/api/v1/lending/markets/")
-	if marketId == "" {
-		http.Error(w, "Market ID required", http.StatusBadRequest)
-		return
-	}
-
-	state, ok := o.GetState(marketId)
-	if !ok || !state.IsMarket() {
-		http.Error(w, "Market not found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(state)
+	o.lendingAPI().HandleGetMarket(w, r)
 }
 
 // HandleListLoans returns all loans
@@ -648,53 +584,12 @@ func (o *LendingOracle) HandleListLoans(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	loans := o.GetLoans()
-
-	// Filter by status if specified
-	status := r.URL.Query().Get("status")
-	if status != "" {
-		filtered := make([]*LendingState, 0)
-		for _, loan := range loans {
-			if loan.LoanStatus == status {
-				filtered = append(filtered, loan)
-			}
-		}
-		loans = filtered
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"loans": loans,
-		"count": len(loans),
-	})
+	o.lendingAPI().HandleListLoans(w, r)
 }
 
 // HandleGetLoan returns a specific loan by ID
 func (o *LendingOracle) HandleGetLoan(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	loanId := strings.TrimPrefix(r.URL.Path, "/api/v1/lending/loans/")
-	if loanId == "" {
-		http.Error(w, "Loan ID required", http.StatusBadRequest)
-		return
-	}
-
-	state, ok := o.GetState(loanId)
-	if !ok || !state.IsLoan() {
-		http.Error(w, "Loan not found", http.StatusNotFound)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(state)
+	o.lendingAPI().HandleGetLoan(w, r)
 }
 
 // HandleListRates returns interest rates for all markets
@@ -702,37 +597,7 @@ func (o *LendingOracle) HandleListRates(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	markets := o.GetMarkets()
-
-	type RateEntry struct {
-		StateId      string  `json:"stateId"`
-		Protocol     string  `json:"protocol"`
-		Asset        string  `json:"asset"`
-		InterestRate float64 `json:"interestRate"`
-		BasisPoints  uint64  `json:"basisPoints"`
-	}
-
-	rates := make([]RateEntry, 0, len(markets))
-	for _, market := range markets {
-		rates = append(rates, RateEntry{
-			StateId:      market.StateId,
-			Protocol:     market.Protocol,
-			Asset:        market.UnderlyingAsset.Fingerprint(),
-			InterestRate: market.InterestRatePct,
-			BasisPoints:  market.InterestRate,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"rates": rates,
-		"count": len(rates),
-	})
+	o.lendingAPI().HandleListRates(w, r)
 }
 
 // HandleListUtilization returns utilization rates for all markets
@@ -740,41 +605,7 @@ func (o *LendingOracle) HandleListUtilization(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	markets := o.GetMarkets()
-
-	type UtilEntry struct {
-		StateId         string  `json:"stateId"`
-		Protocol        string  `json:"protocol"`
-		Asset           string  `json:"asset"`
-		UtilizationRate float64 `json:"utilizationRate"`
-		TotalSupply     uint64  `json:"totalSupply"`
-		TotalBorrows    uint64  `json:"totalBorrows"`
-		Available       uint64  `json:"availableLiquidity"`
-	}
-
-	utils := make([]UtilEntry, 0, len(markets))
-	for _, market := range markets {
-		utils = append(utils, UtilEntry{
-			StateId:         market.StateId,
-			Protocol:        market.Protocol,
-			Asset:           market.UnderlyingAsset.Fingerprint(),
-			UtilizationRate: market.UtilizationRate,
-			TotalSupply:     market.TotalSupply,
-			TotalBorrows:    market.TotalBorrows,
-			Available:       market.AvailableLiq,
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"utilization": utils,
-		"count":       len(utils),
-	})
+	o.lendingAPI().HandleListUtilization(w, r)
 }
 
 // HandleListOverdueLoans returns all overdue loans
@@ -782,18 +613,7 @@ func (o *LendingOracle) HandleListOverdueLoans(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	loans := o.GetOverdueLoans()
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"overdueLoans": loans,
-		"count":        len(loans),
-	})
+	o.lendingAPI().HandleListOverdueLoans(w, r)
 }
 
 // HandleLendingStream handles WebSocket connections for lending streaming
@@ -801,66 +621,28 @@ func (o *LendingOracle) HandleLendingStream(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	logger := logging.GetLogger()
-
-	conn, err := o.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		logger.Error("WebSocket upgrade failed", "error", err)
-		return
-	}
-
-	// Register connection
-	o.wsMu.Lock()
-	o.wsConns[conn] = true
-	o.wsMu.Unlock()
-
-	logger.Debug(
-		"Lending WebSocket client connected",
-		"remote",
-		conn.RemoteAddr(),
-	)
-
-	// Keep connection alive and handle disconnection
-	defer func() {
-		o.wsMu.Lock()
-		delete(o.wsConns, conn)
-		o.wsMu.Unlock()
-		_ = conn.Close()
-		logger.Debug(
-			"Lending WebSocket client disconnected",
-			"remote",
-			conn.RemoteAddr(),
-		)
-	}()
-
-	// Start update broadcaster for this connection
-	updates := o.Subscribe()
-	defer o.Unsubscribe(updates)
-
-	// Broadcast updates to this connection
-	go func() {
-		for update := range updates {
-			if err := conn.WriteJSON(update); err != nil {
-				logger.Debug(
-					"failed to send lending WebSocket update",
-					"error", err,
-					"remote", conn.RemoteAddr(),
-				)
-				return
-			}
-		}
-	}()
-
-	// Read messages (for ping/pong and close handling)
-	for {
-		_, _, err := conn.ReadMessage()
-		if err != nil {
-			break
-		}
-	}
+	o.lendingAPI().HandleLendingStream(w, r)
 }
 
 // StartAPIServer starts the lending API server
 func (o *LendingOracle) StartAPIServer(addr string) error {
-	return StartAPIServer(addr, o)
+	return StartAPIServer(addr, o.lendingAPI())
+}
+
+func (o *LendingOracle) lendingAPI() *LendingOracleAPI {
+	o.apiMu.Lock()
+	defer o.apiMu.Unlock()
+	if o.api == nil {
+		o.api = NewLendingOracleAPI(o)
+	}
+	return o.api
+}
+
+func (o *LendingOracle) stopAPI() {
+	o.apiMu.Lock()
+	api := o.api
+	o.apiMu.Unlock()
+	if api != nil {
+		api.Stop()
+	}
 }
