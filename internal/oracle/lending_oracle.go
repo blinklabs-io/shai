@@ -260,8 +260,8 @@ func (o *LendingOracle) Stop() {
 	o.wsMu.Lock()
 	for conn := range o.wsConns {
 		_ = conn.Close()
+		delete(o.wsConns, conn)
 	}
-	o.wsConns = nil
 	o.wsMu.Unlock()
 
 	// Close storage
@@ -457,11 +457,20 @@ func (o *LendingOracle) GetState(stateId string) (*LendingState, bool) {
 		return state, true
 	}
 
-	// Fall back to searching by raw state ID
+	// Fall back to searching by raw state ID. If multiple scoped states share
+	// the same raw ID, the unscoped lookup is ambiguous and should not return
+	// an arbitrary map iteration result.
+	var matched *LendingState
 	for _, state := range o.states {
 		if state.StateId == stateId {
-			return state, true
+			if matched != nil {
+				return nil, false
+			}
+			matched = state
 		}
+	}
+	if matched != nil {
+		return matched, true
 	}
 	return nil, false
 }
@@ -853,11 +862,5 @@ func (o *LendingOracle) HandleLendingStream(
 
 // StartAPIServer starts the lending API server
 func (o *LendingOracle) StartAPIServer(addr string) error {
-	logger := logging.GetLogger()
-
-	mux := http.NewServeMux()
-	o.RegisterHandlers(mux)
-
-	logger.Info("starting lending API server", "addr", addr)
-	return http.ListenAndServe(addr, mux)
+	return StartAPIServer(addr, o)
 }

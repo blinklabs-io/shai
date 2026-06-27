@@ -95,6 +95,7 @@ func main() {
 	idx := indexer.New()
 	n := node.New(idx)
 	var oracles []*oracle.Oracle
+	var lendingOracles []*oracle.LendingOracle
 
 	// Setup profiles
 	for _, profile := range config.GetProfiles() {
@@ -192,6 +193,7 @@ func main() {
 				)
 				os.Exit(1)
 			}
+			lendingOracles = append(lendingOracles, o)
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -201,16 +203,28 @@ func main() {
 		}
 	}
 
-	// Start Oracle API if enabled and at least one oracle profile is active
+	// Start Oracle API if enabled and at least one API-backed profile is active
 	if cfg.Oracle.APIEnabled {
-		if len(oracles) == 0 {
+		if len(oracles) == 0 && len(lendingOracles) == 0 {
 			logger.Warn(
-				"oracle API enabled but no oracle profiles initialized; API server not started",
+				"oracle API enabled but no API-backed profiles initialized; API server not started",
 			)
 		} else {
-			api := oracle.NewMultiOracleAPI(oracles)
+			var apiHandlers []oracle.APIHandlerRegistrar
+			if len(oracles) > 0 {
+				apiHandlers = append(
+					apiHandlers,
+					oracle.NewMultiOracleAPI(oracles),
+				)
+			}
+			for _, lendingOracle := range lendingOracles {
+				apiHandlers = append(apiHandlers, lendingOracle)
+			}
 			go func() {
-				if err := api.StartServer(cfg.Oracle.APIAddress); err != nil {
+				if err := oracle.StartAPIServer(
+					cfg.Oracle.APIAddress,
+					apiHandlers...,
+				); err != nil {
 					logger.Error("oracle API server failed", "error", err)
 					os.Exit(1)
 				}

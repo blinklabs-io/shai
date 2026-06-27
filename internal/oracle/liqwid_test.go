@@ -33,7 +33,7 @@ func TestNewLiqwidParser(t *testing.T) {
 }
 
 func TestLiqwidGenerateMarketId(t *testing.T) {
-	marketId := generateLiqwidMarketId(
+	marketId := liqwid.GenerateMarketId(
 		[]byte{0xab, 0xcd, 0xef},
 		[]byte("ADAMarket"),
 	)
@@ -44,7 +44,7 @@ func TestLiqwidGenerateMarketId(t *testing.T) {
 }
 
 func TestLiqwidGeneratePositionId(t *testing.T) {
-	positionId := generateLiqwidPositionId(
+	positionId := liqwid.GeneratePositionId(
 		"abc123def456789012345678901234567890",
 		2,
 	)
@@ -465,6 +465,54 @@ func TestLiqwidOracleDatumUnmarshal(t *testing.T) {
 			"expected price %f, got %f",
 			expectedPrice,
 			oracleDatum.PriceFloat(),
+		)
+	}
+}
+
+func TestLiqwidParserParseOracleDatumPreservesMilliseconds(t *testing.T) {
+	asset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		[]byte{},
+		[]byte{},
+	})
+
+	validFrom := int64(1700000000123)
+	validTo := int64(1700003600456)
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		asset,
+		uint64(350000),
+		uint64(1000000),
+		validFrom,
+		validTo,
+	})
+
+	cborData, err := cbor.Encode(&datum)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	parser := NewLiqwidParser()
+	state, err := parser.ParseOracleDatum(
+		cborData,
+		"abc123def456",
+		12345,
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("failed to parse oracle datum: %v", err)
+	}
+
+	if !state.ValidFrom.Equal(time.UnixMilli(validFrom)) {
+		t.Fatalf(
+			"expected validFrom %s, got %s",
+			time.UnixMilli(validFrom),
+			state.ValidFrom,
+		)
+	}
+	if !state.ValidTo.Equal(time.UnixMilli(validTo)) {
+		t.Fatalf(
+			"expected validTo %s, got %s",
+			time.UnixMilli(validTo),
+			state.ValidTo,
 		)
 	}
 }

@@ -119,23 +119,3 @@ func (p *LiqwidParser) ParseOracleDatum(
 ) (*LiqwidOracleState, error) {
 	return p.parser.ParseOracleDatum(datum, txHash, slot, timestamp)
 }
-
-// generateLiqwidMarketId wraps liqwid.GenerateMarketId for backward compatibility
-func generateLiqwidMarketId(policyId, assetName []byte) string {
-	return liqwid.GenerateMarketId(policyId, assetName)
-}
-
-// generateLiqwidPositionId wraps liqwid.GeneratePositionId for backward compatibility
-func generateLiqwidPositionId(txHash string, txIndex uint32) string {
-	return liqwid.GeneratePositionId(txHash, txIndex)
-}
-
-// GetLiqwidMarketAddresses returns mainnet market addresses
-func GetLiqwidMarketAddresses() []string {
-	return liqwid.GetMarketAddresses()
-}
-
-// GetLiqwidOracleAddresses returns mainnet oracle addresses
-func GetLiqwidOracleAddresses() []string {
-	return liqwid.GetOracleAddresses()
-}
