@@ -42,8 +42,7 @@ type MonoDatum struct {
 	cbor.DecodeStoreCbor
 	Constructor uint
 	// Only one of these will be populated based on constructor
-	CDP       *CDP
-	PriceFeed *PriceFeed
+	CDP *CDP
 }
 
 func (d *MonoDatum) UnmarshalCBOR(cborData []byte) error {
@@ -129,6 +128,12 @@ func (a *AssetClass) UnmarshalCBOR(cborData []byte) error {
 	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
+	}
+	if tmpConstr.Tag() != 0 {
+		return fmt.Errorf(
+			"AssetClass: expected constructor 0, got %d",
+			tmpConstr.Tag(),
+		)
 	}
 	return cbor.DecodeGeneric(tmpConstr.Fields(), a)
 }

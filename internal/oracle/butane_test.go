@@ -58,6 +58,15 @@ func TestGenerateButaneCDPId(t *testing.T) {
 	}
 }
 
+func TestGenerateButaneCDPIdShortHash(t *testing.T) {
+	cdpId := generateButaneCDPId("abc123", 0)
+	expected := "butane_cdp_abc123#0"
+
+	if cdpId != expected {
+		t.Errorf("expected CDP ID %s, got %s", expected, cdpId)
+	}
+}
+
 func TestButaneCDPCredentialUnmarshal(t *testing.T) {
 	// Test AuthorizeWithPubKey (Constructor 0)
 	pubKeyHash := make([]byte, 28)
@@ -84,6 +93,23 @@ func TestButaneCDPCredentialUnmarshal(t *testing.T) {
 	}
 	if len(cred.PubKey) != 28 {
 		t.Errorf("expected 28 byte pubkey, got %d", len(cred.PubKey))
+	}
+}
+
+func TestButaneAssetClassRejectsInvalidConstructor(t *testing.T) {
+	asset := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
+		[]byte{0xab, 0xcd, 0xef},
+		[]byte("bUSD"),
+	})
+
+	cborData, err := cbor.Encode(&asset)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	var decoded ButaneAssetClass
+	if _, err := cbor.Decode(cborData, &decoded); err == nil {
+		t.Fatal("expected invalid AssetClass constructor to fail")
 	}
 }
 
@@ -153,11 +179,12 @@ func TestButaneParserParseMonoDatum(t *testing.T) {
 		[]byte("bBTC"),
 	})
 
+	startTimeMs := int64(1704067200123)
 	datum := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
 		owner,
 		synthetic,
-		uint64(50000000),     // 0.5 bBTC
-		int64(1704067200000), // start time
+		uint64(50000000), // 0.5 bBTC
+		startTimeMs,
 	})
 
 	cborData, err := cbor.Encode(&datum)
@@ -190,6 +217,13 @@ func TestButaneParserParseMonoDatum(t *testing.T) {
 		t.Errorf(
 			"expected synthetic 'bBTC', got %s",
 			string(state.Synthetic.Name),
+		)
+	}
+	if !state.StartTime.Equal(time.UnixMilli(startTimeMs)) {
+		t.Errorf(
+			"expected start time %s, got %s",
+			time.UnixMilli(startTimeMs),
+			state.StartTime,
 		)
 	}
 }
