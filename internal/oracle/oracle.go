@@ -99,6 +99,13 @@ func (o *Oracle) addProfileAddresses() {
 		for _, addr := range profileConfig.CDPAddresses {
 			o.poolAddresses[addr.Address] = struct{}{}
 		}
+	case config.BondsProfileConfig:
+		for _, addr := range profileConfig.BondAddresses {
+			o.poolAddresses[addr.Address] = struct{}{}
+		}
+		for _, addr := range profileConfig.OADAAddresses {
+			o.poolAddresses[addr.Address] = struct{}{}
+		}
 	}
 }
 
