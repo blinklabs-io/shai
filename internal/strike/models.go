@@ -16,7 +16,6 @@ package strike
 
 import (
 	"fmt"
-	"net/url"
 	"strings"
 )
 
@@ -162,31 +161,17 @@ func (c ExternalAPIConfig) Validate() error {
 	if c.BaseURL == "" {
 		return fmt.Errorf("%w: base URL is required", ErrInvalidExternalAPIConfig)
 	}
-	if err := validateAbsoluteHTTPURL(c.BaseURL); err != nil {
+	if _, err := parseBaseURL(c.BaseURL); err != nil {
 		return fmt.Errorf("%w: invalid base URL: %w", ErrInvalidExternalAPIConfig, err)
 	}
 	if c.PriceBaseURL != "" {
-		if err := validateAbsoluteHTTPURL(c.PriceBaseURL); err != nil {
+		if _, err := parseBaseURL(c.PriceBaseURL); err != nil {
 			return fmt.Errorf(
 				"%w: invalid price base URL: %w",
 				ErrInvalidExternalAPIConfig,
 				err,
 			)
 		}
-	}
-	return nil
-}
-
-func validateAbsoluteHTTPURL(rawURL string) error {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return err
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("unsupported scheme %q", parsed.Scheme)
-	}
-	if parsed.Host == "" {
-		return fmt.Errorf("missing host")
 	}
 	return nil
 }

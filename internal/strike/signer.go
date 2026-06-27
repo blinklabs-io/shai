@@ -15,6 +15,7 @@
 package strike
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
@@ -54,6 +55,12 @@ func NewEd25519Signer(
 			"%w: private key must be %d bytes",
 			ErrInvalidExternalAPIConfig,
 			ed25519.PrivateKeySize,
+		)
+	}
+	if !bytes.Equal(privateKey.Public().(ed25519.PublicKey), publicKey) {
+		return nil, fmt.Errorf(
+			"%w: private key does not match public key",
+			ErrInvalidExternalAPIConfig,
 		)
 	}
 	return &Ed25519Signer{

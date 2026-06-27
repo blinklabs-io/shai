@@ -201,6 +201,24 @@ func TestClientAuthenticatedRequestSignsHeaders(t *testing.T) {
 	}
 }
 
+func TestNewEd25519SignerRejectsMismatchedKeyPair(t *testing.T) {
+	privateKey := ed25519.NewKeyFromSeed(
+		[]byte("01234567890123456789012345678901"),
+	)
+	otherPrivateKey := ed25519.NewKeyFromSeed(
+		[]byte("abcdefghijklmnopqrstuvwxyz123456"),
+	)
+	otherPublicKey := otherPrivateKey.Public().(ed25519.PublicKey)
+
+	_, err := NewEd25519Signer(otherPublicKey, privateKey)
+	if !errors.Is(err, ErrInvalidExternalAPIConfig) {
+		t.Fatalf("expected ErrInvalidExternalAPIConfig, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "private key does not match public key") {
+		t.Fatalf("expected key mismatch error, got %v", err)
+	}
+}
+
 func TestClientAuthenticatedRequestRequiresSigner(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("request should not be sent without signer")
@@ -241,6 +259,25 @@ func TestClientReturnsAPIError(t *testing.T) {
 	}
 	if !strings.Contains(apiErr.Body, "unavailable") {
 		t.Fatalf("unexpected body %q", apiErr.Body)
+	}
+}
+
+func TestExternalAPIConfigValidateRejectsInvalidURLs(t *testing.T) {
+	config := ExternalAPIConfig{
+		Enabled: true,
+		BaseURL: "ftp://example.com",
+	}
+	if err := config.Validate(); !errors.Is(err, ErrInvalidExternalAPIConfig) {
+		t.Fatalf("expected ErrInvalidExternalAPIConfig, got %v", err)
+	}
+
+	config = ExternalAPIConfig{
+		Enabled:      true,
+		BaseURL:      "https://example.com",
+		PriceBaseURL: "/price",
+	}
+	if err := config.Validate(); !errors.Is(err, ErrInvalidExternalAPIConfig) {
+		t.Fatalf("expected ErrInvalidExternalAPIConfig, got %v", err)
 	}
 }
 
