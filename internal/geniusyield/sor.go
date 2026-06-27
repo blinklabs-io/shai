@@ -409,6 +409,9 @@ func (sor *SmartOrderRouter) FindRoute(
 		inputAmount,
 		maxSlippageBps,
 	)
+	if directErr == nil && directRoute == nil {
+		return nil, fmt.Errorf("direct route returned nil route")
+	}
 
 	// If multi-hop is disabled or direct route works well, return it
 	if !sor.IsMultiHopEnabled() {
@@ -427,6 +430,9 @@ func (sor *SmartOrderRouter) FindRoute(
 		inputAmount,
 		maxSlippageBps,
 	)
+	if multiHopErr == nil && multiHopRoute == nil {
+		multiHopErr = fmt.Errorf("multi-hop route returned nil route")
+	}
 
 	// Choose the better route
 	if directErr != nil && multiHopErr != nil {
@@ -438,14 +444,26 @@ func (sor *SmartOrderRouter) FindRoute(
 	}
 
 	if directErr != nil {
+		if multiHopRoute == nil {
+			return nil, fmt.Errorf("multi-hop route unavailable")
+		}
 		return multiHopRoute, nil
 	}
 
 	if multiHopErr != nil {
+		if directRoute == nil {
+			return nil, fmt.Errorf("direct route unavailable")
+		}
 		return directRoute, nil
 	}
 
 	// Both routes found - compare output amounts
+	if directRoute == nil {
+		return nil, fmt.Errorf("direct route unavailable")
+	}
+	if multiHopRoute == nil {
+		return directRoute, nil
+	}
 	if multiHopRoute.TotalOutput > directRoute.TotalOutput {
 		return multiHopRoute, nil
 	}
