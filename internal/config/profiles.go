@@ -67,8 +67,10 @@ type OracleProfileConfig struct {
 
 // SyntheticsProfileConfig contains configuration for synthetics protocols.
 type SyntheticsProfileConfig struct {
-	Protocol     string                 // Protocol name (e.g., "indigo")
-	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+	Protocol        string                 // Protocol name (e.g., "butane")
+	CDPAddresses    []ProfileConfigAddress // CDP contract addresses to monitor
+	OracleAddresses []ProfileConfigAddress // Oracle feed addresses
+	PriceFeedPolicy string                 // Policy ID for price feed tokens
 }
 
 func GetProfiles() []Profile {
@@ -301,6 +303,18 @@ var Profiles = map[string]map[string]Profile{
 						Address: "addr1w80ptp0qgmcklhmeweesqgeurtlma8fsxsr9dt8au30fzss0czhl9",
 					},
 				},
+			},
+		},
+		"butane": {
+			Name:          "butane",
+			Type:          ProfileTypeSynthetics,
+			InterceptSlot: 145000000,
+			InterceptHash: "0000000000000000000000000000000000000000000000000000000000000000",
+			Config: SyntheticsProfileConfig{
+				Protocol:        "butane",
+				CDPAddresses:    []ProfileConfigAddress{},
+				OracleAddresses: []ProfileConfigAddress{},
+				PriceFeedPolicy: "b41d06ebccb6278d3ee7b4cd2faa321537156c9fd9c8dd40e95f91ea",
 			},
 		},
 		"spectrum": {
