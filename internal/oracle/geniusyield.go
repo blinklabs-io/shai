@@ -128,7 +128,7 @@ func geniusYieldAskedAmount(order *geniusyield.OrderState) (uint64, error) {
 		return asked.Uint64(), nil
 	}
 	return 0, fmt.Errorf(
-		"Genius Yield asked amount overflows uint64 for order %s",
+		"asked amount overflows uint64 for Genius Yield order %s",
 		order.OrderId,
 	)
 }
