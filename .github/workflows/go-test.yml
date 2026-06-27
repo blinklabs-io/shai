@@ -13,4 +13,4 @@ jobs:
   orchestrate:
     uses: blinklabs-io/actions/.github/workflows/reuseable-go-test.yml@main
     with:
-      go-versions: ["1.26.x"]
+      go-versions: '["1.26.x"]'
