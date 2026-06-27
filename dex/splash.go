@@ -20,7 +20,7 @@ import (
 	"github.com/blinklabs-io/shai/dex/splash"
 )
 
-// SplashParser wraps splash.Parser to implement oracle.PoolParser
+// SplashParser wraps splash.Parser to implement PoolParser.
 type SplashParser struct {
 	parser *splash.Parser
 }

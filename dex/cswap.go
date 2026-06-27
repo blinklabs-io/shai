@@ -20,7 +20,7 @@ import (
 	"github.com/blinklabs-io/shai/dex/cswap"
 )
 
-// CSwapParser wraps cswap.Parser to implement oracle.PoolParser.
+// CSwapParser wraps cswap.Parser to implement PoolParser.
 type CSwapParser struct {
 	parser *cswap.Parser
 }

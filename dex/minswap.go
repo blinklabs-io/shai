@@ -20,7 +20,7 @@ import (
 	"github.com/blinklabs-io/shai/dex/minswap"
 )
 
-// MinswapParser wraps minswap.Parser to implement oracle.PoolParser
+// MinswapParser wraps minswap.Parser to implement PoolParser.
 type MinswapParser struct {
 	parser *minswap.Parser
 }

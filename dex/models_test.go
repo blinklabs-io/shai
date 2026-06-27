@@ -267,6 +267,21 @@ func TestPoolStateQuote(t *testing.T) {
 		}
 	})
 
+	t.Run("fee numerator exceeds denominator", func(t *testing.T) {
+		bad := &PoolState{
+			AssetX: common.AssetAmount{
+				Class:  common.AssetClass{PolicyId: tokenPolicy, Name: tokenName},
+				Amount: 100,
+			},
+			AssetY:   common.AssetAmount{Class: common.AssetClass{}, Amount: 100},
+			FeeNum:   1001,
+			FeeDenom: 1000,
+		}
+		if _, _, err := bad.Quote(tokenPolicy, tokenName, 10); err == nil {
+			t.Error("expected error for fee numerator greater than denominator")
+		}
+	})
+
 	t.Run("zero amount in", func(t *testing.T) {
 		out, impact, err := pool.Quote(tokenPolicy, tokenName, 0)
 		if err != nil {
@@ -274,6 +289,22 @@ func TestPoolStateQuote(t *testing.T) {
 		}
 		if out != 0 || impact != 0 {
 			t.Errorf("expected zero out/impact for zero input, got %d/%f", out, impact)
+		}
+	})
+
+	t.Run("rounded zero output has full price impact", func(t *testing.T) {
+		tinyOutputPool := *pool
+		tinyOutputPool.AssetY.Amount = 1
+
+		out, impact, err := tinyOutputPool.Quote(tokenPolicy, tokenName, 1)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if out != 0 {
+			t.Fatalf("expected rounded zero output, got %d", out)
+		}
+		if impact < 99.999 || impact > 100.001 {
+			t.Errorf("expected price impact ~100%%, got %f", impact)
 		}
 	})
 }
