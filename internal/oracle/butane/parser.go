@@ -118,7 +118,7 @@ func (p *Parser) ParseMonoDatum(
 		Owner:        owner,
 		Synthetic:    cdp.Synthetic.ToCommonAssetClass(),
 		MintedAmount: cdp.Minted,
-		StartTime:    time.Unix(cdp.StartTime/1000, 0), // Convert ms to seconds
+		StartTime:    time.UnixMilli(cdp.StartTime),
 		Slot:         slot,
 		TxHash:       txHash,
 		TxIndex:      txIndex,
@@ -130,7 +130,11 @@ func (p *Parser) ParseMonoDatum(
 
 // GenerateCDPId generates a unique CDP ID
 func GenerateCDPId(txHash string, txIndex uint32) string {
-	return fmt.Sprintf("butane_cdp_%s#%d", txHash[:16], txIndex)
+	hashPrefix := txHash
+	if len(hashPrefix) > 16 {
+		hashPrefix = hashPrefix[:16]
+	}
+	return fmt.Sprintf("butane_cdp_%s#%d", hashPrefix, txIndex)
 }
 
 // GetAddresses returns mainnet Butane contract addresses
