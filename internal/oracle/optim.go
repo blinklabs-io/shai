@@ -101,11 +101,6 @@ func (p *OptimParser) ParsePoolDatum(
 	return nil, nil
 }
 
-// generateOptimBondId wraps optim.GenerateBondId for backward compatibility
-func generateOptimBondId(bondNFT []byte) string {
-	return optim.GenerateBondId(bondNFT)
-}
-
 // GetOptimAddresses returns known Optim Finance contract addresses
 func GetOptimAddresses() []string {
 	return optim.GetAddresses()

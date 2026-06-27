@@ -123,36 +123,15 @@ func main() {
 				)
 				os.Exit(1)
 			}
-			logger.Info(
-				"initializing profile",
-				"name",
-				profile.Name,
-				"type",
+			oracles = append(oracles, startOracleProfile(
+				idx,
+				&profile,
 				"Oracle",
-				"protocol",
 				oracleCfg.Protocol,
-			)
-			parser := getOracleParser(oracleCfg.Protocol)
-			if parser == nil {
-				logger.Error(
-					"unknown oracle protocol",
-					"protocol",
-					oracleCfg.Protocol,
-				)
-				os.Exit(1)
-			}
-			o := oracle.New(idx, &profile, parser)
-			if err := o.Start(); err != nil {
-				logger.Error(
-					"failed to start oracle",
-					"error",
-					err,
-					"profile",
-					profile.Name,
-				)
-				os.Exit(1)
-			}
-			oracles = append(oracles, o)
+				getOracleParser(oracleCfg.Protocol),
+				"oracle",
+				"oracle",
+			))
 		case config.ProfileTypeBonds:
 			bondsCfg, ok := profile.Config.(config.BondsProfileConfig)
 			if !ok {
@@ -163,36 +142,15 @@ func main() {
 				)
 				os.Exit(1)
 			}
-			logger.Info(
-				"initializing profile",
-				"name",
-				profile.Name,
-				"type",
+			oracles = append(oracles, startOracleProfile(
+				idx,
+				&profile,
 				"Bonds",
-				"protocol",
 				bondsCfg.Protocol,
-			)
-			parser := getBondsParser(bondsCfg.Protocol)
-			if parser == nil {
-				logger.Error(
-					"unknown bonds protocol",
-					"protocol",
-					bondsCfg.Protocol,
-				)
-				os.Exit(1)
-			}
-			o := oracle.New(idx, &profile, parser)
-			if err := o.Start(); err != nil {
-				logger.Error(
-					"failed to start bonds oracle",
-					"error",
-					err,
-					"profile",
-					profile.Name,
-				)
-				os.Exit(1)
-			}
-			oracles = append(oracles, o)
+				getBondsParser(bondsCfg.Protocol),
+				"bonds",
+				"bonds oracle",
+			))
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -239,6 +197,47 @@ func main() {
 
 	// Wait forever
 	select {}
+}
+
+func startOracleProfile(
+	idx *indexer.Indexer,
+	profile *config.Profile,
+	profileType string,
+	protocol string,
+	parser oracle.PoolParser,
+	protocolKind string,
+	startKind string,
+) *oracle.Oracle {
+	logger := logging.GetLogger()
+	logger.Info(
+		"initializing profile",
+		"name",
+		profile.Name,
+		"type",
+		profileType,
+		"protocol",
+		protocol,
+	)
+	if parser == nil {
+		logger.Error(
+			fmt.Sprintf("unknown %s protocol", protocolKind),
+			"protocol",
+			protocol,
+		)
+		os.Exit(1)
+	}
+	o := oracle.New(idx, profile, parser)
+	if err := o.Start(); err != nil {
+		logger.Error(
+			fmt.Sprintf("failed to start %s", startKind),
+			"error",
+			err,
+			"profile",
+			profile.Name,
+		)
+		os.Exit(1)
+	}
+	return o
 }
 
 // getOracleParser returns the appropriate parser for an oracle protocol

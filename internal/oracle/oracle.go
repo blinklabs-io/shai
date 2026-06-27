@@ -65,14 +65,21 @@ func New(
 		mempoolMgr:    NewMempoolStateManager(),
 	}
 
-	// Extract pool addresses from profile config
-	if oracleConfig, ok := profile.Config.(config.OracleProfileConfig); ok {
-		for _, addr := range oracleConfig.PoolAddresses {
-			o.poolAddresses[addr.Address] = struct{}{}
-		}
+	switch profileConfig := profile.Config.(type) {
+	case config.OracleProfileConfig:
+		o.addPoolAddresses(profileConfig.PoolAddresses)
+	case config.BondsProfileConfig:
+		o.addPoolAddresses(profileConfig.BondAddresses)
+		o.addPoolAddresses(profileConfig.OADAAddresses)
 	}
 
 	return o
+}
+
+func (o *Oracle) addPoolAddresses(addresses []config.ProfileConfigAddress) {
+	for _, addr := range addresses {
+		o.poolAddresses[addr.Address] = struct{}{}
+	}
 }
 
 // Start begins tracking pool states
