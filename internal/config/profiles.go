@@ -8,6 +8,7 @@ const (
 	ProfileTypeNone ProfileType = iota
 	ProfileTypeSpectrum
 	ProfileTypeOracle
+	ProfileTypeSynthetics
 )
 
 type Profile struct {
@@ -46,6 +47,14 @@ type OracleProfileConfig struct {
 	Protocol      string                  // Protocol name (e.g., "minswap", "sundaeswap")
 	PoolAddresses []ProfileConfigAddress  // Pool addresses to monitor
 	InputRefs     []ProfileConfigInputRef // Reference inputs if needed
+}
+
+// SyntheticsProfileConfig contains configuration for synthetics protocols.
+type SyntheticsProfileConfig struct {
+	Protocol        string                 // Protocol name (e.g., "indigo")
+	CDPAddresses    []ProfileConfigAddress // CDP contract addresses to monitor
+	OracleAddresses []ProfileConfigAddress // Oracle feed addresses
+	PriceFeedPolicy string                 // Policy ID for price feed tokens
 }
 
 func GetProfiles() []Profile {
@@ -242,6 +251,25 @@ var Profiles = map[string]map[string]Profile{
 					},
 				},
 				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
+		"indigo": {
+			Name:          "indigo",
+			Type:          ProfileTypeSynthetics,
+			InterceptSlot: 75600000,
+			InterceptHash: "0000000000000000000000000000000000000000000000000000000000000000",
+			Config: SyntheticsProfileConfig{
+				Protocol: "indigo",
+				CDPAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1z8jd97ct35n4s5ss8lt4sq0zclw0dmf7yak8fj46m0jm3dhzfjvtm0pg7ms9fvw5luec6euwzku8wqjpt5gv0q86052qv9nxuw",
+					},
+					{
+						Address: "addr1w80ptp0qgmcklhmeweesqgeurtlma8fsxsr9dt8au30fzss0czhl9",
+					},
+				},
+				OracleAddresses: []ProfileConfigAddress{},
+				PriceFeedPolicy: "f66d78b4a3cb3d37afa0ec36461e51ecbde00f26c8f0a68f94b69880",
 			},
 		},
 		"spectrum": {
