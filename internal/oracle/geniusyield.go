@@ -15,6 +15,7 @@
 package oracle
 
 import (
+	"fmt"
 	"math/big"
 	"time"
 
@@ -84,13 +85,18 @@ func (p *GeniusYieldParser) ParsePoolDatum(
 		return nil, nil
 	}
 
+	askedAmount, err := geniusYieldAskedAmount(order)
+	if err != nil {
+		return nil, err
+	}
+
 	return &PoolState{
 		PoolId:   order.OrderId,
 		Protocol: order.Protocol,
 		AssetX:   order.OfferedAsset,
 		AssetY: common.AssetAmount{
 			Class:  order.AskedAsset,
-			Amount: geniusYieldAskedAmount(order),
+			Amount: askedAmount,
 		},
 		FeeNum:    1,
 		FeeDenom:  1,
@@ -101,11 +107,16 @@ func (p *GeniusYieldParser) ParsePoolDatum(
 	}, nil
 }
 
-func geniusYieldAskedAmount(order *geniusyield.OrderState) uint64 {
-	if order.PriceNum <= 0 ||
-		order.PriceDenom <= 0 ||
-		order.OfferedAsset.Amount == 0 {
-		return 0
+func geniusYieldAskedAmount(order *geniusyield.OrderState) (uint64, error) {
+	if order.PriceNum <= 0 || order.PriceDenom <= 0 {
+		return 0, fmt.Errorf(
+			"invalid Genius Yield price %d/%d",
+			order.PriceNum,
+			order.PriceDenom,
+		)
+	}
+	if order.OfferedAsset.Amount == 0 {
+		return 0, nil
 	}
 
 	offered := new(big.Int).SetUint64(order.OfferedAsset.Amount)
@@ -114,9 +125,12 @@ func geniusYieldAskedAmount(order *geniusyield.OrderState) uint64 {
 	asked := new(big.Int).Mul(offered, num)
 	asked.Div(asked, denom)
 	if asked.IsUint64() {
-		return asked.Uint64()
+		return asked.Uint64(), nil
 	}
-	return ^uint64(0)
+	return 0, fmt.Errorf(
+		"Genius Yield asked amount overflows uint64 for order %s",
+		order.OrderId,
+	)
 }
 
 // GenerateGeniusYieldOrderId wraps geniusyield.GenerateOrderId

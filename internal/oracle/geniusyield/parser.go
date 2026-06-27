@@ -26,35 +26,35 @@ import (
 
 // OrderState represents the parsed state of a Genius Yield order
 type OrderState struct {
-	OrderId        string             `json:"orderId"`        // Unique order identifier
-	Protocol       string             `json:"protocol"`       // Protocol name
-	Owner          string             `json:"owner"`          // Owner public key hash (hex)
-	OfferedAsset   common.AssetAmount `json:"offeredAsset"`   // Asset being offered
-	OriginalAmount uint64             `json:"originalAmount"` // Original amount offered
-	AskedAsset     common.AssetClass  `json:"askedAsset"`     // Asset wanted as payment
-	Price          float64            `json:"price"`          // Price per unit as float64
-	PriceNum       int64              `json:"priceNum"`       // Price numerator
-	PriceDenom     int64              `json:"priceDenom"`     // Price denominator
-	IsActive       bool               `json:"isActive"`       // Whether order is active
-	StartTime      *time.Time         `json:"startTime"`      // Optional start time
-	EndTime        *time.Time         `json:"endTime"`        // Optional end time
-	PartialFills   uint64             `json:"partialFills"`   // Number of partial fills
-	Slot           uint64             `json:"slot"`           // Slot when observed
-	TxHash         string             `json:"txHash"`         // Transaction hash
-	TxIndex        uint32             `json:"txIndex"`        // Transaction output index
-	Timestamp      time.Time          `json:"timestamp"`      // Block timestamp
-	UpdatedAt      time.Time          `json:"updatedAt"`      // When state was last updated
+	OrderId        string             `json:"orderId"`
+	Protocol       string             `json:"protocol"`
+	Owner          string             `json:"owner"`
+	OfferedAsset   common.AssetAmount `json:"offeredAsset"`
+	OriginalAmount uint64             `json:"originalAmount"`
+	AskedAsset     common.AssetClass  `json:"askedAsset"`
+	Price          float64            `json:"price"`
+	PriceNum       int64              `json:"priceNum"`
+	PriceDenom     int64              `json:"priceDenom"`
+	IsActive       bool               `json:"isActive"`
+	StartTime      *time.Time         `json:"startTime"`
+	EndTime        *time.Time         `json:"endTime"`
+	PartialFills   uint64             `json:"partialFills"`
+	Slot           uint64             `json:"slot"`
+	TxHash         string             `json:"txHash"`
+	TxIndex        uint32             `json:"txIndex"`
+	Timestamp      time.Time          `json:"timestamp"`
+	UpdatedAt      time.Time          `json:"updatedAt"`
 
 	// Fee and datum fields preserved for partial fill updates
-	NFT                  []byte `json:"nft"`                  // Order NFT token name
-	MakerLovelaceFlatFee uint64 `json:"makerLovelaceFlatFee"` // Flat maker fee
-	MakerFeeNum          int64  `json:"makerFeeNum"`          // Maker fee numerator
-	MakerFeeDenom        int64  `json:"makerFeeDenom"`        // Maker fee denominator
-	MakerFeeMax          uint64 `json:"makerFeeMax"`          // Max maker fee
-	ContainedLovelaceFee uint64 `json:"containedLovelaceFee"` // Contained lovelace fee
-	ContainedOfferedFee  uint64 `json:"containedOfferedFee"`  // Contained offered fee
-	ContainedAskedFee    uint64 `json:"containedAskedFee"`    // Contained asked fee
-	ContainedPayment     uint64 `json:"containedPayment"`     // Contained payment
+	NFT                  []byte `json:"nft"`
+	MakerLovelaceFlatFee uint64 `json:"makerLovelaceFlatFee"`
+	MakerFeeNum          int64  `json:"makerFeeNum"`
+	MakerFeeDenom        int64  `json:"makerFeeDenom"`
+	MakerFeeMax          uint64 `json:"makerFeeMax"`
+	ContainedLovelaceFee uint64 `json:"containedLovelaceFee"`
+	ContainedOfferedFee  uint64 `json:"containedOfferedFee"`
+	ContainedAskedFee    uint64 `json:"containedAskedFee"`
+	ContainedPayment     uint64 `json:"containedPayment"`
 }
 
 // Key returns a unique identifier for this order state
@@ -104,6 +104,13 @@ func (p *Parser) ParseOrderDatum(
 	var orderDatum PartialOrderDatum
 	if _, err := cbor.Decode(datum, &orderDatum); err != nil {
 		return nil, fmt.Errorf("failed to decode Genius Yield datum: %w", err)
+	}
+	if orderDatum.Price.Numerator <= 0 || orderDatum.Price.Denominator <= 0 {
+		return nil, fmt.Errorf(
+			"invalid Genius Yield price: numerator=%d denominator=%d",
+			orderDatum.Price.Numerator,
+			orderDatum.Price.Denominator,
+		)
 	}
 
 	// Generate order ID from the NFT token name
@@ -234,11 +241,11 @@ func CalculateFillAmount(
 	}
 
 	// Calculate how much asked asset was actually used for the offered amount
-	// usedAsked = offeredAmount * priceNum / priceDenom
+	// usedAsked = ceil(offeredAmount * priceNum / priceDenom)
 	// This accounts for integer division truncation in both branches
 	offered := new(big.Int).SetUint64(offeredAmount)
 	usedAskedBig := new(big.Int).Mul(offered, num)
-	usedAskedBig.Div(usedAskedBig, denom)
+	usedAskedBig = ceilDivPositiveBig(usedAskedBig, denom)
 
 	usedAsked := uint64(0)
 	if usedAskedBig.Sign() >= 0 && usedAskedBig.IsUint64() {
@@ -251,4 +258,16 @@ func CalculateFillAmount(
 	}
 
 	return offeredAmount, remainder
+}
+
+func ceilDivPositiveBig(numerator *big.Int, denominator *big.Int) *big.Int {
+	quotient, remainder := new(big.Int).QuoRem(
+		numerator,
+		denominator,
+		new(big.Int),
+	)
+	if remainder.Sign() != 0 {
+		quotient.Add(quotient, big.NewInt(1))
+	}
+	return quotient
 }
