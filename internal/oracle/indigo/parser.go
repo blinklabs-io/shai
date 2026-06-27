@@ -115,10 +115,10 @@ func (p *Parser) ParseCDPDatum(
 
 	// Extract owner information
 	owner := ""
-	hasOwner := inner.Owner.IsJust
-	if hasOwner && len(inner.Owner.Hash) > 0 {
+	if inner.Owner.IsJust && len(inner.Owner.Hash) > 0 {
 		owner = hex.EncodeToString(inner.Owner.Hash)
 	}
+	hasOwner := owner != ""
 
 	state := &CDPState{
 		CDPId:        cdpId,
@@ -147,9 +147,6 @@ func (p *Parser) ParseCDPDatum(
 
 // GenerateCDPId generates a unique CDP ID from transaction information
 func GenerateCDPId(txHash string, txIndex uint32) string {
-	if len(txHash) > 16 {
-		return fmt.Sprintf("indigo_cdp_%s#%d", txHash[:16], txIndex)
-	}
 	return fmt.Sprintf("indigo_cdp_%s#%d", txHash, txIndex)
 }
 

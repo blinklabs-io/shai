@@ -21,7 +21,35 @@ import (
 
 	"github.com/blinklabs-io/adder/event"
 	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/internal/config"
 )
+
+func TestOracleNewUsesSyntheticsCDPAddresses(t *testing.T) {
+	cdpAddress := IndigoCDPContractAddress
+	stabilityPoolAddress := "addr1w80ptp0qgmcklhmeweesqgeurtlma8fsxsr9dt8au30fzss0czhl9"
+	profile := config.Profile{
+		Name: "indigo",
+		Type: config.ProfileTypeSynthetics,
+		Config: config.SyntheticsProfileConfig{
+			Protocol: "indigo",
+			CDPAddresses: []config.ProfileConfigAddress{
+				{Address: cdpAddress},
+				{Address: stabilityPoolAddress},
+			},
+		},
+	}
+
+	o := New(nil, &profile, NewIndigoParser())
+	if !o.isPoolAddress(cdpAddress) {
+		t.Fatalf("expected CDP address to be monitored")
+	}
+	if !o.isPoolAddress(stabilityPoolAddress) {
+		t.Fatalf("expected stability pool address to be monitored")
+	}
+	if o.isPoolAddress("addr1unmonitored") {
+		t.Fatalf("expected unrelated address not to be monitored")
+	}
+}
 
 func TestOracleRollbackClearsMempoolState(t *testing.T) {
 	o := &Oracle{

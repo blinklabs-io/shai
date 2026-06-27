@@ -50,6 +50,7 @@ type CDPContentDatum struct {
 
 func (d *CDPContentDatum) UnmarshalCBOR(cborData []byte) error {
 	d.SetCbor(cborData)
+	d.Inner = nil
 
 	// Parse outer constructor (#6.121)
 	var outerConstr cbor.ConstructorDecoder
@@ -186,6 +187,10 @@ func (a *AccumulatedFees) UnmarshalCBOR(cborData []byte) error {
 	}
 
 	a.Type = int(tmpConstr.Tag())
+	a.LastUpdated = 0
+	a.IAssetAmount = 0
+	a.Treasury = 0
+	a.IndyStakers = 0
 
 	switch a.Type {
 	case 0: // InterestIAssetAmount (#6.121)

@@ -15,6 +15,7 @@
 package oracle
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 	"time"
@@ -37,10 +38,16 @@ func TestGenerateIndigoCDPId(t *testing.T) {
 	txIndex := uint32(2)
 
 	cdpId := generateIndigoCDPId(txHash, txIndex)
-	expected := "indigo_cdp_abc123def4567890#2"
+	expected := "indigo_cdp_abc123def456789012345678901234567890#2"
 
 	if cdpId != expected {
 		t.Errorf("expected CDP ID %s, got %s", expected, cdpId)
+	}
+
+	otherTxHash := "abc123def4567890ffffffffffffffffffffffff"
+	otherCDPId := generateIndigoCDPId(otherTxHash, txIndex)
+	if cdpId == otherCDPId {
+		t.Errorf("expected distinct CDP IDs, got %s", cdpId)
 	}
 }
 
@@ -71,6 +78,9 @@ func TestIndigoMaybePubKeyHashWithValue(t *testing.T) {
 	}
 	if len(maybe.Hash) != 28 {
 		t.Errorf("expected 28 byte hash, got %d", len(maybe.Hash))
+	}
+	if !bytes.Equal(maybe.Hash, pubKeyHash) {
+		t.Errorf("decoded hash mismatch: got %x want %x", maybe.Hash, pubKeyHash)
 	}
 }
 
@@ -152,6 +162,59 @@ func TestIndigoAccumulatedFeesLovelaces(t *testing.T) {
 	}
 }
 
+func TestIndigoAccumulatedFeesClearsInactiveFields(t *testing.T) {
+	feesConstr := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
+		int64(1000000),
+		int64(2000000),
+	})
+	feesData, err := cbor.Encode(&feesConstr)
+	if err != nil {
+		t.Fatalf("failed to encode fees: %v", err)
+	}
+
+	interestConstr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		int64(1704067200000),
+		int64(500000),
+	})
+	interestData, err := cbor.Encode(&interestConstr)
+	if err != nil {
+		t.Fatalf("failed to encode interest: %v", err)
+	}
+
+	var fees IndigoAccumulatedFees
+	if _, err := cbor.Decode(feesData, &fees); err != nil {
+		t.Fatalf("failed to decode fees: %v", err)
+	}
+	if _, err := cbor.Decode(interestData, &fees); err != nil {
+		t.Fatalf("failed to decode interest: %v", err)
+	}
+	if fees.Treasury != 0 {
+		t.Errorf("expected inactive Treasury to be cleared, got %d", fees.Treasury)
+	}
+	if fees.IndyStakers != 0 {
+		t.Errorf(
+			"expected inactive IndyStakers to be cleared, got %d",
+			fees.IndyStakers,
+		)
+	}
+
+	if _, err := cbor.Decode(feesData, &fees); err != nil {
+		t.Fatalf("failed to decode fees again: %v", err)
+	}
+	if fees.LastUpdated != 0 {
+		t.Errorf(
+			"expected inactive LastUpdated to be cleared, got %d",
+			fees.LastUpdated,
+		)
+	}
+	if fees.IAssetAmount != 0 {
+		t.Errorf(
+			"expected inactive IAssetAmount to be cleared, got %d",
+			fees.IAssetAmount,
+		)
+	}
+}
+
 func TestIndigoCDPContentDatumFull(t *testing.T) {
 	// Build a complete CDP content datum following the CDDL:
 	// CDPContent = #6.121([#6.121([ owner, iAsset, mintedAmount, accumulatedFees ])])
@@ -230,6 +293,50 @@ func TestIndigoCDPContentDatumFull(t *testing.T) {
 	}
 }
 
+func TestIndigoCDPContentDatumClearsInnerOnNonMatch(t *testing.T) {
+	pubKeyHash := make([]byte, 28)
+	owner := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		pubKeyHash,
+	})
+	accumulatedFees := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		int64(1704067200000),
+		int64(50000),
+	})
+	inner := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		owner,
+		[]byte("iUSD"),
+		int64(100000000),
+		accumulatedFees,
+	})
+	outer := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		inner,
+	})
+	cdpData, err := cbor.Encode(&outer)
+	if err != nil {
+		t.Fatalf("failed to encode CDP datum: %v", err)
+	}
+
+	var datum IndigoCDPContentDatum
+	if _, err := cbor.Decode(cdpData, &datum); err != nil {
+		t.Fatalf("failed to decode CDP datum: %v", err)
+	}
+	if datum.Inner == nil {
+		t.Fatal("expected Inner to be populated")
+	}
+
+	nonMatch := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	nonMatchData, err := cbor.Encode(&nonMatch)
+	if err != nil {
+		t.Fatalf("failed to encode non-matching datum: %v", err)
+	}
+	if _, err := cbor.Decode(nonMatchData, &datum); err != nil {
+		t.Fatalf("failed to decode non-matching datum: %v", err)
+	}
+	if datum.Inner != nil {
+		t.Fatal("expected Inner to be cleared for non-matching datum")
+	}
+}
+
 func TestIndigoParserParseCDPDatum(t *testing.T) {
 	// Build a complete CDP datum
 	pubKeyHash := make([]byte, 28)
@@ -265,12 +372,15 @@ func TestIndigoParserParseCDPDatum(t *testing.T) {
 	}
 
 	parser := NewIndigoParser()
+	txHash := "abc123def456789012345678901234567890"
+	txIndex := uint32(3)
+	timestamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	state, err := parser.ParseCDPDatum(
 		cborData,
-		"abc123def456789012345678901234567890",
-		0,
+		txHash,
+		txIndex,
 		12345,
-		time.Now(),
+		timestamp,
 	)
 	if err != nil {
 		t.Fatalf("failed to parse: %v", err)
@@ -278,6 +388,19 @@ func TestIndigoParserParseCDPDatum(t *testing.T) {
 
 	if state == nil {
 		t.Fatal("expected non-nil state")
+	}
+	expectedCDPId := "indigo_cdp_abc123def456789012345678901234567890#3"
+	if state.CDPId != expectedCDPId {
+		t.Errorf("expected CDPId %s, got %s", expectedCDPId, state.CDPId)
+	}
+	if state.TxHash != txHash {
+		t.Errorf("expected TxHash %s, got %s", txHash, state.TxHash)
+	}
+	if state.TxIndex != txIndex {
+		t.Errorf("expected TxIndex %d, got %d", txIndex, state.TxIndex)
+	}
+	if !state.Timestamp.Equal(timestamp) {
+		t.Errorf("expected Timestamp %s, got %s", timestamp, state.Timestamp)
 	}
 	if state.MintedAmount != 50000000 {
 		t.Errorf("expected mintedAmount 50000000, got %d", state.MintedAmount)
@@ -299,6 +422,9 @@ func TestIndigoParserParseCDPDatum(t *testing.T) {
 	}
 	if state.Treasury != 1000000 {
 		t.Errorf("expected Treasury 1000000, got %d", state.Treasury)
+	}
+	if state.IndyStakers != 500000 {
+		t.Errorf("expected IndyStakers 500000, got %d", state.IndyStakers)
 	}
 }
 
@@ -347,6 +473,58 @@ func TestIndigoParserNothingOwner(t *testing.T) {
 	}
 	if state.HasOwner {
 		t.Error("expected HasOwner to be false")
+	}
+	if state.Owner != "" {
+		t.Errorf("expected empty owner, got %s", state.Owner)
+	}
+}
+
+func TestIndigoParserEmptyOwnerHashHasNoOwner(t *testing.T) {
+	owner := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		[]byte{},
+	})
+
+	iAsset := []byte("iETH")
+	mintedAmount := int64(25000000)
+
+	accumulatedFees := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		int64(1704067200000),
+		int64(10000),
+	})
+
+	inner := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		owner,
+		iAsset,
+		mintedAmount,
+		accumulatedFees,
+	})
+
+	outer := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		inner,
+	})
+
+	cborData, err := cbor.Encode(&outer)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	parser := NewIndigoParser()
+	state, err := parser.ParseCDPDatum(
+		cborData,
+		"def456789012345678901234567890abcdef",
+		1,
+		54321,
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("failed to parse: %v", err)
+	}
+
+	if state == nil {
+		t.Fatal("expected non-nil state")
+	}
+	if state.HasOwner {
+		t.Error("expected HasOwner to be false for empty owner hash")
 	}
 	if state.Owner != "" {
 		t.Errorf("expected empty owner, got %s", state.Owner)

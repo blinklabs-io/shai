@@ -123,36 +123,16 @@ func main() {
 				)
 				os.Exit(1)
 			}
-			logger.Info(
-				"initializing profile",
-				"name",
-				profile.Name,
-				"type",
-				"Oracle",
-				"protocol",
-				oracleCfg.Protocol,
-			)
-			parser := getOracleParser(oracleCfg.Protocol)
-			if parser == nil {
-				logger.Error(
-					"unknown oracle protocol",
-					"protocol",
+			oracles = append(
+				oracles,
+				startOracleProfile(
+					idx,
+					&profile,
+					getOracleParser(oracleCfg.Protocol),
+					"Oracle",
 					oracleCfg.Protocol,
-				)
-				os.Exit(1)
-			}
-			o := oracle.New(idx, &profile, parser)
-			if err := o.Start(); err != nil {
-				logger.Error(
-					"failed to start oracle",
-					"error",
-					err,
-					"profile",
-					profile.Name,
-				)
-				os.Exit(1)
-			}
-			oracles = append(oracles, o)
+				),
+			)
 		case config.ProfileTypeSynthetics:
 			synthCfg, ok := profile.Config.(config.SyntheticsProfileConfig)
 			if !ok {
@@ -163,36 +143,16 @@ func main() {
 				)
 				os.Exit(1)
 			}
-			logger.Info(
-				"initializing profile",
-				"name",
-				profile.Name,
-				"type",
-				"Synthetics",
-				"protocol",
-				synthCfg.Protocol,
-			)
-			parser := getSyntheticsParser(synthCfg.Protocol)
-			if parser == nil {
-				logger.Error(
-					"unknown synthetics protocol",
-					"protocol",
+			oracles = append(
+				oracles,
+				startOracleProfile(
+					idx,
+					&profile,
+					getSyntheticsParser(synthCfg.Protocol),
+					"Synthetics",
 					synthCfg.Protocol,
-				)
-				os.Exit(1)
-			}
-			o := oracle.New(idx, &profile, parser)
-			if err := o.Start(); err != nil {
-				logger.Error(
-					"failed to start synthetics oracle",
-					"error",
-					err,
-					"profile",
-					profile.Name,
-				)
-				os.Exit(1)
-			}
-			oracles = append(oracles, o)
+				),
+			)
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -239,6 +199,49 @@ func main() {
 
 	// Wait forever
 	select {}
+}
+
+func startOracleProfile(
+	idx *indexer.Indexer,
+	profile *config.Profile,
+	parser oracle.PoolParser,
+	profileType string,
+	protocol string,
+) *oracle.Oracle {
+	logger := logging.GetLogger()
+	logger.Info(
+		"initializing profile",
+		"name",
+		profile.Name,
+		"type",
+		profileType,
+		"protocol",
+		protocol,
+	)
+	if parser == nil {
+		logger.Error(
+			"unknown oracle profile protocol",
+			"type",
+			profileType,
+			"protocol",
+			protocol,
+		)
+		os.Exit(1)
+	}
+	o := oracle.New(idx, profile, parser)
+	if err := o.Start(); err != nil {
+		logger.Error(
+			"failed to start oracle profile",
+			"error",
+			err,
+			"profile",
+			profile.Name,
+			"type",
+			profileType,
+		)
+		os.Exit(1)
+	}
+	return o
 }
 
 // getOracleParser returns the appropriate parser for an oracle protocol
