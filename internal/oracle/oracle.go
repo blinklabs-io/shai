@@ -271,6 +271,9 @@ func (o *Oracle) handleTransaction(
 			// Not a valid pool datum for this protocol
 			continue
 		}
+		if state == nil {
+			continue
+		}
 
 		// Set metadata
 		state.Network = cfg.Network
