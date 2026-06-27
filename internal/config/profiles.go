@@ -1,6 +1,22 @@
 package config
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/blinklabs-io/shai/dex"
+)
+
+// poolAddrs builds the monitored-address list for a protocol from the canonical
+// locator registry in the public dex package, so the service config and the
+// library share a single source of truth for pool script addresses.
+func poolAddrs(protocol string) []ProfileConfigAddress {
+	addrs := dex.PoolAddresses(protocol)
+	out := make([]ProfileConfigAddress, 0, len(addrs))
+	for _, a := range addrs {
+		out = append(out, ProfileConfigAddress{Address: a})
+	}
+	return out
+}
 
 type ProfileType int
 
@@ -108,14 +124,9 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 51340496, // Minswap V1 deployment (March 2022)
 			InterceptHash: "ba74da9715acfd2a01c88b52e41b574621c65c91e8eda35c9c3cd8e8c5f64d4c",
 			Config: OracleProfileConfig{
-				Protocol: "minswap-v1",
-				PoolAddresses: []ProfileConfigAddress{
-					// Minswap V1 pool script address (mainnet)
-					{
-						Address: "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxzfgf2ypu62xjxel6aqdmr333p0ds377t4phv8098c8s8fmqffc3l3",
-					},
-				},
-				InputRefs: []ProfileConfigInputRef{},
+				Protocol:      "minswap-v1",
+				PoolAddresses: poolAddrs("minswap-v1"),
+				InputRefs:     []ProfileConfigInputRef{},
 			},
 		},
 		"minswap-v2": {
@@ -124,13 +135,8 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 72316896, // Minswap V2 deployment
 			InterceptHash: "3e86a51cdabb354e5fe4b2511f91c4e8e323af5e50ef5eb2d5f3d5a7dab1f3b1",
 			Config: OracleProfileConfig{
-				Protocol: "minswap-v2",
-				PoolAddresses: []ProfileConfigAddress{
-					// Minswap V2 pool script address (mainnet)
-					{
-						Address: "addr1z8snz7c4974vzdpxu65ruphl3zjdvtxw8strf2c2tmqnxz2j2c79gy9l76sdg0xwhd7r0c0kna0tycz4y5s6mlenh8pq0xmsha",
-					},
-				},
+				Protocol:      "minswap-v2",
+				PoolAddresses: poolAddrs("minswap-v2"),
 				InputRefs: []ProfileConfigInputRef{
 					// Pool reference script
 					{
@@ -146,14 +152,9 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 51337110, // First block at/after the V1 launch slot 51337095
 			InterceptHash: "d1423d7eb6fc87d7ad1a54e44dd8cb70483370877346f3178dd507d7609046c8",
 			Config: OracleProfileConfig{
-				Protocol: "sundaeswap-v1",
-				PoolAddresses: []ProfileConfigAddress{
-					// SundaeSwap V1 pool script address (mainnet)
-					{
-						Address: "addr1wyx22z2s4kasd3w976pnjf9xdty88epjqfvgkmfnfpsdacqe7utc8",
-					},
-				},
-				InputRefs: []ProfileConfigInputRef{},
+				Protocol:      "sundaeswap-v1",
+				PoolAddresses: poolAddrs("sundaeswap-v1"),
+				InputRefs:     []ProfileConfigInputRef{},
 			},
 		},
 		"sundaeswap-v3": {
@@ -162,13 +163,9 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 123703740,
 			InterceptHash: "c43d1bb5308d1ad7baa11120291ed2ba620784ebd96ae02a63c5511b3346581a",
 			Config: OracleProfileConfig{
-				Protocol: "sundaeswap-v3",
-				PoolAddresses: []ProfileConfigAddress{
-					{
-						Address: "addr1x8srqftqemf0mjlukfszd97ljuxdp44r372txfcr75wrz26rnxqnmtv3hdu2t6chcfhl2zzjh36a87nmd6dwsu3jenqsslnz7e",
-					},
-				},
-				InputRefs: []ProfileConfigInputRef{
+				Protocol:      "sundaeswap-v3",
+				PoolAddresses: poolAddrs("sundaeswap-v3"),
+				InputRefs:     []ProfileConfigInputRef{
 					// TODO: Add reference inputs if needed
 				},
 			},
@@ -179,13 +176,8 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 98823654,                                                           // Splash deployment (rebrand of Spectrum)
 			InterceptHash: "4666f26d15f4802c0d4c81b841583ea6d90d623d168c77f1e45200eda1f82638", // Splash deployment hash
 			Config: OracleProfileConfig{
-				Protocol: "splash-v1",
-				PoolAddresses: []ProfileConfigAddress{
-					// Splash pool script address (same as Spectrum PoolV2)
-					{
-						Address: "addr1w94ec3t25egvhqy2n265xfhq882jxhkknurfe9ny4rl9k6g03d4zz",
-					},
-				},
+				Protocol:      "splash-v1",
+				PoolAddresses: poolAddrs("splash-v1"),
 				InputRefs: []ProfileConfigInputRef{
 					// Pool reference script (same as Spectrum PoolV2)
 					{
@@ -201,14 +193,9 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 61318994, // WingRiders V2 launch
 			InterceptHash: "c1c2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6c1c2",
 			Config: OracleProfileConfig{
-				Protocol: "wingriders-v2",
-				PoolAddresses: []ProfileConfigAddress{
-					// WingRiders V2 pool script address (mainnet)
-					{
-						Address: "addr1w8nvjzjeydcn4atcd93aac8allvrpjn7pjr2qsweukpnayghhwcpj",
-					},
-				},
-				InputRefs: []ProfileConfigInputRef{},
+				Protocol:      "wingriders-v2",
+				PoolAddresses: poolAddrs("wingriders-v2"),
+				InputRefs:     []ProfileConfigInputRef{},
 			},
 		},
 		"vyfi": {
@@ -217,14 +204,9 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 92346471, // VyFi launch (May 15, 2023)
 			InterceptHash: "b0ce8bc8fbdcb803287e2b67d8eca865ef93be7e3d2473bfa81d89a8d58b7ee3",
 			Config: OracleProfileConfig{
-				Protocol: "vyfi",
-				PoolAddresses: []ProfileConfigAddress{
-					// VyFi pool script address (mainnet)
-					{
-						Address: "addr1z9vgl40qezca5s8ajz6wnpuwevt98l3jqx2ce5nlu8h8nnw60wckas4haxwwclas0g39cc8cvt2r8yalrfa9e8vxx92qsss9sx",
-					},
-				},
-				InputRefs: []ProfileConfigInputRef{},
+				Protocol:      "vyfi",
+				PoolAddresses: poolAddrs("vyfi"),
+				InputRefs:     []ProfileConfigInputRef{},
 			},
 		},
 		"cswap": {
@@ -234,14 +216,9 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 149650740,
 			InterceptHash: "6027a8e3af4cd1cd2b3de0a1b583882573953c200c0ccf120119a04d1def5b49",
 			Config: OracleProfileConfig{
-				Protocol: "cswap",
-				PoolAddresses: []ProfileConfigAddress{
-					// CSWAP DEX pool script address (mainnet)
-					{
-						Address: "addr1z8ke0c9p89rjfwmuh98jpt8ky74uy5mffjft3zlcld9h7ml3lmln3mwk0y3zsh3gs3dzqlwa9rjzrxawkwm4udw9axhs6fuu6e",
-					},
-				},
-				InputRefs: []ProfileConfigInputRef{},
+				Protocol:      "cswap",
+				PoolAddresses: poolAddrs("cswap"),
+				InputRefs:     []ProfileConfigInputRef{},
 			},
 		},
 		"spectrum": {

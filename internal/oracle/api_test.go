@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/common"
 	"github.com/gorilla/websocket"
 )
 
