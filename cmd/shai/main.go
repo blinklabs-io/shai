@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/blinklabs-io/shai/internal/geniusyield"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/node"
@@ -112,6 +113,29 @@ func main() {
 				n,
 				profile.Name,
 				profile.Config.(config.SpectrumProfileConfig),
+			)
+		case config.ProfileTypeGeniusYield:
+			gyCfg, ok := profile.Config.(config.GeniusYieldProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid GeniusYield profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			logger.Info(
+				"initializing profile",
+				"name",
+				profile.Name,
+				"type",
+				"GeniusYield",
+			)
+			_ = geniusyield.New(
+				idx,
+				n,
+				profile.Name,
+				gyCfg,
 			)
 		case config.ProfileTypeOracle:
 			oracleCfg, ok := profile.Config.(config.OracleProfileConfig)

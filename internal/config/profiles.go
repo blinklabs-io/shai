@@ -8,6 +8,7 @@ const (
 	ProfileTypeNone ProfileType = iota
 	ProfileTypeSpectrum
 	ProfileTypeOracle
+	ProfileTypeGeniusYield
 )
 
 type Profile struct {
@@ -46,6 +47,23 @@ type OracleProfileConfig struct {
 	Protocol      string                  // Protocol name (e.g., "minswap", "sundaeswap")
 	PoolAddresses []ProfileConfigAddress  // Pool addresses to monitor
 	InputRefs     []ProfileConfigInputRef // Reference inputs if needed
+}
+
+// GeniusYieldProfileConfig contains configuration for Genius Yield order-book
+// DEX batching.
+type GeniusYieldProfileConfig struct {
+	Protocol           string
+	OrderScriptHash    string
+	OrderNFTPolicy     string
+	OrderAddresses     []ProfileConfigAddress
+	InputRefs          []ProfileConfigInputRef
+	MakerFeeFlat       uint64
+	MakerFeePercent    float64
+	MakerFeePercentMax uint64
+	TakerFee           uint64
+	MatcherReward      uint64
+	MaxSlippageBps     uint64
+	EnableMultiHop     bool
 }
 
 func GetProfiles() []Profile {
@@ -242,6 +260,30 @@ var Profiles = map[string]map[string]Profile{
 					},
 				},
 				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
+		"geniusyield": {
+			Name:          "geniusyield",
+			Type:          ProfileTypeGeniusYield,
+			InterceptSlot: 108000000,
+			InterceptHash: "7d5e5e5e8f8f8f8f7d7d7d7d6c6c6c6c5b5b5b5b4a4a4a4a39393939282828",
+			Config: GeniusYieldProfileConfig{
+				Protocol:        "geniusyield",
+				OrderScriptHash: "fd55cfc86cb4c2c38eb2d89e43d1971c2c84f0e3b2c1e0f9e8d7c6b5",
+				OrderNFTPolicy:  "92e8c5e5b4a3f2e1d0c9b8a7968574635241302f1e0d0c0b0a",
+				OrderAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1w8lj5fvnqvx8rtp8k6e6kcp7g76twqv2ad2hg7avfqtj7qgc5rquk",
+					},
+				},
+				InputRefs:          []ProfileConfigInputRef{},
+				MakerFeeFlat:       1000000,
+				MakerFeePercent:    0.003,
+				MakerFeePercentMax: 10000000,
+				TakerFee:           500000,
+				MatcherReward:      1500000,
+				MaxSlippageBps:     500,
+				EnableMultiHop:     true,
 			},
 		},
 		"spectrum": {
