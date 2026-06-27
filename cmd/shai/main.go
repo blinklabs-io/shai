@@ -123,36 +123,36 @@ func main() {
 				)
 				os.Exit(1)
 			}
-			logger.Info(
-				"initializing profile",
-				"name",
-				profile.Name,
-				"type",
-				"Oracle",
-				"protocol",
-				oracleCfg.Protocol,
-			)
-			parser := getOracleParser(oracleCfg.Protocol)
-			if parser == nil {
-				logger.Error(
-					"unknown oracle protocol",
-					"protocol",
+			oracles = append(
+				oracles,
+				startOracleProfile(
+					idx,
+					&profile,
+					getOracleParser(oracleCfg.Protocol),
+					"Oracle",
 					oracleCfg.Protocol,
-				)
-				os.Exit(1)
-			}
-			o := oracle.New(idx, &profile, parser)
-			if err := o.Start(); err != nil {
+				),
+			)
+		case config.ProfileTypeSynthetics:
+			synthCfg, ok := profile.Config.(config.SyntheticsProfileConfig)
+			if !ok {
 				logger.Error(
-					"failed to start oracle",
-					"error",
-					err,
+					"invalid synthetics profile config",
 					"profile",
 					profile.Name,
 				)
 				os.Exit(1)
 			}
-			oracles = append(oracles, o)
+			oracles = append(
+				oracles,
+				startOracleProfile(
+					idx,
+					&profile,
+					getSyntheticsParser(synthCfg.Protocol),
+					"Synthetics",
+					synthCfg.Protocol,
+				),
+			)
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -201,6 +201,49 @@ func main() {
 	select {}
 }
 
+func startOracleProfile(
+	idx *indexer.Indexer,
+	profile *config.Profile,
+	parser oracle.PoolParser,
+	profileType string,
+	protocol string,
+) *oracle.Oracle {
+	logger := logging.GetLogger()
+	logger.Info(
+		"initializing profile",
+		"name",
+		profile.Name,
+		"type",
+		profileType,
+		"protocol",
+		protocol,
+	)
+	if parser == nil {
+		logger.Error(
+			"unknown oracle profile protocol",
+			"type",
+			profileType,
+			"protocol",
+			protocol,
+		)
+		os.Exit(1)
+	}
+	o := oracle.New(idx, profile, parser)
+	if err := o.Start(); err != nil {
+		logger.Error(
+			"failed to start oracle profile",
+			"error",
+			err,
+			"profile",
+			profile.Name,
+			"type",
+			profileType,
+		)
+		os.Exit(1)
+	}
+	return o
+}
+
 // getOracleParser returns the appropriate parser for an oracle protocol
 func getOracleParser(protocol string) oracle.PoolParser {
 	switch protocol {
@@ -220,6 +263,16 @@ func getOracleParser(protocol string) oracle.PoolParser {
 		return oracle.NewVyFiParser()
 	case "cswap":
 		return oracle.NewCSwapParser()
+	default:
+		return nil
+	}
+}
+
+// getSyntheticsParser returns the appropriate parser for a synthetics protocol.
+func getSyntheticsParser(protocol string) oracle.PoolParser {
+	switch protocol {
+	case "indigo":
+		return oracle.NewIndigoParser()
 	default:
 		return nil
 	}

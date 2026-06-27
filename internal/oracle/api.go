@@ -175,6 +175,8 @@ func normalizeHostPort(hostPort, scheme string) string {
 func (a *OracleAPI) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/pools", a.HandleListPools)
 	mux.HandleFunc("GET /api/v1/pools/{poolId}", a.HandleGetPool)
+	mux.HandleFunc("GET /api/v1/cdps", a.HandleListCDPs)
+	mux.HandleFunc("GET /api/v1/cdps/{cdpId}", a.HandleGetCDP)
 	mux.HandleFunc("GET /api/v1/prices", a.HandleListPrices)
 	mux.HandleFunc("/ws/prices", a.HandlePriceStream)
 	a.startBroadcastPriceUpdates()
@@ -241,6 +243,46 @@ func (a *OracleAPI) HandleGetPool(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pool)
+}
+
+// HandleListCDPs returns all tracked CDPs.
+func (a *OracleAPI) HandleListCDPs(w http.ResponseWriter, r *http.Request) {
+	cdps := a.getAllCDPs()
+
+	protocol := r.URL.Query().Get("protocol")
+	if protocol != "" {
+		filtered := make([]*CDPState, 0)
+		for _, cdp := range cdps {
+			if cdp.Protocol == protocol {
+				filtered = append(filtered, cdp)
+			}
+		}
+		cdps = filtered
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"cdps":  cdps,
+		"count": len(cdps),
+	})
+}
+
+// HandleGetCDP returns a specific CDP by ID.
+func (a *OracleAPI) HandleGetCDP(w http.ResponseWriter, r *http.Request) {
+	cdpId := r.PathValue("cdpId")
+	if cdpId == "" {
+		http.Error(w, "CDP ID required", http.StatusBadRequest)
+		return
+	}
+
+	cdp, ok := a.getCDPState(cdpId)
+	if !ok {
+		http.Error(w, "CDP not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(cdp)
 }
 
 // HandleListPrices returns current prices for all pools
@@ -436,10 +478,27 @@ func (a *OracleAPI) getAllPools() []*PoolState {
 	return merged
 }
 
+func (a *OracleAPI) getAllCDPs() []*CDPState {
+	var merged []*CDPState
+	for _, o := range a.oracles {
+		merged = append(merged, o.GetAllCDPs()...)
+	}
+	return merged
+}
+
 func (a *OracleAPI) getPoolState(poolId string) (*PoolState, bool) {
 	for _, o := range a.oracles {
 		if pool, ok := o.GetPoolState(poolId); ok {
 			return pool, true
+		}
+	}
+	return nil, false
+}
+
+func (a *OracleAPI) getCDPState(cdpId string) (*CDPState, bool) {
+	for _, o := range a.oracles {
+		if cdp, ok := o.GetCDPState(cdpId); ok {
+			return cdp, true
 		}
 	}
 	return nil, false
