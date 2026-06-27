@@ -31,20 +31,23 @@ import (
 
 // PoolState represents the current state of a liquidity pool
 type PoolState struct {
-	PoolId      string             `json:"poolId"`
-	Network     string             `json:"network"`
-	Protocol    string             `json:"protocol"`
-	AssetX      common.AssetAmount `json:"assetX"`
-	AssetY      common.AssetAmount `json:"assetY"`
-	FeeNum      uint64             `json:"feeNum"`
-	FeeDenom    uint64             `json:"feeDenom"`
-	Slot        uint64             `json:"slot"`
-	BlockHash   string             `json:"blockHash"`
-	TxHash      string             `json:"txHash"`
-	TxIndex     uint32             `json:"txIndex"`
-	Timestamp   time.Time          `json:"timestamp"`
-	UpdatedAt   time.Time          `json:"updatedAt"`
-	FromMempool bool               `json:"fromMempool"` // True if state is from mempool (unconfirmed)
+	PoolId   string             `json:"poolId"`
+	Network  string             `json:"network"`
+	Protocol string             `json:"protocol"`
+	AssetX   common.AssetAmount `json:"assetX"`
+	AssetY   common.AssetAmount `json:"assetY"`
+	// FeeNum/FeeDenom is the post-fee input multiplier applied by Quote.
+	// For a 0.3% fee, parsers must normalize protocol-native fees to
+	// 997/1000 or 9970/10000 rather than storing the fee taken.
+	FeeNum      uint64    `json:"feeNum"`
+	FeeDenom    uint64    `json:"feeDenom"`
+	Slot        uint64    `json:"slot"`
+	BlockHash   string    `json:"blockHash"`
+	TxHash      string    `json:"txHash"`
+	TxIndex     uint32    `json:"txIndex"`
+	Timestamp   time.Time `json:"timestamp"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+	FromMempool bool      `json:"fromMempool"` // True if state is from mempool (unconfirmed)
 }
 
 // ClonePoolState returns a deep copy of the given pool state, duplicating the

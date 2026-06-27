@@ -25,7 +25,10 @@ import (
 // Protocol constants
 const (
 	ProtocolName = "splash"
-	FeeDenom     = 10000
+	// FeeDenom matches the Splash/Spectrum AMM validator, which hard-codes a
+	// fee denominator of 1000 (feeDen in the on-chain contract). The pool
+	// datum's feeNum is the post-fee multiplier, e.g. 997 => 0.3% fee.
+	FeeDenom = 1000
 )
 
 // PoolDatum represents the Splash pool datum structure
