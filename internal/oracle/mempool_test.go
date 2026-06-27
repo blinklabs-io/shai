@@ -18,7 +18,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/common"
 )
 
 func TestMempoolPoolState_AddPendingTx(t *testing.T) {
