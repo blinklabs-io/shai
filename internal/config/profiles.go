@@ -8,6 +8,7 @@ const (
 	ProfileTypeNone ProfileType = iota
 	ProfileTypeSpectrum
 	ProfileTypeOracle
+	ProfileTypeSynthetics
 )
 
 type Profile struct {
@@ -46,6 +47,14 @@ type OracleProfileConfig struct {
 	Protocol      string                  // Protocol name (e.g., "minswap", "sundaeswap")
 	PoolAddresses []ProfileConfigAddress  // Pool addresses to monitor
 	InputRefs     []ProfileConfigInputRef // Reference inputs if needed
+}
+
+// SyntheticsProfileConfig contains configuration for synthetics protocols.
+type SyntheticsProfileConfig struct {
+	Protocol        string                 // Protocol name (e.g., "butane")
+	CDPAddresses    []ProfileConfigAddress // CDP contract addresses to monitor
+	OracleAddresses []ProfileConfigAddress // Oracle feed addresses
+	PriceFeedPolicy string                 // Policy ID for price feed tokens
 }
 
 func GetProfiles() []Profile {
@@ -242,6 +251,18 @@ var Profiles = map[string]map[string]Profile{
 					},
 				},
 				InputRefs: []ProfileConfigInputRef{},
+			},
+		},
+		"butane": {
+			Name:          "butane",
+			Type:          ProfileTypeSynthetics,
+			InterceptSlot: 145000000,
+			InterceptHash: "0000000000000000000000000000000000000000000000000000000000000000",
+			Config: SyntheticsProfileConfig{
+				Protocol:        "butane",
+				CDPAddresses:    []ProfileConfigAddress{},
+				OracleAddresses: []ProfileConfigAddress{},
+				PriceFeedPolicy: "b41d06ebccb6278d3ee7b4cd2faa321537156c9fd9c8dd40e95f91ea",
 			},
 		},
 		"spectrum": {
