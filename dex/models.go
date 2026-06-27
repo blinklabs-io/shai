@@ -126,6 +126,13 @@ func (p *PoolState) Quote(
 	if p.FeeDenom == 0 {
 		return 0, 0, fmt.Errorf("invalid pool fee: zero denominator")
 	}
+	if p.FeeNum > p.FeeDenom {
+		return 0, 0, fmt.Errorf(
+			"invalid pool fee: numerator %d exceeds denominator %d",
+			p.FeeNum,
+			p.FeeDenom,
+		)
+	}
 
 	matchesX := bytes.Equal(p.AssetX.Class.PolicyId, assetInPolicy) &&
 		bytes.Equal(p.AssetX.Class.Name, assetInName)
@@ -193,7 +200,7 @@ func (p *PoolState) Quote(
 	// Execution price = amountOut / amountIn.
 	// Price impact = (spot - execution) / spot * 100.
 	spot := float64(reserveOut) / float64(reserveIn)
-	if amountOut > 0 && spot > 0 {
+	if spot > 0 {
 		execution := float64(amountOut) / float64(amountIn)
 		priceImpactPct = (spot - execution) / spot * 100
 	}

@@ -20,7 +20,7 @@ import (
 	"github.com/blinklabs-io/shai/dex/sundaeswap"
 )
 
-// SundaeSwapParser wraps sundaeswap.Parser to implement oracle.PoolParser
+// SundaeSwapParser wraps sundaeswap.Parser to implement PoolParser.
 type SundaeSwapParser struct {
 	parser *sundaeswap.Parser
 }

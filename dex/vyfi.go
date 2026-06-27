@@ -82,8 +82,8 @@ func (p *VyFiParser) ParsePoolDatum(
 		return nil, err
 	}
 
-	// Convert vyfi.PoolState to oracle.PoolState
-	// Note: Shares field is omitted because oracle.PoolState does not include this field
+	// Convert vyfi.PoolState to PoolState.
+	// Note: Shares field is omitted because PoolState does not include this field.
 	return &PoolState{
 		PoolId:    state.PoolId,
 		Protocol:  state.Protocol,

@@ -20,7 +20,7 @@ import (
 	"github.com/blinklabs-io/shai/dex/wingriders"
 )
 
-// WingRidersParser wraps wingriders.Parser to implement oracle.PoolParser
+// WingRidersParser wraps wingriders.Parser to implement PoolParser.
 type WingRidersParser struct {
 	parser *wingriders.Parser
 }
