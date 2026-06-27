@@ -227,57 +227,14 @@ func (gy *GeniusYield) buildMatchTx(
 			},
 		)
 
-		// Build output for this order
-		// If partial fill, create updated order UTxO
-		// If complete fill, send assets to order owner
-		if !fillOutput.isComplete {
-			// Partial fill - update the order UTxO
-			outputDatum, outputLovelace, outputUnits, err := buildPartialFillOutput(
-				orderState,
-				fillOutput,
-				utxo,
-			)
-			if err != nil {
-				return nil, fmt.Errorf(
-					"failed to build partial fill output for order %s: %w",
-					orderState.OrderId, err,
-				)
-			}
-
-			// Get order address from original UTxO
-			orderAddr := utxo.Output.GetAddress()
-
-			apollob = apollob.PayToContract(
-				orderAddr,
-				outputDatum,
-				int(outputLovelace),
-				true,
-				outputUnits...,
-			)
-		} else {
-			// Complete fill - send received assets to order owner
-			ownerAddr, err := buildOwnerAddress(orderState)
-			if err != nil {
-				logger.Warn(
-					"failed to build owner address, using order address",
-					"orderId", orderState.OrderId,
-					"error", err,
-				)
-				// Fall back to order address
-				ownerAddr = utxo.Output.GetAddress()
-			}
-
-			// Calculate assets to send to owner
-			ownerLovelace, ownerUnits := calculateOwnerPayment(
-				fillOutput,
-				orderState,
-			)
-
-			apollob = apollob.PayToAddress(
-				ownerAddr,
-				int(ownerLovelace),
-				ownerUnits...,
-			)
+		apollob, err = addOrderFillOutput(
+			apollob,
+			orderState,
+			fillOutput,
+			utxo,
+		)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -399,6 +356,52 @@ type orderFillOutput struct {
 	isComplete   bool   // Whether this completely fills the order
 	inputAmount  uint64 // Amount consumed from order
 	outputAmount uint64 // Amount received by order owner
+}
+
+func addOrderFillOutput(
+	apollob *apollo.Apollo,
+	orderState *OrderState,
+	fillOutput orderFillOutput,
+	utxo UTxO.UTxO,
+) (*apollo.Apollo, error) {
+	// If partial fill, create updated order UTxO.
+	// If complete fill, send assets to order owner.
+	if !fillOutput.isComplete {
+		outputDatum, outputLovelace, outputUnits, err := buildPartialFillOutput(
+			orderState,
+			fillOutput,
+			utxo,
+		)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"failed to build partial fill output for order %s: %w",
+				orderState.OrderId, err,
+			)
+		}
+
+		return apollob.PayToContract(
+			utxo.Output.GetAddress(),
+			outputDatum,
+			int(outputLovelace),
+			true,
+			outputUnits...,
+		), nil
+	}
+
+	ownerAddr, err := buildOwnerAddress(orderState)
+	if err != nil {
+		return nil, fmt.Errorf(
+			"failed to build owner address for order %s: %w",
+			orderState.OrderId, err,
+		)
+	}
+
+	ownerLovelace, ownerUnits := calculateOwnerPayment(fillOutput, orderState)
+	return apollob.PayToAddress(
+		ownerAddr,
+		int(ownerLovelace),
+		ownerUnits...,
+	), nil
 }
 
 // buildRedeemerPlutusData constructs the Plutus redeemer data

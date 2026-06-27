@@ -17,9 +17,11 @@ package geniusyield
 import (
 	"bytes"
 	"encoding/hex"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Salvionied/apollo"
 	serAddress "github.com/Salvionied/apollo/serialization/Address"
 	"github.com/Salvionied/apollo/serialization/TransactionInput"
 	"github.com/Salvionied/apollo/serialization/TransactionOutput"
@@ -842,6 +844,44 @@ func TestBuildOwnerAddressUsesOwnerAddr(t *testing.T) {
 	}
 	if !bytes.Equal(addr.StakingPart, stakingHash) {
 		t.Fatal("staking credential was not preserved")
+	}
+}
+
+func TestAddOrderFillOutputCompleteRejectsInvalidOwnerAddress(t *testing.T) {
+	cc := apollo.NewEmptyBackend()
+	apollob := apollo.New(&cc)
+	order := &OrderState{
+		OrderId: "order-bad-owner",
+		Owner:   hex.EncodeToString(bytes.Repeat([]byte{0xaa}, 28)),
+		OwnerAddr: OrderAddress{
+			PaymentCredential: OrderCredential{
+				Type: 0,
+				Hash: []byte{0x01},
+			},
+		},
+	}
+	fill := orderFillOutput{
+		orderId:      order.OrderId,
+		isComplete:   true,
+		outputAmount: 1,
+	}
+
+	_, err := addOrderFillOutput(apollob, order, fill, UTxO.UTxO{})
+	if err == nil {
+		t.Fatal("expected invalid owner address error")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(
+		errMsg,
+		"failed to build owner address for order order-bad-owner",
+	) {
+		t.Fatalf("expected contextual owner address error, got %q", errMsg)
+	}
+	if !strings.Contains(
+		errMsg,
+		"invalid owner payment credential length",
+	) {
+		t.Fatalf("expected credential validation error, got %q", errMsg)
 	}
 }
 
