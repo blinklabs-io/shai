@@ -444,26 +444,14 @@ func (sor *SmartOrderRouter) FindRoute(
 	}
 
 	if directErr != nil {
-		if multiHopRoute == nil {
-			return nil, fmt.Errorf("multi-hop route unavailable")
-		}
 		return multiHopRoute, nil
 	}
 
 	if multiHopErr != nil {
-		if directRoute == nil {
-			return nil, fmt.Errorf("direct route unavailable")
-		}
 		return directRoute, nil
 	}
 
 	// Both routes found - compare output amounts
-	if directRoute == nil {
-		return nil, fmt.Errorf("direct route unavailable")
-	}
-	if multiHopRoute == nil {
-		return directRoute, nil
-	}
 	if multiHopRoute.TotalOutput > directRoute.TotalOutput {
 		return multiHopRoute, nil
 	}
