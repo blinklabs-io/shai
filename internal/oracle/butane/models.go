@@ -95,23 +95,86 @@ func (c *CDPCredential) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 	c.Type = int(tmpConstr.Tag())
+	fields, err := constructorFields(tmpConstr.Fields())
+	if err != nil {
+		return err
+	}
 
 	switch c.Type {
 	case 0:
-		// AuthorizeWithPubKey - single field: pubkey hash
-		var wrapper struct {
-			cbor.StructAsArray
-			PubKey []byte
+		if len(fields) == 0 {
+			return fmt.Errorf("AuthorizeWithPubKey: missing pubkey hash")
 		}
-		if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
+		if _, err := cbor.Decode([]byte(fields[0]), &c.PubKey); err != nil {
 			return err
 		}
-		c.PubKey = wrapper.PubKey
 	case 1:
-		// AuthorizeWithConstraint - token/script constraint (fields not parsed)
-		// Leave TokenId nil for now; add parsing if needed
+		if len(fields) != 1 {
+			return fmt.Errorf(
+				"AuthorizeWithConstraint: expected 1 field, got %d",
+				len(fields),
+			)
+		}
+		var constraint CDPConstraint
+		if _, err := cbor.Decode([]byte(fields[0]), &constraint); err != nil {
+			return err
+		}
+		if constraint.TokenId == nil {
+			return fmt.Errorf("AuthorizeWithConstraint: missing token constraint")
+		}
+		c.TokenId = constraint.TokenId
 	default:
 		return fmt.Errorf("unsupported CDPCredential type: %d", c.Type)
+	}
+
+	return nil
+}
+
+func constructorFields(cborData []byte) ([]cbor.RawMessage, error) {
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(cborData, &fields); err != nil {
+		return nil, err
+	}
+	return fields, nil
+}
+
+// CDPConstraint represents a constraint-based CDP owner authorization.
+type CDPConstraint struct {
+	cbor.StructAsArray
+	Type    int
+	TokenId *AssetClass
+}
+
+func (c *CDPConstraint) UnmarshalCBOR(cborData []byte) error {
+	var tmpConstr cbor.ConstructorDecoder
+	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
+		return err
+	}
+	c.Type = int(tmpConstr.Tag())
+	fields, err := constructorFields(tmpConstr.Fields())
+	if err != nil {
+		return err
+	}
+
+	switch c.Type {
+	case 0:
+		if len(fields) != 1 {
+			return fmt.Errorf(
+				"MustSpendToken: expected 1 field, got %d",
+				len(fields),
+			)
+		}
+		var asset AssetClass
+		if _, err := cbor.Decode([]byte(fields[0]), &asset); err != nil {
+			return err
+		}
+		c.TokenId = &asset
+	case 1:
+		return fmt.Errorf(
+			"AuthorizeWithConstraint MustWithdrawFrom is unsupported",
+		)
+	default:
+		return fmt.Errorf("unsupported CDP constraint type: %d", c.Type)
 	}
 
 	return nil

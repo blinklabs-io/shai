@@ -42,6 +42,11 @@ func (c *CDPState) Key() string {
 	return fmt.Sprintf("butane:%s", c.CDPId)
 }
 
+// SlotNumber returns the chain slot for this CDP state.
+func (c *CDPState) SlotNumber() uint64 {
+	return c.Slot
+}
+
 // PriceState represents a price feed from the Butane oracle
 type PriceState struct {
 	Asset       common.AssetClass
@@ -130,29 +135,16 @@ func (p *Parser) ParseMonoDatum(
 
 // GenerateCDPId generates a unique CDP ID
 func GenerateCDPId(txHash string, txIndex uint32) string {
-	hashPrefix := txHash
-	if len(hashPrefix) > 16 {
-		hashPrefix = hashPrefix[:16]
-	}
-	return fmt.Sprintf("butane_cdp_%s#%d", hashPrefix, txIndex)
+	return fmt.Sprintf("butane_cdp_%s#%d", txHash, txIndex)
 }
 
-// GetAddresses returns mainnet Butane contract addresses
-// NOTE: Butane Protocol CDP contract addresses are not publicly documented.
-// The protocol launched on mainnet February 28, 2025.
-// For deployment addresses, check:
-//   - GitHub: https://github.com/butaneprotocol/butane-deployments
-//   - Docs: https://docs.butane.dev/
-//
-// Known identifiers:
-//   - BTN Token Policy ID: b41d06ebccb6278d3ee7b4cd2faa321537156c9fd9c8dd40e95f91ea
-//   - BTN Token Fingerprint: asset1vv3wgsx9xpg5gpl4629mparm7hlpqnavpdwnj3
+// GetAddresses returns deployed mainnet Butane contract addresses.
+// Source: butaneprotocol/butane-deployments butane-v1-deployed.json.
 func GetAddresses() []string {
 	return []string{
-		// Butane CDP contract addresses (mainnet)
-		// Addresses not publicly documented - need to be obtained from:
-		// - butaneprotocol/butane-deployments GitHub repository
-		// - Direct contact with Butane team
-		// - On-chain discovery via BTN token transactions
+		// synthetics.validate
+		"addr1w9qx9rs39dztl3ugtq2s588f2jw25jluq95hvfqzqp84wxgytkmex",
+		// price_feed.check_feed
+		"addr1w877ahw80e234u4t5x2yg3tuh6ky8204qfuvxf2smzsqn6q9htprs",
 	}
 }
