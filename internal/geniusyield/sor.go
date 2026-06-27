@@ -117,6 +117,11 @@ func (ob *OrderBook) AddOrder(order *OrderState) {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
+	if order.Price <= 0 {
+		ob.updated = time.Now()
+		return
+	}
+
 	entry := &OrderBookEntry{
 		Order:      order,
 		TxHash:     order.TxHash,
@@ -128,17 +133,13 @@ func (ob *OrderBook) AddOrder(order *OrderState) {
 	if ob.assetEquals(order.OfferedAsset, ob.Pair.Quote) &&
 		ob.assetEquals(order.AskedAsset, ob.Pair.Base) {
 		entry.Side = OrderSideBuy
-		if order.Price != 0 {
-			entry.EffPrice = 1.0 / order.Price
-		} // else EffPrice remains 0, order won't match
+		entry.EffPrice = 1.0 / order.Price
 		ob.Bids = append(ob.Bids, entry)
 		ob.sortBids()
 	} else if ob.assetEquals(order.OfferedAsset, ob.Pair.Base) &&
 		ob.assetEquals(order.AskedAsset, ob.Pair.Quote) {
 		entry.Side = OrderSideSell
-		if order.Price != 0 {
-			entry.EffPrice = order.Price
-		} // else EffPrice remains 0, order won't match
+		entry.EffPrice = order.Price
 		ob.Asks = append(ob.Asks, entry)
 		ob.sortAsks()
 	}
@@ -194,6 +195,18 @@ func (ob *OrderBook) GetBestAsk() *OrderBookEntry {
 		return nil
 	}
 	return ob.Asks[0]
+}
+
+func (ob *OrderBook) snapshotBids() []*OrderBookEntry {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	return append([]*OrderBookEntry(nil), ob.Bids...)
+}
+
+func (ob *OrderBook) snapshotAsks() []*OrderBookEntry {
+	ob.mu.RLock()
+	defer ob.mu.RUnlock()
+	return append([]*OrderBookEntry(nil), ob.Asks...)
 }
 
 // GetSpread returns the bid-ask spread
@@ -459,10 +472,19 @@ func (sor *SmartOrderRouter) findDirectRoute(
 
 	var entries []*OrderBookEntry
 	if isBuyingBase {
-		entries = ob.Asks
+		entries = ob.snapshotAsks()
 	} else {
-		entries = ob.Bids
+		entries = ob.snapshotBids()
 	}
+
+	positiveEntries := entries[:0]
+	for _, entry := range entries {
+		if entry == nil || entry.EffPrice <= 0 || entry.AvailQty == 0 {
+			continue
+		}
+		positiveEntries = append(positiveEntries, entry)
+	}
+	entries = positiveEntries
 
 	if len(entries) == 0 {
 		return nil, fmt.Errorf("no orders available")
@@ -516,7 +538,7 @@ func (sor *SmartOrderRouter) findDirectRoute(
 			legOutput = uint64(float64(legInput) * entry.EffPrice)
 		}
 
-		if legOutput == 0 {
+		if legInput == 0 || legOutput == 0 {
 			continue
 		}
 
