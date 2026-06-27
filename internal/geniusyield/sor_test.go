@@ -657,42 +657,51 @@ func TestSORMultiHopRouting(t *testing.T) {
 		Name:     []byte("TOKENC"),
 	}
 
-	// Create orders: A -> B (selling A for ADA)
+	// Hop 1 liquidity: maker buys A with ADA, so taker can sell A for ADA.
 	orderAtoB := &OrderState{
 		OrderId:       "order-a-b",
-		OfferedAsset:  assetA,
+		OfferedAsset:  assetB,
 		OfferedAmount: 1000000,
-		AskedAsset:    assetB,
-		Price:         2.0, // 1 A = 2 ADA
+		AskedAsset:    assetA,
+		Price:         0.5, // 0.5 A per ADA, or 2 ADA per A
+		PriceNum:      1,
+		PriceDenom:    2,
 		IsActive:      true,
 	}
 	sor.AddOrder(orderAtoB)
 
-	// Create orders: B -> C (selling ADA for C)
+	// Hop 2 liquidity: maker sells C for ADA.
 	orderBtoC := &OrderState{
 		OrderId:       "order-b-c",
-		OfferedAsset:  assetB,
-		OfferedAmount: 2000000,
-		AskedAsset:    assetC,
-		Price:         0.5, // 1 ADA = 0.5 C
+		OfferedAsset:  assetC,
+		OfferedAmount: 500000,
+		AskedAsset:    assetB,
+		Price:         2.0, // 2 ADA per C
+		PriceNum:      2,
+		PriceDenom:    1,
 		IsActive:      true,
 	}
 	sor.AddOrder(orderBtoC)
 
 	// Try to find route: A -> C (should go through B/ADA)
 	route, err := sor.FindRoute(assetA, assetC, 500000, 1000)
-
-	// Note: This test may not find a route due to order book direction
-	// The actual routing depends on how orders are placed
 	if err != nil {
-		// Multi-hop may not find a route if order directions don't match
-		t.Logf("No route found (expected): %v", err)
-	} else {
-		if !route.IsMultiHop {
-			t.Log("Found direct route instead of multi-hop")
-		}
-		t.Logf("Route found: input=%d, output=%d, legs=%d",
-			route.TotalInput, route.TotalOutput, len(route.Legs))
+		t.Fatalf("expected multi-hop route: %v", err)
+	}
+	if !route.IsMultiHop {
+		t.Fatal("expected multi-hop route")
+	}
+	if !sor.assetEquals(route.Intermediate, assetB) {
+		t.Fatalf("expected ADA intermediate, got %s", route.Intermediate)
+	}
+	if len(route.Legs) != 2 {
+		t.Fatalf("expected 2 legs, got %d", len(route.Legs))
+	}
+	if route.TotalInput != 500000 {
+		t.Fatalf("expected total input 500000, got %d", route.TotalInput)
+	}
+	if route.TotalOutput != 500000 {
+		t.Fatalf("expected total output 500000, got %d", route.TotalOutput)
 	}
 }
 

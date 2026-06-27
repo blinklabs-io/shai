@@ -17,6 +17,8 @@ package geniusyield
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"math/big"
 	"sort"
 	"sync"
 	"time"
@@ -47,15 +49,16 @@ type OrderState struct {
 	UpdatedAt      time.Time         `json:"updatedAt"`
 
 	// Fields preserved for partial fill datum reconstruction
-	NFT                  []byte `json:"nft"`                  // Order NFT token name
-	MakerLovelaceFlatFee uint64 `json:"makerLovelaceFlatFee"` // Flat maker fee
-	MakerFeeNum          int64  `json:"makerFeeNum"`          // Maker fee numerator
-	MakerFeeDenom        int64  `json:"makerFeeDenom"`        // Maker fee denominator
-	MakerFeeMax          uint64 `json:"makerFeeMax"`          // Max maker fee
-	ContainedLovelaceFee uint64 `json:"containedLovelaceFee"` // Contained lovelace fee
-	ContainedOfferedFee  uint64 `json:"containedOfferedFee"`  // Contained offered fee
-	ContainedAskedFee    uint64 `json:"containedAskedFee"`    // Contained asked fee
-	ContainedPayment     uint64 `json:"containedPayment"`     // Contained payment
+	OwnerAddr            OrderAddress `json:"ownerAddr"`            // Owner payment address
+	NFT                  []byte       `json:"nft"`                  // Order NFT token name
+	MakerLovelaceFlatFee uint64       `json:"makerLovelaceFlatFee"` // Flat maker fee
+	MakerFeeNum          int64        `json:"makerFeeNum"`          // Maker fee numerator
+	MakerFeeDenom        int64        `json:"makerFeeDenom"`        // Maker fee denominator
+	MakerFeeMax          uint64       `json:"makerFeeMax"`          // Max maker fee
+	ContainedLovelaceFee uint64       `json:"containedLovelaceFee"` // Contained lovelace fee
+	ContainedOfferedFee  uint64       `json:"containedOfferedFee"`  // Contained offered fee
+	ContainedAskedFee    uint64       `json:"containedAskedFee"`    // Contained asked fee
+	ContainedPayment     uint64       `json:"containedPayment"`     // Contained payment
 }
 
 // TradingPair represents a pair of assets that can be traded
@@ -538,13 +541,16 @@ func (sor *SmartOrderRouter) findDirectRoute(
 				legOutput = maxOutput
 			}
 		} else {
-			maxInput := entry.AvailQty
+			maxInput := bidInputCapacity(entry)
 			if maxInput >= remainingInput {
 				legInput = remainingInput
 			} else {
 				legInput = maxInput
 			}
-			legOutput = uint64(float64(legInput) * entry.EffPrice)
+			legOutput = bidOutputForInput(entry, legInput)
+			if legOutput > entry.AvailQty {
+				legOutput = entry.AvailQty
+			}
 		}
 
 		if legInput == 0 || legOutput == 0 {
@@ -584,6 +590,46 @@ func (sor *SmartOrderRouter) findDirectRoute(
 	route.EstimatedFee = 200000 + uint64(len(route.Legs))*50000
 
 	return route, nil
+}
+
+func bidInputCapacity(entry *OrderBookEntry) uint64 {
+	if entry.Order != nil &&
+		entry.Order.PriceNum > 0 &&
+		entry.Order.PriceDenom > 0 {
+		return mulDivFloor(
+			entry.AvailQty,
+			entry.Order.PriceNum,
+			entry.Order.PriceDenom,
+		)
+	}
+	return uint64(float64(entry.AvailQty) / entry.EffPrice)
+}
+
+func bidOutputForInput(entry *OrderBookEntry, input uint64) uint64 {
+	if entry.Order != nil &&
+		entry.Order.PriceNum > 0 &&
+		entry.Order.PriceDenom > 0 {
+		return mulDivFloor(
+			input,
+			entry.Order.PriceDenom,
+			entry.Order.PriceNum,
+		)
+	}
+	return uint64(float64(input) * entry.EffPrice)
+}
+
+func mulDivFloor(value uint64, numerator, denominator int64) uint64 {
+	if numerator <= 0 || denominator <= 0 {
+		return 0
+	}
+
+	result := new(big.Int).SetUint64(value)
+	result.Mul(result, big.NewInt(numerator))
+	result.Div(result, big.NewInt(denominator))
+	if !result.IsUint64() {
+		return math.MaxUint64
+	}
+	return result.Uint64()
 }
 
 // findMultiHopRoute finds a route through intermediate assets

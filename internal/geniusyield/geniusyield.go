@@ -238,9 +238,11 @@ func (gy *GeniusYield) handleTransactionOutput(
 
 	// Check against configured addresses
 	isOrder := false
+	matchedAddress := ""
 	for _, addr := range gy.orderAddresses {
 		if outputAddress == addr || paymentAddr == addr {
 			isOrder = true
+			matchedAddress = addr
 			break
 		}
 	}
@@ -277,7 +279,7 @@ func (gy *GeniusYield) handleTransactionOutput(
 	// Store order UTXO
 	if !fromMempool {
 		if err := storage.GetStorage().AddUtxo(
-			outputAddress,
+			matchedAddress,
 			txHash,
 			uint32(txOutputIdx),
 			txOutput.Cbor(),
@@ -290,9 +292,6 @@ func (gy *GeniusYield) handleTransactionOutput(
 		}
 	}
 
-	// Update SOR
-	gy.sor.UpdateOrder(orderState)
-
 	logger.Debug(
 		"processed order",
 		"orderId", orderState.OrderId,
@@ -304,14 +303,22 @@ func (gy *GeniusYield) handleTransactionOutput(
 	)
 
 	// If from mempool and SOR is enabled, try to match orders
+	matched := false
 	if fromMempool && gy.enabled {
+		gy.sor.RemoveOrder(orderState.OrderId)
 		if err := gy.tryMatchOrder(orderState, txOutput); err != nil {
 			logger.Debug(
 				"failed to match order",
 				"orderId", orderState.OrderId,
 				"error", err,
 			)
+		} else {
+			matched = true
 		}
+	}
+
+	if !matched {
+		gy.sor.UpdateOrder(orderState)
 	}
 
 	return nil
@@ -392,6 +399,7 @@ func (gy *GeniusYield) orderConfigToState(
 		Timestamp:      time.Now(),
 		UpdatedAt:      time.Now(),
 
+		OwnerAddr:            cfg.OwnerAddr,
 		NFT:                  cfg.NFT,
 		MakerLovelaceFlatFee: cfg.MakerLovelaceFlatFee,
 		MakerFeeNum:          cfg.MakerOfferedPercentFee.Numerator,
