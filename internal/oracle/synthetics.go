@@ -181,6 +181,9 @@ func (o *SyntheticsOracle) handleTransaction(
 		)
 		return nil
 	}
+	if txEvt.Transaction == nil {
+		return nil
+	}
 
 	for _, utxo := range txEvt.Transaction.Produced() {
 		if utxo.Id == nil || utxo.Output == nil {
@@ -270,6 +273,14 @@ func (o *SyntheticsOracle) notifySubscribers(update *SyntheticsUpdate) {
 		select {
 		case ch <- &updateCopy:
 		default:
+			select {
+			case <-ch:
+			default:
+			}
+			select {
+			case ch <- &updateCopy:
+			default:
+			}
 		}
 	}
 }
