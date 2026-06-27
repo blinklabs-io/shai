@@ -29,6 +29,7 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/shai/internal/common"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/storage"
@@ -453,6 +454,16 @@ func buildPartialFillOutput(
 
 	// Calculate new lovelace (keep minimum)
 	newLovelace := originalCoin
+	if order.OfferedAsset.IsLovelace() {
+		if fill.inputAmount > originalCoin {
+			return nil, 0, nil, fmt.Errorf(
+				"fill amount %d exceeds original lovelace %d",
+				fill.inputAmount,
+				originalCoin,
+			)
+		}
+		newLovelace = originalCoin - fill.inputAmount
+	}
 	if newLovelace < minUtxoLovelace {
 		newLovelace = minUtxoLovelace
 	}
@@ -517,9 +528,11 @@ func buildUpdatedOrderDatum(
 	datum := cbor.NewConstructorEncoder(
 		0, // PartialOrderDatum constructor
 		cbor.IndefLengthList{
-			ownerKeyBytes,                                        // ownerKey
-			buildAddressDatum(ownerKeyBytes),                     // ownerAddr
-			buildAssetDatum(order.OfferedAsset),                  // offeredAsset
+			ownerKeyBytes,                    // ownerKey
+			buildAddressDatum(ownerKeyBytes), // ownerAddr
+			buildAssetDatum(
+				order.OfferedAsset,
+			), // offeredAsset
 			order.OriginalAmount,                                 // offeredOriginalAmount (preserved)
 			newOfferedAmount,                                     // offeredAmount (updated)
 			buildAssetDatum(order.AskedAsset),                    // askedAsset
@@ -545,7 +558,9 @@ func buildUpdatedOrderDatum(
 }
 
 // buildContainedFeeDatumFromOrder constructs a contained fee datum from order state
-func buildContainedFeeDatumFromOrder(order *OrderState) cbor.ConstructorEncoder {
+func buildContainedFeeDatumFromOrder(
+	order *OrderState,
+) cbor.ConstructorEncoder {
 	return cbor.NewConstructorEncoder(
 		0,
 		cbor.IndefLengthList{
@@ -557,26 +572,52 @@ func buildContainedFeeDatumFromOrder(order *OrderState) cbor.ConstructorEncoder 
 }
 
 // buildAssetDatum constructs a Plutus datum for an asset
-func buildAssetDatum(asset interface{ IsLovelace() bool }) cbor.ConstructorEncoder {
-	type assetWithBytes interface {
-		IsLovelace() bool
-		GetPolicyId() []byte
-		GetName() []byte
-	}
-
-	// Check if it has the required methods
-	if a, ok := asset.(assetWithBytes); ok {
+func buildAssetDatum(
+	asset interface{ IsLovelace() bool },
+) cbor.ConstructorEncoder {
+	switch a := asset.(type) {
+	case common.AssetClass:
 		return cbor.NewConstructorEncoder(
 			0,
 			cbor.IndefLengthList{
-				a.GetPolicyId(),
-				a.GetName(),
+				a.PolicyId,
+				a.Name,
 			},
 		)
+	case *common.AssetClass:
+		if a != nil {
+			return cbor.NewConstructorEncoder(
+				0,
+				cbor.IndefLengthList{
+					a.PolicyId,
+					a.Name,
+				},
+			)
+		}
+	case OrderAsset:
+		return cbor.NewConstructorEncoder(
+			0,
+			cbor.IndefLengthList{
+				a.PolicyId,
+				a.AssetName,
+			},
+		)
+	case *OrderAsset:
+		if a != nil {
+			return cbor.NewConstructorEncoder(
+				0,
+				cbor.IndefLengthList{
+					a.PolicyId,
+					a.AssetName,
+				},
+			)
+		}
 	}
 
-	// Fallback for common.AssetClass
-	return cbor.NewConstructorEncoder(0, cbor.IndefLengthList{[]byte{}, []byte{}})
+	return cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{[]byte{}, []byte{}},
+	)
 }
 
 // buildAddressDatum constructs a simplified address datum from raw bytes
@@ -625,24 +666,33 @@ func buildContainedFeeDatum() cbor.ConstructorEncoder {
 func buildOwnerAddress(order *OrderState) (serAddress.Address, error) {
 	cfg := config.GetConfig()
 
-	// For simplicity, assume mainnet pubkey hash address
 	// Full implementation would decode from the datum's ownerAddr field
 	ownerBytes, err := hex.DecodeString(order.Owner)
 	if err != nil {
 		return serAddress.Address{}, err
 	}
+	if len(ownerBytes) != 28 {
+		return serAddress.Address{}, fmt.Errorf(
+			"invalid owner key length: got %d, want 28",
+			len(ownerBytes),
+		)
+	}
 
-	// Build base address with just payment credential
 	networkId := byte(1) // mainnet
 	if cfg.Network == "preview" || cfg.Network == "preprod" {
 		networkId = 0
 	}
+	addressType := byte(serAddress.KEY_NONE)
 
-	// Address type 0x61 = enterprise address (payment key, no staking)
 	// For proper implementation, use the full ownerAddr from datum
-	addrBytes := append([]byte{0x61 | (networkId << 4)}, ownerBytes...)
-
-	return serAddress.DecodeAddress(hex.EncodeToString(addrBytes))
+	return serAddress.Address{
+		PaymentPart: ownerBytes,
+		StakingPart: []byte{},
+		Network:     networkId,
+		AddressType: addressType,
+		HeaderByte:  (addressType << 4) | networkId,
+		Hrp:         serAddress.ComputeHrp(addressType, networkId),
+	}, nil
 }
 
 // calculateOwnerPayment calculates the payment to send to order owner

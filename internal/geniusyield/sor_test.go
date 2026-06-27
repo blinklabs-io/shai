@@ -293,6 +293,79 @@ func TestSORFindRoute(t *testing.T) {
 	}
 }
 
+func TestSORFindRouteIgnoresZeroPriceOrders(t *testing.T) {
+	sor := NewSmartOrderRouter()
+
+	tokenAsset := common.AssetClass{
+		PolicyId: []byte{0xab, 0xcd},
+		Name:     []byte("TOKEN"),
+	}
+
+	validOrder := &OrderState{
+		OrderId:       "gy_valid",
+		OfferedAsset:  tokenAsset,
+		OfferedAmount: 1000000,
+		AskedAsset:    common.Lovelace(),
+		Price:         2.0,
+		IsActive:      true,
+		TxHash:        "tx_valid",
+		Timestamp:     time.Now(),
+	}
+	sor.AddOrder(validOrder)
+
+	pairs := sor.GetAllPairs()
+	if len(pairs) != 1 {
+		t.Fatalf("expected 1 pair, got %d", len(pairs))
+	}
+	ob := sor.GetOrderBook(pairs[0])
+	if ob == nil {
+		t.Fatal("expected order book")
+	}
+
+	zeroPriceOrder := &OrderState{
+		OrderId:       "gy_zero",
+		OfferedAsset:  tokenAsset,
+		OfferedAmount: 1000000,
+		AskedAsset:    common.Lovelace(),
+		Price:         0,
+		IsActive:      true,
+		TxHash:        "tx_zero",
+		Timestamp:     time.Now().Add(-time.Second),
+	}
+	ob.mu.Lock()
+	ob.Asks = append([]*OrderBookEntry{
+		{
+			Order:    zeroPriceOrder,
+			TxHash:   zeroPriceOrder.TxHash,
+			TxIndex:  zeroPriceOrder.TxIndex,
+			Side:     OrderSideSell,
+			EffPrice: 0,
+			AvailQty: zeroPriceOrder.OfferedAmount,
+		},
+	}, ob.Asks...)
+	ob.mu.Unlock()
+
+	route, err := sor.FindRoute(common.Lovelace(), tokenAsset, 1500000, 1000)
+	if err != nil {
+		t.Fatalf("failed to find route: %v", err)
+	}
+	if len(route.Legs) != 1 {
+		t.Fatalf("expected 1 leg, got %d", len(route.Legs))
+	}
+	if route.Legs[0].Order.OrderId != validOrder.OrderId {
+		t.Fatalf(
+			"expected valid order, got %s",
+			route.Legs[0].Order.OrderId,
+		)
+	}
+	if route.Legs[0].InputAmount == 0 || route.Legs[0].OutputAmount == 0 {
+		t.Fatalf(
+			"route leg must have positive input and output: %+v",
+			route.Legs[0],
+		)
+	}
+}
+
 func TestSORGetQuote(t *testing.T) {
 	sor := NewSmartOrderRouter()
 
@@ -432,6 +505,37 @@ func TestSORClearExpired(t *testing.T) {
 
 	if sor.GetOrderCount() != 1 {
 		t.Errorf("expected 1 order after cleanup, got %d", sor.GetOrderCount())
+	}
+}
+
+func TestHandleConsumedOrderRemovesOrder(t *testing.T) {
+	sor := NewSmartOrderRouter()
+	gy := &GeniusYield{sor: sor}
+
+	tokenAsset := common.AssetClass{
+		PolicyId: []byte{0x44},
+		Name:     []byte("USED"),
+	}
+	order := &OrderState{
+		OrderId:       "gy_consumed",
+		OfferedAsset:  tokenAsset,
+		OfferedAmount: 1000000,
+		AskedAsset:    common.Lovelace(),
+		Price:         1.0,
+		IsActive:      true,
+		TxHash:        "consumed_tx",
+		TxIndex:       2,
+		Timestamp:     time.Now(),
+	}
+	sor.AddOrder(order)
+
+	gy.handleConsumedOrder("consumed_tx", 2)
+
+	if sor.GetOrderCount() != 0 {
+		t.Fatalf(
+			"expected consumed order to be removed, got %d",
+			sor.GetOrderCount(),
+		)
 	}
 }
 

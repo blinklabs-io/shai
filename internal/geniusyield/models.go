@@ -18,6 +18,7 @@ package geniusyield
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/shai/internal/common"
@@ -196,10 +197,17 @@ func (o *OptionalPOSIX) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Tag() == 1 {
+	switch tmpConstr.Tag() {
+	case 0:
+	case 1:
 		o.IsPresent = false
 		o.Time = 0 // Reset to avoid stale values when struct is reused
 		return nil
+	default:
+		return fmt.Errorf(
+			"invalid optional POSIX constructor tag %d",
+			tmpConstr.Tag(),
+		)
 	}
 	o.IsPresent = true
 	var wrapper struct {

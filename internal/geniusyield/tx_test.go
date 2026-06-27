@@ -15,15 +15,26 @@
 package geniusyield
 
 import (
+	"bytes"
 	"encoding/hex"
 	"testing"
 	"time"
 
 	"github.com/Salvionied/apollo/serialization/TransactionInput"
+	"github.com/Salvionied/apollo/serialization/TransactionOutput"
+	"github.com/Salvionied/apollo/serialization/UTxO"
+	"github.com/Salvionied/apollo/serialization/Value"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/internal/config"
 )
+
+type fallbackAsset struct{}
+
+func (fallbackAsset) IsLovelace() bool {
+	return false
+}
 
 func TestBuildRedeemerPlutusData_CompleteFill(t *testing.T) {
 	output := orderFillOutput{
@@ -258,7 +269,6 @@ func TestBuildAddressDatum_EmptyBytes(t *testing.T) {
 }
 
 func TestBuildAssetDatum(t *testing.T) {
-	// Create a test asset that implements IsLovelace
 	asset := common.AssetClass{
 		PolicyId: []byte{0x01, 0x02, 0x03},
 		Name:     []byte("TEST"),
@@ -269,10 +279,21 @@ func TestBuildAssetDatum(t *testing.T) {
 	if result.Tag() != 0 {
 		t.Errorf("expected constructor 0, got %d", result.Tag())
 	}
+
+	decoded := decodeAssetDatum(t, result)
+	if !bytes.Equal(decoded.PolicyId, asset.PolicyId) {
+		t.Fatalf(
+			"policy mismatch: got %x want %x",
+			decoded.PolicyId,
+			asset.PolicyId,
+		)
+	}
+	if !bytes.Equal(decoded.AssetName, asset.Name) {
+		t.Fatalf("name mismatch: got %x want %x", decoded.AssetName, asset.Name)
+	}
 }
 
 func TestBuildAssetDatum_Lovelace(t *testing.T) {
-	// Lovelace has empty policy and name
 	asset := common.AssetClass{
 		PolicyId: []byte{},
 		Name:     []byte{},
@@ -283,6 +304,69 @@ func TestBuildAssetDatum_Lovelace(t *testing.T) {
 	if result.Tag() != 0 {
 		t.Errorf("expected constructor 0, got %d", result.Tag())
 	}
+
+	decoded := decodeAssetDatum(t, result)
+	if len(decoded.PolicyId) != 0 {
+		t.Fatalf("expected empty policy for lovelace, got %x", decoded.PolicyId)
+	}
+	if len(decoded.AssetName) != 0 {
+		t.Fatalf("expected empty name for lovelace, got %x", decoded.AssetName)
+	}
+}
+
+func TestBuildAssetDatum_OrderAsset(t *testing.T) {
+	asset := OrderAsset{
+		PolicyId:  []byte{0xaa, 0xbb},
+		AssetName: []byte("GY"),
+	}
+
+	result := buildAssetDatum(asset)
+
+	decoded := decodeAssetDatum(t, result)
+	if !bytes.Equal(decoded.PolicyId, asset.PolicyId) {
+		t.Fatalf(
+			"policy mismatch: got %x want %x",
+			decoded.PolicyId,
+			asset.PolicyId,
+		)
+	}
+	if !bytes.Equal(decoded.AssetName, asset.AssetName) {
+		t.Fatalf(
+			"name mismatch: got %x want %x",
+			decoded.AssetName,
+			asset.AssetName,
+		)
+	}
+}
+
+func TestBuildAssetDatum_FallbackEmpty(t *testing.T) {
+	result := buildAssetDatum(fallbackAsset{})
+
+	decoded := decodeAssetDatum(t, result)
+	if len(decoded.PolicyId) != 0 {
+		t.Fatalf("expected empty fallback policy, got %x", decoded.PolicyId)
+	}
+	if len(decoded.AssetName) != 0 {
+		t.Fatalf("expected empty fallback name, got %x", decoded.AssetName)
+	}
+}
+
+func decodeAssetDatum(
+	t *testing.T,
+	datum cbor.ConstructorEncoder,
+) OrderAsset {
+	t.Helper()
+
+	encoded, err := cbor.Encode(&datum)
+	if err != nil {
+		t.Fatalf("failed to encode asset datum: %v", err)
+	}
+
+	var decoded OrderAsset
+	if _, err := cbor.Decode(encoded, &decoded); err != nil {
+		t.Fatalf("failed to decode asset datum: %v", err)
+	}
+	return decoded
 }
 
 func TestCalculateOwnerPayment_TakerLovelace(t *testing.T) {
@@ -590,6 +674,87 @@ func TestBuildUpdatedOrderDatum_InvalidHex(t *testing.T) {
 	_, err := buildUpdatedOrderDatum(order, 100)
 	if err == nil {
 		t.Error("expected error for invalid hex owner")
+	}
+}
+
+func TestBuildPartialFillOutput_ReducesLovelaceForAdaOffer(t *testing.T) {
+	order := &OrderState{
+		OrderId:        "ada-order",
+		Owner:          "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+		OfferedAsset:   common.Lovelace(),
+		OfferedAmount:  10000000,
+		OriginalAmount: 10000000,
+		AskedAsset: common.AssetClass{
+			PolicyId: []byte{0x01},
+			Name:     []byte("TKN"),
+		},
+		PriceNum:   1,
+		PriceDenom: 2,
+		NFT:        []byte("order-nft"),
+	}
+	fill := orderFillOutput{
+		orderId:     order.OrderId,
+		inputAmount: 3000000,
+	}
+	utxo := UTxO.UTxO{
+		Output: TransactionOutput.TransactionOutput{
+			PreAlonzo: TransactionOutput.TransactionOutputShelley{
+				Amount: Value.Value{Coin: 10000000},
+			},
+		},
+	}
+
+	_, lovelace, units, err := buildPartialFillOutput(order, fill, utxo)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if lovelace != 7000000 {
+		t.Fatalf("expected lovelace 7000000, got %d", lovelace)
+	}
+	if len(units) != 0 {
+		t.Fatalf("expected no native units for ADA offer, got %d", len(units))
+	}
+}
+
+func TestBuildOwnerAddressHeader(t *testing.T) {
+	cfg := config.GetConfig()
+	originalNetwork := cfg.Network
+	defer func() {
+		cfg.Network = originalNetwork
+	}()
+
+	order := &OrderState{
+		Owner: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+	}
+
+	cfg.Network = "mainnet"
+	mainnetAddr, err := buildOwnerAddress(order)
+	if err != nil {
+		t.Fatalf("unexpected mainnet error: %v", err)
+	}
+	if mainnetAddr.HeaderByte != 0x61 {
+		t.Fatalf(
+			"expected mainnet header 0x61, got 0x%x",
+			mainnetAddr.HeaderByte,
+		)
+	}
+	if mainnetAddr.Network != 1 {
+		t.Fatalf("expected mainnet network 1, got %d", mainnetAddr.Network)
+	}
+
+	cfg.Network = "preview"
+	testnetAddr, err := buildOwnerAddress(order)
+	if err != nil {
+		t.Fatalf("unexpected testnet error: %v", err)
+	}
+	if testnetAddr.HeaderByte != 0x60 {
+		t.Fatalf(
+			"expected testnet header 0x60, got 0x%x",
+			testnetAddr.HeaderByte,
+		)
+	}
+	if testnetAddr.Network != 0 {
+		t.Fatalf("expected testnet network 0, got %d", testnetAddr.Network)
 	}
 }
 

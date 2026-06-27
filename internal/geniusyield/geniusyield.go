@@ -190,6 +190,12 @@ func (gy *GeniusYield) handleMempoolNewTransaction(
 
 	txHash := tx.Hash().String()
 
+	// Remove consumed orders before evaluating new mempool outputs so stale
+	// liquidity cannot be matched in the same mempool update.
+	for _, txInput := range tx.Inputs() {
+		gy.handleConsumedOrder(txInput.Id().String(), txInput.Index())
+	}
+
 	// Process outputs (new orders in mempool)
 	for idx, txOutput := range tx.Outputs() {
 		if err := gy.handleTransactionOutput(
@@ -321,16 +327,14 @@ func (gy *GeniusYield) handleConsumedOrder(txHash string, txIndex uint32) {
 			continue
 		}
 
-		// Check bids
-		for _, entry := range ob.Bids {
+		for _, entry := range ob.snapshotBids() {
 			if entry.TxHash == txHash && entry.TxIndex == txIndex {
 				gy.sor.RemoveOrder(entry.Order.OrderId)
 				return
 			}
 		}
 
-		// Check asks
-		for _, entry := range ob.Asks {
+		for _, entry := range ob.snapshotAsks() {
 			if entry.TxHash == txHash && entry.TxIndex == txIndex {
 				gy.sor.RemoveOrder(entry.Order.OrderId)
 				return
@@ -387,6 +391,16 @@ func (gy *GeniusYield) orderConfigToState(
 		TxIndex:        txIndex,
 		Timestamp:      time.Now(),
 		UpdatedAt:      time.Now(),
+
+		NFT:                  cfg.NFT,
+		MakerLovelaceFlatFee: cfg.MakerLovelaceFlatFee,
+		MakerFeeNum:          cfg.MakerOfferedPercentFee.Numerator,
+		MakerFeeDenom:        cfg.MakerOfferedPercentFee.Denominator,
+		MakerFeeMax:          cfg.MakerOfferedPercentFeeMax,
+		ContainedLovelaceFee: cfg.ContainedFee.LovelaceFee,
+		ContainedOfferedFee:  cfg.ContainedFee.OfferedFee,
+		ContainedAskedFee:    cfg.ContainedFee.AskedFee,
+		ContainedPayment:     cfg.ContainedPayment,
 	}
 }
 
@@ -460,6 +474,9 @@ func (gy *GeniusYield) executeRoute(
 	)
 
 	// Submit transaction
+	if !txsubmit.IsStarted() {
+		return fmt.Errorf("txsubmit is not started")
+	}
 	txsubmit.SubmitTx(txBytes)
 
 	return nil
