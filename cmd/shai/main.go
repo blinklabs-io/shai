@@ -217,8 +217,11 @@ func main() {
 					oracle.NewMultiOracleAPI(oracles),
 				)
 			}
-			for _, lendingOracle := range lendingOracles {
-				apiHandlers = append(apiHandlers, lendingOracle)
+			if len(lendingOracles) > 0 {
+				apiHandlers = append(
+					apiHandlers,
+					oracle.NewMultiLendingOracleAPI(lendingOracles),
+				)
 			}
 			go func() {
 				if err := oracle.StartAPIServer(
