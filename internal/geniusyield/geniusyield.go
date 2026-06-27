@@ -430,6 +430,10 @@ func (gy *GeniusYield) tryMatchOrder(
 		return err
 	}
 
+	if route == nil {
+		return fmt.Errorf("no matching route found")
+	}
+
 	if len(route.Legs) == 0 {
 		return fmt.Errorf("no matching orders found")
 	}

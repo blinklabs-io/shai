@@ -444,10 +444,13 @@ func (sor *SmartOrderRouter) FindRoute(
 	}
 
 	if directErr != nil {
+		if multiHopRoute == nil {
+			return nil, multiHopErr
+		}
 		return multiHopRoute, nil
 	}
 
-	if multiHopErr != nil {
+	if multiHopErr != nil || multiHopRoute == nil {
 		return directRoute, nil
 	}
 
