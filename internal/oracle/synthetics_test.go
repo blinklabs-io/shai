@@ -15,6 +15,7 @@
 package oracle
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/blinklabs-io/adder/event"
@@ -99,6 +100,64 @@ func TestSyntheticsOracleProcessesButaneDatum(t *testing.T) {
 		}
 	default:
 		t.Fatal("expected synthetics update")
+	}
+}
+
+func TestSyntheticsOracleNilTransactionEvent(t *testing.T) {
+	o := &SyntheticsOracle{}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("handleTransaction panicked: %v", r)
+		}
+	}()
+
+	err := o.handleTransaction(
+		event.Event{
+			Context: event.TransactionContext{
+				TransactionHash: "abc123",
+				SlotNumber:      12345,
+			},
+		},
+		event.TransactionEvent{},
+	)
+	if err != nil {
+		t.Fatalf("handleTransaction returned error: %v", err)
+	}
+}
+
+func TestSyntheticsOracleFullBufferDropsOldest(t *testing.T) {
+	o := &SyntheticsOracle{
+		stopChan: make(chan struct{}),
+	}
+	ch := o.Subscribe()
+
+	const totalUpdates = subscriberBufferSize + 50
+	for i := 1; i <= totalUpdates; i++ {
+		o.notifySubscribers(&SyntheticsUpdate{
+			StateKey: fmt.Sprintf("state-%03d", i),
+		})
+	}
+
+	if got := len(ch); got != subscriberBufferSize {
+		t.Fatalf(
+			"expected full subscriber buffer (%d), got %d",
+			subscriberBufferSize,
+			got,
+		)
+	}
+
+	firstExpected := totalUpdates - subscriberBufferSize + 1
+	for i := 0; i < subscriberBufferSize; i++ {
+		update := <-ch
+		wantStateKey := fmt.Sprintf("state-%03d", firstExpected+i)
+		if update.StateKey != wantStateKey {
+			t.Fatalf(
+				"expected state key %s, got %s",
+				wantStateKey,
+				update.StateKey,
+			)
+		}
 	}
 }
 

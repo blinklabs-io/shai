@@ -71,7 +71,11 @@ func (p *ButaneParser) ParseSyntheticsDatum(
 	slot uint64,
 	timestamp time.Time,
 ) (SyntheticsState, error) {
-	return p.ParseMonoDatum(datum, txHash, txIndex, slot, timestamp)
+	state, err := p.ParseMonoDatum(datum, txHash, txIndex, slot, timestamp)
+	if err != nil || state == nil {
+		return nil, err
+	}
+	return state, nil
 }
 
 // ParsePoolDatum implements PoolParser interface for compatibility

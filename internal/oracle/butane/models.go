@@ -102,8 +102,11 @@ func (c *CDPCredential) UnmarshalCBOR(cborData []byte) error {
 
 	switch c.Type {
 	case 0:
-		if len(fields) == 0 {
-			return fmt.Errorf("AuthorizeWithPubKey: missing pubkey hash")
+		if len(fields) != 1 {
+			return fmt.Errorf(
+				"AuthorizeWithPubKey: expected 1 field, got %d",
+				len(fields),
+			)
 		}
 		if _, err := cbor.Decode([]byte(fields[0]), &c.PubKey); err != nil {
 			return err

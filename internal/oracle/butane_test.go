@@ -96,6 +96,24 @@ func TestButaneCDPCredentialUnmarshal(t *testing.T) {
 	}
 }
 
+func TestButaneCDPCredentialPubKeyRejectsExtraFields(t *testing.T) {
+	pubKeyHash := make([]byte, 28)
+	credConstr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		pubKeyHash,
+		[]byte{0x01},
+	})
+
+	cborData, err := cbor.Encode(&credConstr)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	var cred ButaneCDPCredential
+	if _, err := cbor.Decode(cborData, &cred); err == nil {
+		t.Fatal("expected extra AuthorizeWithPubKey field to fail")
+	}
+}
+
 func TestButaneCDPCredentialConstraintToken(t *testing.T) {
 	asset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{0xab, 0xcd},
@@ -302,6 +320,32 @@ func TestButaneParserNonCDPDatum(t *testing.T) {
 	// Should return nil for non-CDP datums
 	if state != nil {
 		t.Error("expected nil state for non-CDP datum")
+	}
+}
+
+func TestButaneParserParseSyntheticsDatumNonCDPReturnsNil(t *testing.T) {
+	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		[]byte{0x01, 0x02, 0x03},
+	})
+
+	cborData, err := cbor.Encode(&datum)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	parser := NewButaneParser()
+	state, err := parser.ParseSyntheticsDatum(
+		cborData,
+		"abc123",
+		0,
+		12345,
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state != nil {
+		t.Fatal("expected nil synthetics state for non-CDP datum")
 	}
 }
 
