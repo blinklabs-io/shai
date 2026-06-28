@@ -256,8 +256,8 @@ var Profiles = map[string]map[string]Profile{
 		"liqwid": {
 			Name:          "liqwid",
 			Type:          ProfileTypeLending,
-			InterceptSlot: 83000000,
-			InterceptHash: "0000000000000000000000000000000000000000000000000000000000000000",
+			InterceptSlot: 82999969, // ~Jan 24 2023 (epoch 389)
+			InterceptHash: "67c0cfdb05dc04f9a0887f862b477b6c921d77bd357ea71aba1512742d7cfc90",
 			Config: LendingProfileConfig{
 				Protocol: "liqwid",
 				MarketAddresses: []ProfileConfigAddress{
