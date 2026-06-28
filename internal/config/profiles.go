@@ -265,15 +265,15 @@ var Profiles = map[string]map[string]Profile{
 		"geniusyield": {
 			Name:          "geniusyield",
 			Type:          ProfileTypeGeniusYield,
-			InterceptSlot: 108000000,
-			InterceptHash: "7d5e5e5e8f8f8f8f7d7d7d7d6c6c6c6c5b5b5b5b4a4a4a4a39393939282828",
+			InterceptSlot: 107999998, // ~Nov 9 2023 (epoch 447)
+			InterceptHash: "9ade9e2cbbf075b7653df58c29ebb4d8910119b7ac452c9512ef2f211d25d2ff",
 			Config: GeniusYieldProfileConfig{
 				Protocol:        "geniusyield",
-				OrderScriptHash: "fd55cfc86cb4c2c38eb2d89e43d1971c2c84f0e3b2c1e0f9e8d7c6b5",
-				OrderNFTPolicy:  "92e8c5e5b4a3f2e1d0c9b8a7968574635241302f1e0d0c0b0a",
+				OrderScriptHash: "443796e89785a60a2df3a6673f95345fd1c034b1facfe367af1615fe",
+				OrderNFTPolicy:  "fae686ea8f21d567841d703dea4d4221c2af071a6f2b433ff07c0af2",
 				OrderAddresses: []ProfileConfigAddress{
 					{
-						Address: "addr1w8lj5fvnqvx8rtp8k6e6kcp7g76twqv2ad2hg7avfqtj7qgc5rquk",
+						Address: "addr1w9zr09hgj7z6vz3d7wnxw0u4x30arsp5k8avlcm84utptls8uqd0z",
 					},
 				},
 				InputRefs:          []ProfileConfigInputRef{},
