@@ -25,27 +25,6 @@ import (
 	"time"
 )
 
-func TestDefaultAPIConfigRequiresOptIn(t *testing.T) {
-	t.Parallel()
-
-	cfg := DefaultAPIConfig()
-	if cfg.Enabled {
-		t.Fatal("default SaturnSwap API config must be disabled")
-	}
-	if cfg.Endpoint != DefaultGraphQLEndpoint {
-		t.Fatalf(
-			"unexpected default endpoint: got %q want %q",
-			cfg.Endpoint,
-			DefaultGraphQLEndpoint,
-		)
-	}
-
-	_, err := NewClient(cfg)
-	if !errors.Is(err, ErrExternalAPIDisabled) {
-		t.Fatalf("expected ErrExternalAPIDisabled, got %v", err)
-	}
-}
-
 func TestNewClientUsesDocumentedEndpointWhenEnabled(t *testing.T) {
 	t.Parallel()
 
@@ -70,13 +49,21 @@ func TestPoolsByTickerAndPoolStateParsing(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			req := readGraphQLRequest(t, r)
-			if !strings.Contains(req.Query, "pools(where: { ticker: { eq: $ticker } })") {
-				t.Fatalf("query missing ticker filter: %s", req.Query)
+			req, ok := readGraphQLRequest(t, w, r)
+			if !ok {
+				return
 			}
-			vars := req.Variables.(map[string]any)
+			if !strings.Contains(req.Query, "pools(where: { ticker: { eq: $ticker } })") {
+				failTestHandler(t, w, "query missing ticker filter: %s", req.Query)
+				return
+			}
+			vars, ok := graphqlVariables(t, w, req)
+			if !ok {
+				return
+			}
 			if vars["ticker"] != "SNEK" {
-				t.Fatalf("unexpected ticker variable: %#v", vars["ticker"])
+				failTestHandler(t, w, "unexpected ticker variable: %#v", vars["ticker"])
+				return
 			}
 
 			writeJSON(t, w, map[string]any{
@@ -120,7 +107,7 @@ func TestPoolsByTickerAndPoolStateParsing(t *testing.T) {
 	))
 	t.Cleanup(server.Close)
 
-	client := newTestClient(t, server.URL)
+	client := newEnabledTestClient(t, server.URL)
 	pools, err := client.PoolsByTicker(context.Background(), "SNEK")
 	if err != nil {
 		t.Fatalf("PoolsByTicker failed: %v", err)
@@ -170,14 +157,26 @@ func TestPoolByTokens(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			req := readGraphQLRequest(t, r)
-			if !strings.Contains(req.Query, "poolByTokens(input: $input)") {
-				t.Fatalf("query missing poolByTokens call: %s", req.Query)
+			req, ok := readGraphQLRequest(t, w, r)
+			if !ok {
+				return
 			}
-			vars := req.Variables.(map[string]any)
-			input := vars["input"].(map[string]any)
+			if !strings.Contains(req.Query, "poolByTokens(input: $input)") {
+				failTestHandler(t, w, "query missing poolByTokens call: %s", req.Query)
+				return
+			}
+			vars, ok := graphqlVariables(t, w, req)
+			if !ok {
+				return
+			}
+			input, ok := vars["input"].(map[string]any)
+			if !ok {
+				failTestHandler(t, w, "unexpected input shape: %#v", vars["input"])
+				return
+			}
 			if input["policyIdTwo"] != "abcd" || input["assetNameTwo"] != "746f6b656e" {
-				t.Fatalf("unexpected input: %#v", input)
+				failTestHandler(t, w, "unexpected input: %#v", input)
+				return
 			}
 
 			writeJSON(t, w, map[string]any{
@@ -205,7 +204,7 @@ func TestPoolByTokens(t *testing.T) {
 	))
 	t.Cleanup(server.Close)
 
-	client := newTestClient(t, server.URL)
+	client := newEnabledTestClient(t, server.URL)
 	pool, err := client.PoolByTokens(
 		context.Background(),
 		PoolByTokensInput{
@@ -221,79 +220,23 @@ func TestPoolByTokens(t *testing.T) {
 	}
 }
 
-func TestCreateOrderTransaction(t *testing.T) {
-	t.Parallel()
-
-	server := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, r *http.Request) {
-			req := readGraphQLRequest(t, r)
-			if !strings.Contains(req.Query, "createOrderTransaction(input: $input)") {
-				t.Fatalf("query missing createOrderTransaction call: %s", req.Query)
-			}
-			vars := req.Variables.(map[string]any)
-			input := vars["input"].(map[string]any)
-			if input["paymentAddress"] != "addr1user" {
-				t.Fatalf("unexpected payment address: %#v", input["paymentAddress"])
-			}
-			components := input["marketOrderComponents"].([]any)
-			component := components[0].(map[string]any)
-			if component["marketOrderType"] != string(PoolUtxoTypeMarketBuyOrder) {
-				t.Fatalf("unexpected market order type: %#v", component["marketOrderType"])
-			}
-
-			writeJSON(t, w, map[string]any{
-				"data": map[string]any{
-					"createOrderTransaction": map[string]any{
-						"successTransactions": []map[string]any{
-							{
-								"transactionId":  "tx-id",
-								"hexTransaction": "84a400",
-							},
-						},
-						"failTransactions": []map[string]any{},
-					},
-				},
-			})
-		},
-	))
-	t.Cleanup(server.Close)
-
-	client := newTestClient(t, server.URL)
-	result, err := client.CreateOrderTransaction(
-		context.Background(),
-		CreateOrderTransactionInput{
-			PaymentAddress: "addr1user",
-			MarketOrderComponents: []MarketOrderComponent{
-				{
-					PoolID:          "pool-1",
-					TokenAmountSell: 5,
-					TokenAmountBuy:  1,
-					MarketOrderType: PoolUtxoTypeMarketBuyOrder,
-					Slippage:        2,
-					Version:         2,
-				},
-			},
-		},
-	)
-	if err != nil {
-		t.Fatalf("CreateOrderTransaction failed: %v", err)
-	}
-	if len(result.SuccessTransactions) != 1 {
-		t.Fatalf("unexpected success transaction count: %d", len(result.SuccessTransactions))
-	}
-	if result.SuccessTransactions[0].TransactionID != "tx-id" {
-		t.Fatalf("unexpected transaction ID: %q", result.SuccessTransactions[0].TransactionID)
-	}
-}
-
 func TestSubmitOrderTransactionReturnsAPIError(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			req := readGraphQLRequest(t, r)
+			req, ok := readGraphQLRequest(t, w, r)
+			if !ok {
+				return
+			}
 			if !strings.Contains(req.Query, "submitOrderTransaction(input: $input)") {
-				t.Fatalf("query missing submitOrderTransaction call: %s", req.Query)
+				failTestHandler(
+					t,
+					w,
+					"query missing submitOrderTransaction call: %s",
+					req.Query,
+				)
+				return
 			}
 
 			writeJSON(t, w, map[string]any{
@@ -312,7 +255,7 @@ func TestSubmitOrderTransactionReturnsAPIError(t *testing.T) {
 	))
 	t.Cleanup(server.Close)
 
-	client := newTestClient(t, server.URL)
+	client := newEnabledTestClient(t, server.URL)
 	result, err := client.SubmitOrderTransaction(
 		context.Background(),
 		SubmitOrderTransactionInput{
@@ -342,7 +285,9 @@ func TestGraphQLErrorReturned(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			_ = readGraphQLRequest(t, r)
+			if _, ok := readGraphQLRequest(t, w, r); !ok {
+				return
+			}
 			writeJSON(t, w, map[string]any{
 				"errors": []map[string]any{
 					{"message": "schema rejected query"},
@@ -352,7 +297,7 @@ func TestGraphQLErrorReturned(t *testing.T) {
 	))
 	t.Cleanup(server.Close)
 
-	client := newTestClient(t, server.URL)
+	client := newEnabledTestClient(t, server.URL)
 	_, err := client.PoolsByTicker(context.Background(), "SNEK")
 	if err == nil {
 		t.Fatal("expected GraphQL error")
@@ -367,13 +312,15 @@ func TestHTTPErrorReturned(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
-			_ = readGraphQLRequest(t, r)
+			if _, ok := readGraphQLRequest(t, w, r); !ok {
+				return
+			}
 			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
 		},
 	))
 	t.Cleanup(server.Close)
 
-	client := newTestClient(t, server.URL)
+	client := newEnabledTestClient(t, server.URL)
 	_, err := client.PoolsByTicker(context.Background(), "SNEK")
 	if err == nil {
 		t.Fatal("expected HTTP status error")
@@ -383,43 +330,50 @@ func TestHTTPErrorReturned(t *testing.T) {
 	}
 }
 
-func newTestClient(t *testing.T, endpoint string) *Client {
-	t.Helper()
-	client, err := NewClient(APIConfig{
-		Enabled:  true,
-		Endpoint: endpoint,
-	})
-	if err != nil {
-		t.Fatalf("failed to create test client: %v", err)
-	}
-	return client
-}
-
-func readGraphQLRequest(t *testing.T, r *http.Request) graphQLRequest {
+func readGraphQLRequest(
+	t *testing.T,
+	w http.ResponseWriter,
+	r *http.Request,
+) (graphQLRequest, bool) {
 	t.Helper()
 	if r.Method != http.MethodPost {
-		t.Fatalf("unexpected method: got %s want POST", r.Method)
+		failTestHandler(t, w, "unexpected method: got %s want POST", r.Method)
+		return graphQLRequest{}, false
 	}
 	if contentType := r.Header.Get("Content-Type"); contentType != "application/json" {
-		t.Fatalf("unexpected content type: %q", contentType)
+		failTestHandler(t, w, "unexpected content type: %q", contentType)
+		return graphQLRequest{}, false
 	}
 	var req graphQLRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		t.Fatalf("failed to decode request: %v", err)
+		failTestHandler(t, w, "failed to decode request: %v", err)
+		return graphQLRequest{}, false
 	}
 	if strings.TrimSpace(req.Query) == "" {
-		t.Fatal("query is required")
+		failTestHandler(t, w, "query is required")
+		return graphQLRequest{}, false
 	}
 	if req.Variables == nil {
 		req.Variables = map[string]any{}
 	}
-	return req
+	return req, true
 }
 
 func writeJSON(t *testing.T, w http.ResponseWriter, value any) {
 	t.Helper()
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(value); err != nil {
-		t.Fatalf("failed to encode response: %v", err)
+		t.Errorf("failed to encode response: %v", err)
 	}
+}
+
+func failTestHandler(
+	t *testing.T,
+	w http.ResponseWriter,
+	format string,
+	args ...any,
+) {
+	t.Helper()
+	t.Errorf(format, args...)
+	http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 }

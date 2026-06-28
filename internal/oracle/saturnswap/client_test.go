@@ -16,7 +16,6 @@ package saturnswap
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -57,48 +56,50 @@ func TestQueryPoolsByTicker(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			t.Fatalf("unexpected method: %s", r.Method)
-		}
-		if r.Header.Get("Content-Type") != "application/json" {
-			t.Fatalf("unexpected content-type: %s", r.Header.Get("Content-Type"))
-		}
-
-		var body graphQLRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("failed to decode request: %v", err)
+		body, ok := readGraphQLRequest(t, w, r)
+		if !ok {
+			return
 		}
 		if !strings.Contains(body.Query, "pools") {
-			t.Fatalf("query did not request pools: %s", body.Query)
+			failTestHandler(t, w, "query did not request pools: %s", body.Query)
+			return
 		}
-		variables := graphqlVariables(t, body)
+		variables, ok := graphqlVariables(t, w, body)
+		if !ok {
+			return
+		}
 		if variables["ticker"] != "SNEK" {
-			t.Fatalf("unexpected ticker variable: %#v", variables["ticker"])
+			failTestHandler(
+				t,
+				w,
+				"unexpected ticker variable: %#v",
+				variables["ticker"],
+			)
+			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{
-			"data": {
-				"pools": {
-					"nodes": [
+		writeJSON(t, w, map[string]any{
+			"data": map[string]any{
+				"pools": map[string]any{
+					"nodes": []map[string]any{
 						{
-							"id": "pool-1",
-							"ticker": "SNEK",
-							"lp_fee_percent": 0.3,
-							"token_project_one": {},
-							"token_project_two": {
-								"policy_id": "aa",
-								"asset_name": "bb"
+							"id":                "pool-1",
+							"ticker":            "SNEK",
+							"lp_fee_percent":    0.3,
+							"token_project_one": map[string]any{},
+							"token_project_two": map[string]any{
+								"policy_id":  "aa",
+								"asset_name": "bb",
 							},
-							"pool_stats": {
+							"pool_stats": map[string]any{
 								"reserve_token_one": "5000000",
-								"reserve_token_two": 100
-							}
-						}
-					]
-				}
-			}
-		}`))
+								"reserve_token_two": 100,
+							},
+						},
+					},
+				},
+			},
+		})
 	}))
 	defer server.Close()
 
@@ -129,43 +130,56 @@ func TestCreateAndSubmitOrderTransactions(t *testing.T) {
 	t.Parallel()
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var body graphQLRequest
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Fatalf("failed to decode request: %v", err)
+		body, ok := readGraphQLRequest(t, w, r)
+		if !ok {
+			return
 		}
-		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case strings.Contains(body.Query, "createOrderTransaction"):
-			input := graphqlVariables(t, body)["input"].(map[string]interface{})
-			if input["paymentAddress"] != "addr1test" {
-				t.Fatalf("unexpected create input: %#v", input)
+			variables, ok := graphqlVariables(t, w, body)
+			if !ok {
+				return
 			}
-			_, _ = w.Write([]byte(`{
-				"data": {
-					"createOrderTransaction": {
-						"successTransactions": [
-							{"transactionId": "draft-1", "hexTransaction": "84a1"}
-						],
-						"failTransactions": [],
-						"error": null
-					}
-				}
-			}`))
+			input := variables["input"].(map[string]interface{})
+			if input["paymentAddress"] != "addr1test" {
+				failTestHandler(t, w, "unexpected create input: %#v", input)
+				return
+			}
+			writeJSON(t, w, map[string]any{
+				"data": map[string]any{
+					"createOrderTransaction": map[string]any{
+						"successTransactions": []map[string]any{
+							{
+								"transactionId":  "draft-1",
+								"hexTransaction": "84a1",
+							},
+						},
+						"failTransactions": []map[string]any{},
+						"error":            nil,
+					},
+				},
+			})
 		case strings.Contains(body.Query, "submitOrderTransaction"):
-			input := graphqlVariables(t, body)["input"].(map[string]interface{})
-			if input["paymentAddress"] != "addr1test" {
-				t.Fatalf("unexpected submit input: %#v", input)
+			variables, ok := graphqlVariables(t, w, body)
+			if !ok {
+				return
 			}
-			_, _ = w.Write([]byte(`{
-				"data": {
-					"submitOrderTransaction": {
-						"transactionIds": ["tx-1"],
-						"error": null
-					}
-				}
-			}`))
+			input := variables["input"].(map[string]interface{})
+			if input["paymentAddress"] != "addr1test" {
+				failTestHandler(t, w, "unexpected submit input: %#v", input)
+				return
+			}
+			writeJSON(t, w, map[string]any{
+				"data": map[string]any{
+					"submitOrderTransaction": map[string]any{
+						"transactionIds": []string{"tx-1"},
+						"error":          nil,
+					},
+				},
+			})
 		default:
-			t.Fatalf("unexpected query: %s", body.Query)
+			failTestHandler(t, w, "unexpected query: %s", body.Query)
+			return
 		}
 	}))
 	defer server.Close()
@@ -251,12 +265,14 @@ func newEnabledTestClient(t *testing.T, endpoint string) *Client {
 
 func graphqlVariables(
 	t *testing.T,
+	w http.ResponseWriter,
 	body graphQLRequest,
-) map[string]interface{} {
+) (map[string]any, bool) {
 	t.Helper()
-	variables, ok := body.Variables.(map[string]interface{})
+	variables, ok := body.Variables.(map[string]any)
 	if !ok {
-		t.Fatalf("unexpected variables shape: %#v", body.Variables)
+		failTestHandler(t, w, "unexpected variables shape: %#v", body.Variables)
+		return nil, false
 	}
-	return variables
+	return variables, true
 }

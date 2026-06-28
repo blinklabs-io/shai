@@ -167,10 +167,13 @@ func (c *Client) Query(
 	if err != nil {
 		return fmt.Errorf("SaturnSwap GraphQL request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		_, _ = io.Copy(io.Discard, resp.Body)
 		return fmt.Errorf(
 			"SaturnSwap GraphQL HTTP status %d: %s",
 			resp.StatusCode,
