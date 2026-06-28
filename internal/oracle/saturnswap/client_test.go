@@ -83,10 +83,11 @@ func TestQueryPoolsByTicker(t *testing.T) {
 				"pools": map[string]any{
 					"nodes": []map[string]any{
 						{
-							"id":                "pool-1",
-							"ticker":            "SNEK",
-							"lp_fee_percent":    0.3,
-							"token_project_one": map[string]any{},
+							"id":                   "pool-1",
+							"ticker":               "SNEK",
+							"lp_fee_percent":       0.3,
+							"protocol_fee_percent": 0,
+							"token_project_one":    map[string]any{},
 							"token_project_two": map[string]any{
 								"policy_id":  "aa",
 								"asset_name": "bb",
@@ -248,6 +249,11 @@ func TestExternalAPIConfigValidation(t *testing.T) {
 	config := APIConfig{Enabled: true, Endpoint: "ftp://example.com"}
 	if !errors.Is(config.Validate(), ErrInvalidExternalAPIConfig) {
 		t.Fatal("expected invalid config for unsupported scheme")
+	}
+
+	config = APIConfig{Enabled: true, Timeout: -time.Second}
+	if !errors.Is(config.Validate(), ErrInvalidExternalAPIConfig) {
+		t.Fatal("expected invalid config for negative timeout")
 	}
 }
 

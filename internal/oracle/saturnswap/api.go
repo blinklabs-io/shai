@@ -55,8 +55,12 @@ func DefaultAPIConfig() APIConfig {
 	}
 }
 
-// Validate checks endpoint shape only when optional API access is enabled.
+// Validate checks timeout and, when optional API access is enabled, endpoint
+// shape.
 func (cfg APIConfig) Validate() error {
+	if cfg.Timeout < 0 {
+		return fmt.Errorf("%w: timeout must not be negative", ErrInvalidExternalAPIConfig)
+	}
 	if !cfg.Enabled {
 		return nil
 	}

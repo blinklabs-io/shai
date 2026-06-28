@@ -71,12 +71,13 @@ func TestPoolsByTickerAndPoolStateParsing(t *testing.T) {
 					"pools": map[string]any{
 						"nodes": []map[string]any{
 							{
-								"id":             "pool-1",
-								"name":           "ADA x SNEK",
-								"ticker":         "SNEK",
-								"lp_fee_percent": "0.3",
-								"is_swap_active": true,
-								"is_verified":    true,
+								"id":                   "pool-1",
+								"name":                 "ADA x SNEK",
+								"ticker":               "SNEK",
+								"lp_fee_percent":       "0.3",
+								"protocol_fee_percent": "0.05",
+								"is_swap_active":       true,
+								"is_verified":          true,
 								"token_project_one": map[string]any{
 									"id":       "ada",
 									"name":     "Cardano",
@@ -142,9 +143,9 @@ func TestPoolsByTickerAndPoolStateParsing(t *testing.T) {
 	if state.AssetY.Amount != 123_456_789 {
 		t.Fatalf("unexpected reserve Y: %d", state.AssetY.Amount)
 	}
-	if state.FeeNum != 9970 || state.FeeDenom != FeeDenom {
+	if state.FeeNum != 9965 || state.FeeDenom != FeeDenom {
 		t.Fatalf(
-			"unexpected fee parts: got %d/%d want 9970/%d",
+			"unexpected fee parts: got %d/%d want 9965/%d",
 			state.FeeNum,
 			state.FeeDenom,
 			FeeDenom,
@@ -182,9 +183,10 @@ func TestPoolByTokens(t *testing.T) {
 			writeJSON(t, w, map[string]any{
 				"data": map[string]any{
 					"poolByTokens": map[string]any{
-						"id":             "pool-by-token",
-						"name":           "ADA x TOKEN",
-						"lp_fee_percent": "0.25",
+						"id":                   "pool-by-token",
+						"name":                 "ADA x TOKEN",
+						"lp_fee_percent":       "0.25",
+						"protocol_fee_percent": "0",
 						"token_project_one": map[string]any{
 							"ticker": "ADA",
 						},

@@ -236,15 +236,21 @@ func (p Pool) ToPoolState(slot uint64, timestamp time.Time) (*PoolState, error) 
 }
 
 func (p Pool) EffectiveFeeParts() (uint64, uint64, error) {
-	percent, err := p.LPFeePercent.Float64()
+	lpPercent, err := p.LPFeePercent.Float64()
 	if err != nil {
 		return 0, 0, fmt.Errorf("lp_fee_percent: %w", err)
 	}
+	protocolPercent, err := p.ProtocolFeePercent.Float64()
+	if err != nil {
+		return 0, 0, fmt.Errorf("protocol_fee_percent: %w", err)
+	}
+	percent := lpPercent + protocolPercent
 	feeBasisPoints := math.Round(percent * 100)
 	if feeBasisPoints < 0 || feeBasisPoints > FeeDenom {
 		return 0, 0, fmt.Errorf(
-			"lp_fee_percent %q outside supported range",
+			"fee percent %q + %q outside supported range",
 			p.LPFeePercent,
+			p.ProtocolFeePercent,
 		)
 	}
 	return FeeDenom - uint64(feeBasisPoints), FeeDenom, nil
