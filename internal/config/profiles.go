@@ -256,8 +256,8 @@ var Profiles = map[string]map[string]Profile{
 		"indigo": {
 			Name:          "indigo",
 			Type:          ProfileTypeSynthetics,
-			InterceptSlot: 75600000,
-			InterceptHash: "0000000000000000000000000000000000000000000000000000000000000000",
+			InterceptSlot: 75599947, // ~Oct 30 2022 (epoch 372)
+			InterceptHash: "5af43c107055e2339c0d8d931c10679adb0b39ae0322cc521d7c327dcc6d816f",
 			Config: SyntheticsProfileConfig{
 				Protocol: "indigo",
 				CDPAddresses: []ProfileConfigAddress{
