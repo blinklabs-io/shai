@@ -287,8 +287,8 @@ var Profiles = map[string]map[string]Profile{
 		"optim": {
 			Name:          "optim",
 			Type:          ProfileTypeBonds,
-			InterceptSlot: 78624000, // Liquidity Bonds launch ~Dec 9, 2022 (epoch 381)
-			InterceptHash: "0000000000000000000000000000000000000000000000000000000000000000",
+			InterceptSlot: 78623998, // pre-launch block, ~Dec 4 2022 (epoch 379)
+			InterceptHash: "7f9d6a941e3e81f5b16ac34a1364983684d6c4b008d7d9520ad1e1bad276870e",
 			Config: BondsProfileConfig{
 				Protocol: "optim",
 				BondAddresses: []ProfileConfigAddress{
