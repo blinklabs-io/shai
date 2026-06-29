@@ -48,4 +48,5 @@ var (
 	NewWingRidersV2Parser = dex.NewWingRidersV2Parser
 	NewVyFiParser         = dex.NewVyFiParser
 	NewCSwapParser        = dex.NewCSwapParser
+	NewGeniusYieldParser  = dex.NewGeniusYieldParser
 )
