@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package oracle
+package dex
 
 import (
 	"fmt"
 	"math/big"
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/common"
-	"github.com/blinklabs-io/shai/internal/oracle/geniusyield"
+	"github.com/blinklabs-io/shai/common"
+	"github.com/blinklabs-io/shai/dex/geniusyield"
 )
 
 // Re-export constants for backward compatibility
@@ -55,6 +55,13 @@ func NewGeniusYieldParser() *GeniusYieldParser {
 // Protocol returns the protocol name
 func (p *GeniusYieldParser) Protocol() string {
 	return p.parser.Protocol()
+}
+
+// PoolAddresses returns the mainnet script addresses holding this protocol's
+// order UTxOs. Query your node for UTxOs at these addresses, then feed each
+// output's datum and value CBOR to ParsePoolDatum.
+func (p *GeniusYieldParser) PoolAddresses() []string {
+	return PoolAddresses(p.Protocol())
 }
 
 // ParseOrderDatum parses a Genius Yield order datum
