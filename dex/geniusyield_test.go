@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package oracle
+package dex
 
 import (
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/shai/internal/oracle/geniusyield"
+	"github.com/blinklabs-io/shai/dex/geniusyield"
 )
 
 func TestNewGeniusYieldParser(t *testing.T) {

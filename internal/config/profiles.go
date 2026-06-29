@@ -348,13 +348,13 @@ var Profiles = map[string]map[string]Profile{
 		"geniusyield": {
 			Name:          "geniusyield",
 			Type:          ProfileTypeOracle,
-			InterceptSlot: 108000000,
-			InterceptHash: "7d5e5e5e8f8f8f8f7d7d7d7d6c6c6c6c5b5b5b5b4a4a4a4a39393939282828",
+			InterceptSlot: 107999998, // ~Nov 9 2023 (epoch 447)
+			InterceptHash: "9ade9e2cbbf075b7653df58c29ebb4d8910119b7ac452c9512ef2f211d25d2ff",
 			Config: OracleProfileConfig{
 				Protocol: "geniusyield",
 				PoolAddresses: []ProfileConfigAddress{
 					{
-						Address: "addr1w8lj5fvnqvx8rtp8k6e6kcp7g76twqv2ad2hg7avfqtj7qgc5rquk",
+						Address: "addr1w9zr09hgj7z6vz3d7wnxw0u4x30arsp5k8avlcm84utptls8uqd0z",
 					},
 				},
 				InputRefs: []ProfileConfigInputRef{},
