@@ -23,43 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/common"
+	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
 )
-
-// OrderState represents the parsed state of a Genius Yield order
-type OrderState struct {
-	OrderId        string            `json:"orderId"`
-	Protocol       string            `json:"protocol"`
-	Owner          string            `json:"owner"`
-	OfferedAsset   common.AssetClass `json:"offeredAsset"`
-	OfferedAmount  uint64            `json:"offeredAmount"`
-	OriginalAmount uint64            `json:"originalAmount"`
-	AskedAsset     common.AssetClass `json:"askedAsset"`
-	Price          float64           `json:"price"`
-	PriceNum       int64             `json:"priceNum"`
-	PriceDenom     int64             `json:"priceDenom"`
-	IsActive       bool              `json:"isActive"`
-	StartTime      *time.Time        `json:"startTime"`
-	EndTime        *time.Time        `json:"endTime"`
-	PartialFills   uint64            `json:"partialFills"`
-	Slot           uint64            `json:"slot"`
-	TxHash         string            `json:"txHash"`
-	TxIndex        uint32            `json:"txIndex"`
-	Timestamp      time.Time         `json:"timestamp"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
-
-	// Fields preserved for partial fill datum reconstruction
-	OwnerAddr            OrderAddress `json:"ownerAddr"`            // Owner payment address
-	NFT                  []byte       `json:"nft"`                  // Order NFT token name
-	MakerLovelaceFlatFee uint64       `json:"makerLovelaceFlatFee"` // Flat maker fee
-	MakerFeeNum          int64        `json:"makerFeeNum"`          // Maker fee numerator
-	MakerFeeDenom        int64        `json:"makerFeeDenom"`        // Maker fee denominator
-	MakerFeeMax          uint64       `json:"makerFeeMax"`          // Max maker fee
-	ContainedLovelaceFee uint64       `json:"containedLovelaceFee"` // Contained lovelace fee
-	ContainedOfferedFee  uint64       `json:"containedOfferedFee"`  // Contained offered fee
-	ContainedAskedFee    uint64       `json:"containedAskedFee"`    // Contained asked fee
-	ContainedPayment     uint64       `json:"containedPayment"`     // Contained payment
-}
 
 // TradingPair represents a pair of assets that can be traded
 type TradingPair struct {
@@ -87,7 +53,7 @@ const (
 
 // OrderBookEntry represents an order in the order book
 type OrderBookEntry struct {
-	Order      *OrderState
+	Order      *dexgy.OrderState
 	TxHash     string
 	TxIndex    uint32
 	Side       OrderSide
@@ -116,7 +82,7 @@ func NewOrderBook(pair TradingPair) *OrderBook {
 }
 
 // AddOrder adds an order to the order book
-func (ob *OrderBook) AddOrder(order *OrderState) {
+func (ob *OrderBook) AddOrder(order *dexgy.OrderState) {
 	ob.mu.Lock()
 	defer ob.mu.Unlock()
 
@@ -173,7 +139,7 @@ func (ob *OrderBook) RemoveOrder(orderId string) {
 }
 
 // UpdateOrder updates an existing order in the order book
-func (ob *OrderBook) UpdateOrder(order *OrderState) {
+func (ob *OrderBook) UpdateOrder(order *dexgy.OrderState) {
 	ob.RemoveOrder(order.OrderId)
 	if order.IsActive && order.OfferedAmount > 0 {
 		ob.AddOrder(order)
@@ -297,7 +263,7 @@ type PriceLevel struct {
 
 // RouteLeg represents a single order fill in a route
 type RouteLeg struct {
-	Order        *OrderState
+	Order        *dexgy.OrderState
 	TxHash       string
 	TxIndex      uint32
 	InputAmount  uint64
@@ -371,7 +337,7 @@ func (sor *SmartOrderRouter) GetOrderBook(pair TradingPair) *OrderBook {
 }
 
 // AddOrder adds an order
-func (sor *SmartOrderRouter) AddOrder(order *OrderState) {
+func (sor *SmartOrderRouter) AddOrder(order *dexgy.OrderState) {
 	pair := TradingPair{
 		Base:  order.OfferedAsset,
 		Quote: order.AskedAsset,
@@ -391,7 +357,7 @@ func (sor *SmartOrderRouter) RemoveOrder(orderId string) {
 }
 
 // UpdateOrder updates an order
-func (sor *SmartOrderRouter) UpdateOrder(order *OrderState) {
+func (sor *SmartOrderRouter) UpdateOrder(order *dexgy.OrderState) {
 	sor.RemoveOrder(order.OrderId)
 	if order.IsActive && order.OfferedAmount > 0 {
 		sor.AddOrder(order)

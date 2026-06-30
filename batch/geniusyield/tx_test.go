@@ -29,7 +29,8 @@ import (
 	"github.com/Salvionied/apollo/serialization/Value"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/common"
+	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/internal/config"
 )
 
@@ -318,7 +319,7 @@ func TestBuildAssetDatum_Lovelace(t *testing.T) {
 }
 
 func TestBuildAssetDatum_OrderAsset(t *testing.T) {
-	asset := OrderAsset{
+	asset := dexgy.OrderAsset{
 		PolicyId:  []byte{0xaa, 0xbb},
 		AssetName: []byte("GY"),
 	}
@@ -357,7 +358,7 @@ func TestBuildAssetDatum_FallbackEmpty(t *testing.T) {
 func decodeAssetDatum(
 	t *testing.T,
 	datum cbor.ConstructorEncoder,
-) OrderAsset {
+) dexgy.OrderAsset {
 	t.Helper()
 
 	encoded, err := cbor.Encode(&datum)
@@ -365,7 +366,7 @@ func decodeAssetDatum(
 		t.Fatalf("failed to encode asset datum: %v", err)
 	}
 
-	var decoded OrderAsset
+	var decoded dexgy.OrderAsset
 	if _, err := cbor.Decode(encoded, &decoded); err != nil {
 		t.Fatalf("failed to decode asset datum: %v", err)
 	}
@@ -380,7 +381,7 @@ func TestCalculateOwnerPayment_TakerLovelace(t *testing.T) {
 		outputAmount: 5000000,
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		AskedAsset: common.Lovelace(),
 	}
 
@@ -404,7 +405,7 @@ func TestCalculateOwnerPayment_TakerToken(t *testing.T) {
 		outputAmount: 1000000,
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		AskedAsset: common.AssetClass{
 			PolicyId: []byte{0x01, 0x02, 0x03},
 			Name:     []byte("TOKEN"),
@@ -431,7 +432,7 @@ func TestCalculateOwnerPayment_MakerLovelace(t *testing.T) {
 		outputAmount: 1000000,
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		AskedAsset: common.Lovelace(),
 	}
 
@@ -455,7 +456,7 @@ func TestCalculateOwnerPayment_MakerToken(t *testing.T) {
 		outputAmount: 2500000,
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		AskedAsset: common.AssetClass{
 			PolicyId: []byte{0x01, 0x02, 0x03},
 			Name:     []byte("TOKEN"),
@@ -592,17 +593,17 @@ func TestEstimateFee_Scaling(t *testing.T) {
 
 func TestBuildUpdatedOrderDatum(t *testing.T) {
 	now := time.Now()
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId: "test-order-123",
 		Owner:   "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
-		OwnerAddr: OrderAddress{
-			PaymentCredential: OrderCredential{
+		OwnerAddr: dexgy.OrderAddress{
+			PaymentCredential: dexgy.OrderCredential{
 				Type: 0,
 				Hash: bytes.Repeat([]byte{0xbb}, 28),
 			},
-			StakingCredential: OptionalCredential{
+			StakingCredential: dexgy.OptionalCredential{
 				IsPresent: true,
-				Credential: &OrderCredential{
+				Credential: &dexgy.OrderCredential{
 					Type: 1,
 					Hash: bytes.Repeat([]byte{0xcc}, 28),
 				},
@@ -654,7 +655,7 @@ func TestBuildUpdatedOrderDatum(t *testing.T) {
 		t.Error("expected non-empty encoded datum")
 	}
 
-	var decoded OrderConfig
+	var decoded dexgy.OrderConfig
 	if _, err := cbor.Decode(encoded, &decoded); err != nil {
 		t.Fatalf("failed to decode updated datum: %v", err)
 	}
@@ -677,7 +678,7 @@ func TestBuildUpdatedOrderDatum(t *testing.T) {
 }
 
 func TestBuildUpdatedOrderDatum_InvalidHex(t *testing.T) {
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId: "test-order",
 		Owner:   "not-valid-hex", // Invalid hex string
 	}
@@ -689,7 +690,7 @@ func TestBuildUpdatedOrderDatum_InvalidHex(t *testing.T) {
 }
 
 func TestBuildPartialFillOutput_ReducesLovelaceForAdaOffer(t *testing.T) {
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "ada-order",
 		Owner:          "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
 		OfferedAsset:   common.Lovelace(),
@@ -729,7 +730,7 @@ func TestBuildPartialFillOutput_ReducesLovelaceForAdaOffer(t *testing.T) {
 }
 
 func TestBuildPartialFillOutput_RejectsAdaDustRemainder(t *testing.T) {
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "ada-order",
 		Owner:          "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
 		OfferedAsset:   common.Lovelace(),
@@ -770,7 +771,7 @@ func TestBuildOwnerAddressHeader(t *testing.T) {
 		cfg.Network = originalNetwork
 	}()
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		Owner: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
 	}
 
@@ -815,16 +816,16 @@ func TestBuildOwnerAddressUsesOwnerAddr(t *testing.T) {
 
 	paymentHash := bytes.Repeat([]byte{0x11}, 28)
 	stakingHash := bytes.Repeat([]byte{0x22}, 28)
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		Owner: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
-		OwnerAddr: OrderAddress{
-			PaymentCredential: OrderCredential{
+		OwnerAddr: dexgy.OrderAddress{
+			PaymentCredential: dexgy.OrderCredential{
 				Type: 0,
 				Hash: paymentHash,
 			},
-			StakingCredential: OptionalCredential{
+			StakingCredential: dexgy.OptionalCredential{
 				IsPresent: true,
-				Credential: &OrderCredential{
+				Credential: &dexgy.OrderCredential{
 					Type: 1,
 					Hash: stakingHash,
 				},
@@ -850,11 +851,11 @@ func TestBuildOwnerAddressUsesOwnerAddr(t *testing.T) {
 func TestAddOrderFillOutputCompleteRejectsInvalidOwnerAddress(t *testing.T) {
 	cc := apollo.NewEmptyBackend()
 	apollob := apollo.New(&cc)
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId: "order-bad-owner",
 		Owner:   hex.EncodeToString(bytes.Repeat([]byte{0xaa}, 28)),
-		OwnerAddr: OrderAddress{
-			PaymentCredential: OrderCredential{
+		OwnerAddr: dexgy.OrderAddress{
+			PaymentCredential: dexgy.OrderCredential{
 				Type: 0,
 				Hash: []byte{0x01},
 			},
@@ -910,7 +911,7 @@ func TestOrderFillOutput_Fields(t *testing.T) {
 func TestCalculateFillOutputs(t *testing.T) {
 	gy := &GeniusYield{}
 
-	newOrder := &OrderState{
+	newOrder := &dexgy.OrderState{
 		OrderId:       "taker-order",
 		OfferedAmount: 1000000,
 	}
@@ -920,7 +921,7 @@ func TestCalculateFillOutputs(t *testing.T) {
 		TotalOutput: 500000,
 		Legs: []RouteLeg{
 			{
-				Order: &OrderState{
+				Order: &dexgy.OrderState{
 					OrderId:       "maker-order-1",
 					OfferedAmount: 300000,
 				},
@@ -928,7 +929,7 @@ func TestCalculateFillOutputs(t *testing.T) {
 				OutputAmount: 300000,
 			},
 			{
-				Order: &OrderState{
+				Order: &dexgy.OrderState{
 					OrderId:       "maker-order-2",
 					OfferedAmount: 500000,
 				},
@@ -980,7 +981,7 @@ func TestCalculateFillOutputs(t *testing.T) {
 func TestCalculateFillOutputs_PartialFills(t *testing.T) {
 	gy := &GeniusYield{}
 
-	newOrder := &OrderState{
+	newOrder := &dexgy.OrderState{
 		OrderId:       "taker-order",
 		OfferedAmount: 1000000,
 	}
@@ -990,7 +991,7 @@ func TestCalculateFillOutputs_PartialFills(t *testing.T) {
 		TotalOutput: 250000,
 		Legs: []RouteLeg{
 			{
-				Order: &OrderState{
+				Order: &dexgy.OrderState{
 					OrderId:       "maker-order-1",
 					OfferedAmount: 1000000,
 				},
@@ -1027,7 +1028,7 @@ func TestBuildMatchTxOpts_Fields(t *testing.T) {
 			TotalInput:  1000000,
 			TotalOutput: 500000,
 		},
-		newOrder: &OrderState{
+		newOrder: &dexgy.OrderState{
 			OrderId: "test-order",
 		},
 		newOrderOutput: nil, // Would be a ledger.TransactionOutput in real use
