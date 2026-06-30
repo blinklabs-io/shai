@@ -17,7 +17,7 @@ package oracle
 import (
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/oracle/indigo"
+	"github.com/blinklabs-io/shai/dex/indigo"
 )
 
 // Re-export constants for backward compatibility

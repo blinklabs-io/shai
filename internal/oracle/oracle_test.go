@@ -20,7 +20,8 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/adder/event"
-	"github.com/blinklabs-io/shai/internal/common"
+
+	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/internal/config"
 )
 
