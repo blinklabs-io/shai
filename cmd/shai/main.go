@@ -153,6 +153,45 @@ func main() {
 				os.Exit(1)
 			}
 			oracles = append(oracles, o)
+		case config.ProfileTypeSynthetics:
+			synthCfg, ok := profile.Config.(config.SyntheticsProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid synthetics profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			logger.Info(
+				"initializing profile",
+				"name",
+				profile.Name,
+				"type",
+				"Synthetics",
+				"protocol",
+				synthCfg.Protocol,
+			)
+			parser := getSyntheticsParser(synthCfg.Protocol)
+			if parser == nil {
+				logger.Error(
+					"unknown synthetics protocol",
+					"protocol",
+					synthCfg.Protocol,
+				)
+				os.Exit(1)
+			}
+			o := oracle.NewSynthetics(idx, &profile, parser)
+			if err := o.Start(); err != nil {
+				logger.Error(
+					"failed to start synthetics oracle",
+					"error",
+					err,
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
@@ -220,6 +259,16 @@ func getOracleParser(protocol string) oracle.PoolParser {
 		return oracle.NewVyFiParser()
 	case "cswap":
 		return oracle.NewCSwapParser()
+	default:
+		return nil
+	}
+}
+
+// getSyntheticsParser returns the appropriate parser for a synthetics protocol.
+func getSyntheticsParser(protocol string) oracle.SyntheticsParser {
+	switch protocol {
+	case "butane":
+		return oracle.NewButaneParser()
 	default:
 		return nil
 	}
