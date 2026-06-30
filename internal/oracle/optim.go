@@ -17,7 +17,7 @@ package oracle
 import (
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/oracle/optim"
+	"github.com/blinklabs-io/shai/dex/optim"
 )
 
 // Re-export constants for backward compatibility
