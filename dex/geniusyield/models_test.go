@@ -185,7 +185,7 @@ func TestOrderConfigToStatePreservesPartialFillFields(t *testing.T) {
 		ContainedPayment: 4,
 	}
 
-	state := (&GeniusYield{}).orderConfigToState(cfg, "tx", 1, 2)
+	state := OrderConfigToState(cfg, "tx", 1, 2)
 
 	if string(state.NFT) != "order-nft" {
 		t.Fatalf("unexpected NFT: %q", state.NFT)

@@ -19,7 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/common"
+	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
 )
 
 func TestNewSmartOrderRouter(t *testing.T) {
@@ -70,7 +71,7 @@ func TestOrderBookAddRemove(t *testing.T) {
 	ob := NewOrderBook(pair)
 
 	// Add a sell order (offering base, asking for quote)
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "test_order_1",
 		OfferedAsset:   pair.Base,
 		OfferedAmount:  1000000,
@@ -109,7 +110,7 @@ func TestOrderBookBestBidAsk(t *testing.T) {
 	ob := NewOrderBook(pair)
 
 	// Add sell orders at different prices
-	order1 := &OrderState{
+	order1 := &dexgy.OrderState{
 		OrderId:        "sell_1",
 		OfferedAsset:   pair.Base,
 		OfferedAmount:  1000000,
@@ -120,7 +121,7 @@ func TestOrderBookBestBidAsk(t *testing.T) {
 		TxHash:         "tx1",
 		Timestamp:      time.Now(),
 	}
-	order2 := &OrderState{
+	order2 := &dexgy.OrderState{
 		OrderId:        "sell_2",
 		OfferedAsset:   pair.Base,
 		OfferedAmount:  500000,
@@ -155,7 +156,7 @@ func TestOrderBookSpread(t *testing.T) {
 	ob := NewOrderBook(pair)
 
 	// Add a buy order (bid)
-	bidOrder := &OrderState{
+	bidOrder := &dexgy.OrderState{
 		OrderId:        "bid_1",
 		OfferedAsset:   pair.Quote, // Offering ADA
 		OfferedAmount:  2000000,
@@ -168,7 +169,7 @@ func TestOrderBookSpread(t *testing.T) {
 	}
 
 	// Add a sell order (ask)
-	askOrder := &OrderState{
+	askOrder := &dexgy.OrderState{
 		OrderId:        "ask_1",
 		OfferedAsset:   pair.Base, // Offering TOKEN
 		OfferedAmount:  1000000,
@@ -192,7 +193,7 @@ func TestOrderBookSpread(t *testing.T) {
 func TestSORAddOrder(t *testing.T) {
 	sor := NewSmartOrderRouter()
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "gy_test1",
 		OfferedAsset:   common.Lovelace(),
 		OfferedAmount:  5000000,
@@ -231,7 +232,7 @@ func TestSORFindRoute(t *testing.T) {
 	}
 
 	// Add sell orders (selling TOKEN for ADA)
-	order1 := &OrderState{
+	order1 := &dexgy.OrderState{
 		OrderId:        "gy_sell1",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  1000000,
@@ -246,7 +247,7 @@ func TestSORFindRoute(t *testing.T) {
 		Timestamp:      time.Now(),
 	}
 
-	order2 := &OrderState{
+	order2 := &dexgy.OrderState{
 		OrderId:        "gy_sell2",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  500000,
@@ -301,7 +302,7 @@ func TestSORFindRouteIgnoresZeroPriceOrders(t *testing.T) {
 		Name:     []byte("TOKEN"),
 	}
 
-	validOrder := &OrderState{
+	validOrder := &dexgy.OrderState{
 		OrderId:       "gy_valid",
 		OfferedAsset:  tokenAsset,
 		OfferedAmount: 1000000,
@@ -322,7 +323,7 @@ func TestSORFindRouteIgnoresZeroPriceOrders(t *testing.T) {
 		t.Fatal("expected order book")
 	}
 
-	zeroPriceOrder := &OrderState{
+	zeroPriceOrder := &dexgy.OrderState{
 		OrderId:       "gy_zero",
 		OfferedAsset:  tokenAsset,
 		OfferedAmount: 1000000,
@@ -374,7 +375,7 @@ func TestSORGetQuote(t *testing.T) {
 		Name:     []byte("TKN"),
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "gy_quote1",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  10000000,
@@ -417,7 +418,7 @@ func TestSORGetBestPrice(t *testing.T) {
 		Name:     []byte("BEST"),
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "gy_best1",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  5000000,
@@ -461,7 +462,7 @@ func TestSORClearExpired(t *testing.T) {
 	}
 
 	// Add expired order
-	expiredOrder := &OrderState{
+	expiredOrder := &dexgy.OrderState{
 		OrderId:        "gy_expired",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  1000000,
@@ -475,7 +476,7 @@ func TestSORClearExpired(t *testing.T) {
 	}
 
 	// Add active order
-	activeOrder := &OrderState{
+	activeOrder := &dexgy.OrderState{
 		OrderId:        "gy_active",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  2000000,
@@ -516,7 +517,7 @@ func TestHandleConsumedOrderRemovesOrder(t *testing.T) {
 		PolicyId: []byte{0x44},
 		Name:     []byte("USED"),
 	}
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:       "gy_consumed",
 		OfferedAsset:  tokenAsset,
 		OfferedAmount: 1000000,
@@ -547,7 +548,7 @@ func TestSORStats(t *testing.T) {
 		Name:     []byte("STAT"),
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "gy_stat1",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  1000000,
@@ -589,7 +590,7 @@ func TestOrderBookDepth(t *testing.T) {
 
 	// Add multiple ask orders at same price
 	for i := 0; i < 3; i++ {
-		order := &OrderState{
+		order := &dexgy.OrderState{
 			OrderId:        fmt.Sprintf("depth_%d", i),
 			OfferedAsset:   pair.Base,
 			OfferedAmount:  1000000,
@@ -658,7 +659,7 @@ func TestSORMultiHopRouting(t *testing.T) {
 	}
 
 	// Hop 1 liquidity: maker buys A with ADA, so taker can sell A for ADA.
-	orderAtoB := &OrderState{
+	orderAtoB := &dexgy.OrderState{
 		OrderId:       "order-a-b",
 		OfferedAsset:  assetB,
 		OfferedAmount: 1000000,
@@ -671,7 +672,7 @@ func TestSORMultiHopRouting(t *testing.T) {
 	sor.AddOrder(orderAtoB)
 
 	// Hop 2 liquidity: maker sells C for ADA.
-	orderBtoC := &OrderState{
+	orderBtoC := &dexgy.OrderState{
 		OrderId:       "order-b-c",
 		OfferedAsset:  assetC,
 		OfferedAmount: 500000,
@@ -714,7 +715,7 @@ func TestSORFindIntermediateAssets(t *testing.T) {
 	tokenB := common.AssetClass{PolicyId: []byte{0x02}, Name: []byte("B")}
 
 	// Add orders creating A/ADA and ADA/B order books
-	sor.AddOrder(&OrderState{
+	sor.AddOrder(&dexgy.OrderState{
 		OrderId:       "order-1",
 		OfferedAsset:  tokenA,
 		OfferedAmount: 1000000,
@@ -723,7 +724,7 @@ func TestSORFindIntermediateAssets(t *testing.T) {
 		IsActive:      true,
 	})
 
-	sor.AddOrder(&OrderState{
+	sor.AddOrder(&dexgy.OrderState{
 		OrderId:       "order-2",
 		OfferedAsset:  ada,
 		OfferedAmount: 1000000,
@@ -750,7 +751,7 @@ func TestSORUpdateOrder(t *testing.T) {
 		Name:     []byte("UPD"),
 	}
 
-	order := &OrderState{
+	order := &dexgy.OrderState{
 		OrderId:        "gy_update",
 		OfferedAsset:   tokenAsset,
 		OfferedAmount:  1000000,

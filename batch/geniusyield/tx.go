@@ -29,7 +29,8 @@ import (
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
-	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/common"
+	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/storage"
@@ -62,14 +63,14 @@ const (
 // buildMatchTxOpts contains options for building a match transaction
 type buildMatchTxOpts struct {
 	route          *Route
-	newOrder       *OrderState
+	newOrder       *dexgy.OrderState
 	newOrderOutput ledger.TransactionOutput
 }
 
 // buildMatchTx builds a transaction to match orders from a route
 func (gy *GeniusYield) buildMatchTx(
 	route *Route,
-	newOrder *OrderState,
+	newOrder *dexgy.OrderState,
 	newOrderOutput ledger.TransactionOutput,
 ) ([]byte, error) {
 	logger := logging.GetLogger()
@@ -104,7 +105,7 @@ func (gy *GeniusYield) buildMatchTx(
 
 	// Collect all order UTxOs to be consumed (including matched orders)
 	orderUtxos := []UTxO.UTxO{newOrderUtxo}
-	orderStates := []*OrderState{newOrder}
+	orderStates := []*dexgy.OrderState{newOrder}
 
 	// Fetch existing order UTXOs from storage
 	for _, leg := range route.Legs {
@@ -320,7 +321,7 @@ func (gy *GeniusYield) buildMatchTx(
 // calculateFillOutputs calculates the outputs for filling orders
 func (gy *GeniusYield) calculateFillOutputs(
 	route *Route,
-	newOrder *OrderState,
+	newOrder *dexgy.OrderState,
 ) ([]orderFillOutput, error) {
 	outputs := make([]orderFillOutput, 0, len(route.Legs)+1)
 
@@ -360,7 +361,7 @@ type orderFillOutput struct {
 
 func addOrderFillOutput(
 	apollob *apollo.Apollo,
-	orderState *OrderState,
+	orderState *dexgy.OrderState,
 	fillOutput orderFillOutput,
 	utxo UTxO.UTxO,
 ) (*apollo.Apollo, error) {
@@ -441,7 +442,7 @@ func buildOrderRedeemer(output orderFillOutput) ([]byte, error) {
 
 // buildPartialFillOutput constructs the output datum and values for a partial fill
 func buildPartialFillOutput(
-	order *OrderState,
+	order *dexgy.OrderState,
 	fill orderFillOutput,
 	originalUtxo UTxO.UTxO,
 ) (*PlutusData.PlutusData, uint64, []apollo.Unit, error) {
@@ -533,7 +534,7 @@ func buildPartialFillOutput(
 // buildUpdatedOrderDatum constructs an updated datum for partial fills
 // It decodes the original datum and only modifies the necessary fields
 func buildUpdatedOrderDatum(
-	order *OrderState,
+	order *dexgy.OrderState,
 	newOfferedAmount uint64,
 ) (*PlutusData.PlutusData, error) {
 	// Build the datum structure matching PartialOrderDatum
@@ -586,7 +587,7 @@ func buildUpdatedOrderDatum(
 
 // buildContainedFeeDatumFromOrder constructs a contained fee datum from order state
 func buildContainedFeeDatumFromOrder(
-	order *OrderState,
+	order *dexgy.OrderState,
 ) cbor.ConstructorEncoder {
 	return cbor.NewConstructorEncoder(
 		0,
@@ -621,7 +622,7 @@ func buildAssetDatum(
 				},
 			)
 		}
-	case OrderAsset:
+	case dexgy.OrderAsset:
 		return cbor.NewConstructorEncoder(
 			0,
 			cbor.IndefLengthList{
@@ -629,7 +630,7 @@ func buildAssetDatum(
 				a.AssetName,
 			},
 		)
-	case *OrderAsset:
+	case *dexgy.OrderAsset:
 		if a != nil {
 			return cbor.NewConstructorEncoder(
 				0,
@@ -659,7 +660,7 @@ func buildAddressDatum(ownerBytes []byte) cbor.ConstructorEncoder {
 }
 
 func buildOrderAddressDatum(
-	ownerAddr OrderAddress,
+	ownerAddr dexgy.OrderAddress,
 	fallbackOwnerBytes []byte,
 ) cbor.ConstructorEncoder {
 	if len(ownerAddr.PaymentCredential.Hash) == 0 {
@@ -674,7 +675,9 @@ func buildOrderAddressDatum(
 	)
 }
 
-func buildCredentialDatum(credential OrderCredential) cbor.ConstructorEncoder {
+func buildCredentialDatum(
+	credential dexgy.OrderCredential,
+) cbor.ConstructorEncoder {
 	return cbor.NewConstructorEncoder(
 		uint(credential.Type),
 		cbor.IndefLengthList{credential.Hash},
@@ -682,7 +685,7 @@ func buildCredentialDatum(credential OrderCredential) cbor.ConstructorEncoder {
 }
 
 func buildOptionalCredentialDatum(
-	credential OptionalCredential,
+	credential dexgy.OptionalCredential,
 ) cbor.ConstructorEncoder {
 	if !credential.IsPresent || credential.Credential == nil {
 		return cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
@@ -727,7 +730,7 @@ func buildContainedFeeDatum() cbor.ConstructorEncoder {
 }
 
 // buildOwnerAddress constructs the owner address from order state
-func buildOwnerAddress(order *OrderState) (serAddress.Address, error) {
+func buildOwnerAddress(order *dexgy.OrderState) (serAddress.Address, error) {
 	cfg := config.GetConfig()
 	networkId := byte(1) // mainnet
 	if cfg.Network == "preview" || cfg.Network == "preprod" {
@@ -762,7 +765,7 @@ func buildOwnerAddress(order *OrderState) (serAddress.Address, error) {
 }
 
 func orderAddressToSerAddress(
-	ownerAddr OrderAddress,
+	ownerAddr dexgy.OrderAddress,
 	networkId byte,
 ) (serAddress.Address, error) {
 	paymentCredential := ownerAddr.PaymentCredential
@@ -838,7 +841,7 @@ func ownerAddressType(paymentType, stakingType int) (byte, error) {
 // calculateOwnerPayment calculates the payment to send to order owner
 func calculateOwnerPayment(
 	fill orderFillOutput,
-	order *OrderState,
+	order *dexgy.OrderState,
 ) (uint64, []apollo.Unit) {
 	lovelace := uint64(minUtxoLovelace)
 	var units []apollo.Unit

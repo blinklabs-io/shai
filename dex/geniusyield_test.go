@@ -32,31 +32,18 @@ func TestNewGeniusYieldParser(t *testing.T) {
 	}
 }
 
-func TestGeniusYieldAssetToCommonAssetClass(t *testing.T) {
-	asset := GeniusYieldAsset{
+func TestGeniusYieldAssetToCommon(t *testing.T) {
+	asset := geniusyield.OrderAsset{
 		PolicyId:  []byte{0x01, 0x02, 0x03},
 		AssetName: []byte("TEST"),
 	}
 
-	common := asset.ToCommonAssetClass()
+	common := asset.ToCommon()
 	if string(common.PolicyId) != string(asset.PolicyId) {
 		t.Error("policy ID mismatch")
 	}
 	if string(common.Name) != string(asset.AssetName) {
 		t.Error("asset name mismatch")
-	}
-}
-
-func TestGenerateGeniusYieldOrderId(t *testing.T) {
-	nftName := []byte{
-		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
-		0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
-	}
-	orderId := GenerateGeniusYieldOrderId(nftName)
-
-	expected := "gy_0102030405060708090a0b0c0d0e0f10"
-	if orderId != expected {
-		t.Errorf("expected order ID %s, got %s", expected, orderId)
 	}
 }
 
@@ -76,7 +63,7 @@ func TestGeniusYieldRationalToFloat64(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			r := GeniusYieldRational{
+			r := geniusyield.OrderRational{
 				Numerator:   tt.num,
 				Denominator: tt.denom,
 			}
@@ -96,7 +83,7 @@ func TestGeniusYieldOptionalPOSIXUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode None: %v", err)
 	}
 
-	var optNone GeniusYieldOptionalPOSIX
+	var optNone geniusyield.OptionalPOSIX
 	if _, err := cbor.Decode(noneData, &optNone); err != nil {
 		t.Fatalf("failed to decode None: %v", err)
 	}
@@ -112,7 +99,7 @@ func TestGeniusYieldOptionalPOSIXUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode Some: %v", err)
 	}
 
-	var optSome GeniusYieldOptionalPOSIX
+	var optSome geniusyield.OptionalPOSIX
 	if _, err := cbor.Decode(someData, &optSome); err != nil {
 		t.Fatalf("failed to decode Some: %v", err)
 	}
@@ -129,7 +116,7 @@ func TestGeniusYieldOptionalPOSIXUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode invalid constructor: %v", err)
 	}
 
-	var optInvalid GeniusYieldOptionalPOSIX
+	var optInvalid geniusyield.OptionalPOSIX
 	if _, err := cbor.Decode(invalidData, &optInvalid); err == nil {
 		t.Fatal("expected unsupported constructor error")
 	}
@@ -147,7 +134,7 @@ func TestGeniusYieldContainedFeeUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	var fee GeniusYieldContainedFee
+	var fee geniusyield.ContainedFee
 	if _, err := cbor.Decode(cborData, &fee); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
@@ -172,7 +159,7 @@ func TestGeniusYieldCredentialUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode PubKeyHash: %v", err)
 	}
 
-	var pkCred GeniusYieldCredential
+	var pkCred geniusyield.OrderCredential
 	if _, err := cbor.Decode(pkData, &pkCred); err != nil {
 		t.Fatalf("failed to decode PubKeyHash: %v", err)
 	}
@@ -191,7 +178,7 @@ func TestGeniusYieldCredentialUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode ScriptHash: %v", err)
 	}
 
-	var shCred GeniusYieldCredential
+	var shCred geniusyield.OrderCredential
 	if _, err := cbor.Decode(shData, &shCred); err != nil {
 		t.Fatalf("failed to decode ScriptHash: %v", err)
 	}
@@ -211,7 +198,7 @@ func TestGeniusYieldCredentialUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode invalid credential: %v", err)
 	}
 
-	var invalidCred GeniusYieldCredential
+	var invalidCred geniusyield.OrderCredential
 	if _, err := cbor.Decode(invalidData, &invalidCred); err == nil {
 		t.Fatal("expected unsupported constructor error")
 	}
@@ -232,349 +219,89 @@ func TestGeniusYieldOptionalCredentialUnmarshalRejectsInvalidConstructor(
 	}
 }
 
-func TestGeniusYieldOrderStateKey(t *testing.T) {
-	state := &geniusyield.OrderState{
-		OrderId: "gy_abc123",
-	}
-	key := state.Key()
-	expected := "geniusyield:gy_abc123"
-	if key != expected {
-		t.Errorf("expected key %s, got %s", expected, key)
-	}
-}
-
-func TestGeniusYieldOrderStateFillPercent(t *testing.T) {
-	tests := []struct {
-		name         string
-		original     uint64
-		remaining    uint64
-		expectedFill float64
-	}{
-		{"no fill", 1000, 1000, 0.0},
-		{"half filled", 1000, 500, 50.0},
-		{"fully filled", 1000, 0, 100.0},
-		{"quarter filled", 1000, 750, 25.0},
-		{"zero original", 0, 0, 0.0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			state := &geniusyield.OrderState{
-				OriginalAmount: tt.original,
-			}
-			state.OfferedAsset.Amount = tt.remaining
-			result := state.FillPercent()
-			if result != tt.expectedFill {
-				t.Errorf("expected %f%%, got %f%%", tt.expectedFill, result)
-			}
-		})
-	}
-}
-
-func TestCalculateGeniusYieldFillAmount(t *testing.T) {
-	tests := []struct {
-		name              string
-		offeredAmount     uint64
-		priceNum          int64
-		priceDenom        int64
-		askedAmount       uint64
-		expectedOffered   uint64
-		expectedRemainder uint64
-	}{
-		{
-			name:              "exact fill",
-			offeredAmount:     1000,
-			priceNum:          1,
-			priceDenom:        1,
-			askedAmount:       1000,
-			expectedOffered:   1000,
-			expectedRemainder: 0,
-		},
-		{
-			name:              "partial fill",
-			offeredAmount:     1000,
-			priceNum:          1,
-			priceDenom:        1,
-			askedAmount:       500,
-			expectedOffered:   500,
-			expectedRemainder: 0,
-		},
-		{
-			name:              "overfill capped",
-			offeredAmount:     1000,
-			priceNum:          1,
-			priceDenom:        1,
-			askedAmount:       2000,
-			expectedOffered:   1000,
-			expectedRemainder: 1000,
-		},
-		{
-			name:              "price ratio 2:1",
-			offeredAmount:     1000,
-			priceNum:          2,
-			priceDenom:        1,
-			askedAmount:       1000,
-			expectedOffered:   500,
-			expectedRemainder: 0,
-		},
-		{
-			name:              "non-divisible price rounds used asked up",
-			offeredAmount:     1000,
-			priceNum:          3,
-			priceDenom:        2,
-			askedAmount:       2,
-			expectedOffered:   1,
-			expectedRemainder: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			order := &geniusyield.OrderState{
-				PriceNum:   tt.priceNum,
-				PriceDenom: tt.priceDenom,
-				Price:      float64(tt.priceNum) / float64(tt.priceDenom),
-			}
-			order.OfferedAsset.Amount = tt.offeredAmount
-
-			offered, remainder := CalculateGeniusYieldFillAmount(
-				order,
-				tt.askedAmount,
-			)
-
-			if offered != tt.expectedOffered {
-				t.Errorf(
-					"expected offered %d, got %d",
-					tt.expectedOffered,
-					offered,
-				)
-			}
-			if remainder != tt.expectedRemainder {
-				t.Errorf(
-					"expected remainder %d, got %d",
-					tt.expectedRemainder,
-					remainder,
-				)
-			}
-		})
-	}
-}
-
-func TestGeniusYieldPartialOrderDatumUnmarshal(t *testing.T) {
-	// Build a test PartialOrderDatum
-	// Constructor 0 with all required fields
-
-	ownerKey := make([]byte, 28)
-	for i := range ownerKey {
-		ownerKey[i] = byte(i + 1)
-	}
-
-	// Payment credential (PubKeyHash)
-	paymentCred := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{ownerKey})
-
-	// Staking credential (None)
-	stakingCred := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-
-	// Owner address
-	ownerAddr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		paymentCred,
-		stakingCred,
-	})
-
-	// Offered asset (ADA)
-	offeredAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{},
-		[]byte{},
-	})
-
-	// Asked asset (some token)
-	askedAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{0xab, 0xcd, 0xef},
-		[]byte("TOKEN"),
-	})
-
-	// Price rational (1.5 = 3/2)
-	price := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(3),
-		int64(2),
-	})
-
-	// NFT token name
-	nftName := []byte{0x01, 0x02, 0x03, 0x04}
-
-	// Start time (None)
-	startTime := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-
-	// End time (Some timestamp)
-	endTimestamp := int64(1735689600000) // 2025-01-01 00:00:00 UTC
-	endTime := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{endTimestamp})
-
-	// Maker percent fee (0.3% = 3/1000)
-	makerPercentFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(3),
-		int64(1000),
-	})
-
-	// Contained fee
-	containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		uint64(1000000), // lovelaceFee
-		uint64(0),       // offeredFee
-		uint64(0),       // askedFee
-	})
-
-	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		ownerKey,         // podOwnerKey
-		ownerAddr,        // podOwnerAddr
-		offeredAsset,     // podOfferedAsset
-		uint64(10000000), // podOfferedOriginalAmount
-		uint64(5000000),  // podOfferedAmount (partially filled)
-		askedAsset,       // podAskedAsset
-		price,            // podPrice
-		nftName,          // podNFT
-		startTime,        // podStart
-		endTime,          // podEnd
-		uint64(3),        // podPartialFills
-		uint64(2000000),  // podMakerLovelaceFlatFee
-		makerPercentFee,  // podMakerOfferedPercentFee
-		uint64(100000),   // podMakerOfferedPercentFeeMax
-		containedFee,     // podContainedFee
-		uint64(7500000),  // podContainedPayment
-	})
-
-	cborData, err := cbor.Encode(&datum)
+func TestGeniusYieldOrderConfigRejectsNonZeroConstructor(t *testing.T) {
+	notOrder := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	data, err := cbor.Encode(&notOrder)
 	if err != nil {
-		t.Fatalf("failed to encode test datum: %v", err)
+		t.Fatalf("failed to encode constructor: %v", err)
 	}
 
-	var orderDatum GeniusYieldPartialOrderDatum
-	if _, err := cbor.Decode(cborData, &orderDatum); err != nil {
-		t.Fatalf("failed to decode datum: %v", err)
+	var cfg geniusyield.OrderConfig
+	if err := cfg.UnmarshalCBOR(data); err == nil {
+		t.Fatal("expected ErrNotOrderDatum for non-zero constructor")
+	}
+}
+
+func TestGeniusYieldOrderConfigUnmarshal(t *testing.T) {
+	cborData := buildTestGeniusYieldDatum(t, testDatumParams{
+		offeredOriginal: 10000000,
+		offeredAmount:   5000000,
+		priceNum:        3,
+		priceDenom:      2,
+		nft:             []byte{0x01, 0x02, 0x03, 0x04},
+		partialFills:    3,
+		// End set, Start unset
+		endTime:         int64(1735689600000), // 2025-01-01 00:00:00 UTC
+		hasEnd:          true,
+		containedFeeLov: 1000000,
+	})
+
+	var cfg geniusyield.OrderConfig
+	if err := cfg.UnmarshalCBOR(cborData); err != nil {
+		t.Fatalf("failed to decode order config: %v", err)
 	}
 
-	// Verify fields
-	if orderDatum.OfferedOriginalAmount != 10000000 {
+	if cfg.OfferedOriginalAmount != 10000000 {
 		t.Errorf(
 			"expected offeredOriginalAmount 10000000, got %d",
-			orderDatum.OfferedOriginalAmount,
+			cfg.OfferedOriginalAmount,
 		)
 	}
-	if orderDatum.OfferedAmount != 5000000 {
-		t.Errorf(
-			"expected offeredAmount 5000000, got %d",
-			orderDatum.OfferedAmount,
-		)
+	if cfg.OfferedAmount != 5000000 {
+		t.Errorf("expected offeredAmount 5000000, got %d", cfg.OfferedAmount)
 	}
-	if orderDatum.PartialFills != 3 {
-		t.Errorf(
-			"expected partialFills 3, got %d",
-			orderDatum.PartialFills,
-		)
+	if cfg.PartialFills != 3 {
+		t.Errorf("expected partialFills 3, got %d", cfg.PartialFills)
 	}
-	if orderDatum.Price.Numerator != 3 || orderDatum.Price.Denominator != 2 {
+	if cfg.Price.Numerator != 3 || cfg.Price.Denominator != 2 {
 		t.Errorf(
 			"expected price 3/2, got %d/%d",
-			orderDatum.Price.Numerator,
-			orderDatum.Price.Denominator,
+			cfg.Price.Numerator,
+			cfg.Price.Denominator,
 		)
 	}
-	if orderDatum.Start.IsPresent {
+	if cfg.Start.IsPresent {
 		t.Error("expected start to be None")
 	}
-	if !orderDatum.End.IsPresent {
+	if !cfg.End.IsPresent {
 		t.Error("expected end to be Some")
 	}
-	if orderDatum.End.Time != endTimestamp {
-		t.Errorf(
-			"expected end time %d, got %d",
-			endTimestamp,
-			orderDatum.End.Time,
-		)
+	if cfg.End.Time != 1735689600000 {
+		t.Errorf("expected end time 1735689600000, got %d", cfg.End.Time)
 	}
-	if orderDatum.ContainedFee.LovelaceFee != 1000000 {
+	if cfg.ContainedFee.LovelaceFee != 1000000 {
 		t.Errorf(
 			"expected containedFee.lovelaceFee 1000000, got %d",
-			orderDatum.ContainedFee.LovelaceFee,
+			cfg.ContainedFee.LovelaceFee,
 		)
 	}
 }
 
-func TestGeniusYieldParserParseOrderDatum(t *testing.T) {
-	// Build test datum
-	ownerKey := make([]byte, 28)
-	for i := range ownerKey {
-		ownerKey[i] = byte(i)
+func TestGeniusYieldOrderConfigToState(t *testing.T) {
+	cborData := buildTestGeniusYieldDatum(t, testDatumParams{
+		offeredOriginal: 5000000,
+		offeredAmount:   5000000,
+		priceNum:        15,
+		priceDenom:      10,
+		nft:             []byte{0xde, 0xad, 0xbe, 0xef},
+	})
+
+	var cfg geniusyield.OrderConfig
+	if err := cfg.UnmarshalCBOR(cborData); err != nil {
+		t.Fatalf("failed to decode order config: %v", err)
 	}
 
-	paymentCred := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{ownerKey})
-	stakingCred := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-	ownerAddr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		paymentCred,
-		stakingCred,
-	})
-
-	offeredAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{},
-		[]byte{},
-	})
-
-	askedAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{0xab, 0xcd},
-		[]byte("TEST"),
-	})
-
-	price := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(15),
-		int64(10),
-	})
-
-	nftName := []byte{0xde, 0xad, 0xbe, 0xef}
-	startTime := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-	endTime := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-	makerPercentFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(3),
-		int64(1000),
-	})
-	containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		uint64(0),
-		uint64(0),
-		uint64(0),
-	})
-
-	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		ownerKey,
-		ownerAddr,
-		offeredAsset,
-		uint64(5000000),
-		uint64(5000000),
-		askedAsset,
-		price,
-		nftName,
-		startTime,
-		endTime,
-		uint64(0),
-		uint64(1000000),
-		makerPercentFee,
-		uint64(50000),
-		containedFee,
-		uint64(0),
-	})
-
-	cborData, err := cbor.Encode(&datum)
-	if err != nil {
-		t.Fatalf("failed to encode: %v", err)
-	}
-
-	parser := NewGeniusYieldParser()
-	state, err := parser.ParseOrderDatum(
-		cborData,
-		"abc123def456",
-		0,
-		12345,
-		time.Now(),
-	)
-	if err != nil {
-		t.Fatalf("failed to parse datum: %v", err)
-	}
+	state := geniusyield.OrderConfigToState(&cfg, "abc123def456", 0, 12345)
 
 	if state.Protocol != "geniusyield" {
 		t.Errorf("expected protocol 'geniusyield', got %s", state.Protocol)
@@ -595,52 +322,79 @@ func TestGeniusYieldParserParseOrderDatum(t *testing.T) {
 		t.Error("expected order to be active")
 	}
 	if state.OriginalAmount != 5000000 {
-		t.Errorf(
-			"expected originalAmount 5000000, got %d",
-			state.OriginalAmount,
-		)
+		t.Errorf("expected originalAmount 5000000, got %d", state.OriginalAmount)
 	}
 }
 
-func TestGeniusYieldParserRejectsNonPositivePrice(t *testing.T) {
+func TestGeniusYieldParsePoolDatum(t *testing.T) {
+	// Offered 1000 of ADA, price 2/1 => asked 2000 of asked asset.
+	cborData := buildTestGeniusYieldDatum(t, testDatumParams{
+		offeredOriginal: 1000,
+		offeredAmount:   1000,
+		priceNum:        2,
+		priceDenom:      1,
+		nft:             []byte{0xaa},
+	})
+
+	parser := NewGeniusYieldParser()
+	state, err := parser.ParsePoolDatum(
+		cborData,
+		nil,
+		"tx",
+		0,
+		7,
+		time.Now(),
+	)
+	if err != nil {
+		t.Fatalf("failed to parse pool datum: %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected non-nil pool state")
+	}
+	if state.Protocol != "geniusyield" {
+		t.Errorf("expected protocol 'geniusyield', got %s", state.Protocol)
+	}
+	if state.PoolId != "gy_aa" {
+		t.Errorf("expected poolId 'gy_aa', got %s", state.PoolId)
+	}
+	if state.AssetX.Amount != 1000 {
+		t.Errorf("expected AssetX amount 1000, got %d", state.AssetX.Amount)
+	}
+	if state.AssetY.Amount != 2000 {
+		t.Errorf("expected AssetY amount 2000, got %d", state.AssetY.Amount)
+	}
+	if state.FeeNum != 1 || state.FeeDenom != 1 {
+		t.Errorf("expected fee 1/1, got %d/%d", state.FeeNum, state.FeeDenom)
+	}
+	if state.Slot != 7 {
+		t.Errorf("expected slot 7, got %d", state.Slot)
+	}
+}
+
+func TestGeniusYieldParsePoolDatumRejectsNonPositivePrice(t *testing.T) {
 	tests := []struct {
 		name       string
 		priceNum   int64
 		priceDenom int64
 	}{
-		{
-			name:       "zero numerator",
-			priceNum:   0,
-			priceDenom: 1,
-		},
-		{
-			name:       "negative numerator",
-			priceNum:   -1,
-			priceDenom: 1,
-		},
-		{
-			name:       "zero denominator",
-			priceNum:   1,
-			priceDenom: 0,
-		},
-		{
-			name:       "negative denominator",
-			priceNum:   1,
-			priceDenom: -1,
-		},
+		{"zero numerator", 0, 1},
+		{"negative numerator", -1, 1},
+		{"negative denominator", 1, -1},
 	}
 
 	parser := NewGeniusYieldParser()
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			datum := newTestGeniusYieldDatum(
-				t,
-				tt.priceNum,
-				tt.priceDenom,
-				1000,
-			)
-			state, err := parser.ParseOrderDatum(
-				datum,
+			cborData := buildTestGeniusYieldDatum(t, testDatumParams{
+				offeredOriginal: 1000,
+				offeredAmount:   1000,
+				priceNum:        tt.priceNum,
+				priceDenom:      tt.priceDenom,
+				nft:             []byte{0x01},
+			})
+			state, err := parser.ParsePoolDatum(
+				cborData,
+				nil,
 				"tx",
 				0,
 				0,
@@ -655,14 +409,40 @@ func TestGeniusYieldParserRejectsNonPositivePrice(t *testing.T) {
 
 func TestGeniusYieldParsePoolDatumRejectsAskedAmountOverflow(t *testing.T) {
 	parser := NewGeniusYieldParser()
-	datum := newTestGeniusYieldDatum(t, 1<<62, 1, 4)
+	cborData := buildTestGeniusYieldDatum(t, testDatumParams{
+		offeredOriginal: 4,
+		offeredAmount:   4,
+		priceNum:        1 << 62,
+		priceDenom:      1,
+		nft:             []byte{0x01},
+	})
 
-	state, err := parser.ParsePoolDatum(datum, nil, "tx", 0, 0, time.Now())
+	state, err := parser.ParsePoolDatum(cborData, nil, "tx", 0, 0, time.Now())
 	if err == nil {
 		t.Fatalf("expected asked amount overflow error, got state %#v", state)
 	}
 	if state != nil {
 		t.Fatalf("expected nil state on overflow, got %#v", state)
+	}
+}
+
+func TestGeniusYieldParsePoolDatumInactiveReturnsNil(t *testing.T) {
+	parser := NewGeniusYieldParser()
+	// Zero offered amount => inactive order => nil state.
+	cborData := buildTestGeniusYieldDatum(t, testDatumParams{
+		offeredOriginal: 1000,
+		offeredAmount:   0,
+		priceNum:        1,
+		priceDenom:      1,
+		nft:             []byte{0x01},
+	})
+
+	state, err := parser.ParsePoolDatum(cborData, nil, "tx", 0, 0, time.Now())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if state != nil {
+		t.Fatalf("expected nil state for inactive order, got %#v", state)
 	}
 }
 
@@ -717,88 +497,29 @@ func TestGeniusYieldOrderIsActive(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Build datum
-			ownerKey := make([]byte, 28)
-			paymentCred := cbor.NewConstructorEncoder(
-				0,
-				cbor.IndefLengthList{ownerKey},
-			)
-			stakingCred := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-			ownerAddr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				paymentCred,
-				stakingCred,
-			})
-			offeredAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				[]byte{},
-				[]byte{},
-			})
-			askedAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				[]byte{0xab},
-				[]byte("T"),
-			})
-			price := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				int64(1),
-				int64(1),
-			})
-			nftName := []byte{0x01}
-			makerFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				int64(0),
-				int64(1),
-			})
-			containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				uint64(0),
-				uint64(0),
-				uint64(0),
-			})
-
-			var startConstr, endConstr interface{}
+			params := testDatumParams{
+				offeredOriginal: tt.offeredAmount,
+				offeredAmount:   tt.offeredAmount,
+				priceNum:        1,
+				priceDenom:      1,
+				nft:             []byte{0x01},
+			}
 			if tt.startTime != nil {
-				startConstr = cbor.NewConstructorEncoder(
-					0,
-					cbor.IndefLengthList{
-						tt.startTime.UnixMilli(),
-					},
-				)
-			} else {
-				startConstr = cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+				params.startTime = tt.startTime.UnixMilli()
+				params.hasStart = true
 			}
 			if tt.endTime != nil {
-				endConstr = cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-					tt.endTime.UnixMilli(),
-				})
-			} else {
-				endConstr = cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+				params.endTime = tt.endTime.UnixMilli()
+				params.hasEnd = true
 			}
 
-			datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				ownerKey,
-				ownerAddr,
-				offeredAsset,
-				tt.offeredAmount,
-				tt.offeredAmount,
-				askedAsset,
-				price,
-				nftName,
-				startConstr,
-				endConstr,
-				uint64(0),
-				uint64(0),
-				makerFee,
-				uint64(0),
-				containedFee,
-				uint64(0),
-			})
+			cborData := buildTestGeniusYieldDatum(t, params)
 
-			cborData, err := cbor.Encode(&datum)
-			if err != nil {
-				t.Fatalf("failed to encode: %v", err)
+			var cfg geniusyield.OrderConfig
+			if err := cfg.UnmarshalCBOR(cborData); err != nil {
+				t.Fatalf("failed to decode: %v", err)
 			}
-
-			parser := NewGeniusYieldParser()
-			state, err := parser.ParseOrderDatum(cborData, "tx", 0, 0, now)
-			if err != nil {
-				t.Fatalf("failed to parse: %v", err)
-			}
+			state := geniusyield.OrderConfigToState(&cfg, "tx", 0, 0)
 
 			if state.IsActive != tt.expectedActive {
 				t.Errorf(
@@ -811,42 +532,79 @@ func TestGeniusYieldOrderIsActive(t *testing.T) {
 	}
 }
 
-func newTestGeniusYieldDatum(
-	t *testing.T,
-	priceNum int64,
-	priceDenom int64,
-	offeredAmount uint64,
-) []byte {
+// testDatumParams configures buildTestGeniusYieldDatum.
+type testDatumParams struct {
+	offeredOriginal uint64
+	offeredAmount   uint64
+	priceNum        int64
+	priceDenom      int64
+	nft             []byte
+	partialFills    uint64
+	startTime       int64
+	hasStart        bool
+	endTime         int64
+	hasEnd          bool
+	containedFeeLov uint64
+}
+
+// buildTestGeniusYieldDatum builds a CBOR-encoded PartialOrderDatum
+// (constructor 0) for tests.
+func buildTestGeniusYieldDatum(t *testing.T, p testDatumParams) []byte {
 	t.Helper()
 
 	ownerKey := make([]byte, 28)
-	paymentCred := cbor.NewConstructorEncoder(
-		0,
-		cbor.IndefLengthList{ownerKey},
-	)
+	for i := range ownerKey {
+		ownerKey[i] = byte(i)
+	}
+
+	paymentCred := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{ownerKey})
 	stakingCred := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 	ownerAddr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		paymentCred,
 		stakingCred,
 	})
+
+	// Offered asset (ADA)
 	offeredAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{},
 		[]byte{},
 	})
+
+	// Asked asset (some token)
 	askedAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{0xab},
-		[]byte("T"),
+		[]byte{0xab, 0xcd},
+		[]byte("TEST"),
 	})
+
 	price := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		priceNum,
-		priceDenom,
+		p.priceNum,
+		p.priceDenom,
 	})
-	makerFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(0),
-		int64(1),
+
+	var startConstr, endConstr cbor.ConstructorEncoder
+	if p.hasStart {
+		startConstr = cbor.NewConstructorEncoder(
+			0,
+			cbor.IndefLengthList{p.startTime},
+		)
+	} else {
+		startConstr = cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	}
+	if p.hasEnd {
+		endConstr = cbor.NewConstructorEncoder(
+			0,
+			cbor.IndefLengthList{p.endTime},
+		)
+	} else {
+		endConstr = cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	}
+
+	makerPercentFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		int64(3),
+		int64(1000),
 	})
 	containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		uint64(0),
+		p.containedFeeLov,
 		uint64(0),
 		uint64(0),
 	})
@@ -855,24 +613,24 @@ func newTestGeniusYieldDatum(
 		ownerKey,
 		ownerAddr,
 		offeredAsset,
-		offeredAmount,
-		offeredAmount,
+		p.offeredOriginal,
+		p.offeredAmount,
 		askedAsset,
 		price,
-		[]byte{0x01},
-		cbor.NewConstructorEncoder(1, cbor.IndefLengthList{}),
-		cbor.NewConstructorEncoder(1, cbor.IndefLengthList{}),
-		uint64(0),
-		uint64(0),
-		makerFee,
-		uint64(0),
+		p.nft,
+		startConstr,
+		endConstr,
+		p.partialFills,
+		uint64(1000000),
+		makerPercentFee,
+		uint64(50000),
 		containedFee,
 		uint64(0),
 	})
 
 	cborData, err := cbor.Encode(&datum)
 	if err != nil {
-		t.Fatalf("failed to encode datum: %v", err)
+		t.Fatalf("failed to encode test datum: %v", err)
 	}
 	return cborData
 }

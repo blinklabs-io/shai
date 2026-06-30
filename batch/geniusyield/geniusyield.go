@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+// Package geniusyield implements the Genius Yield order-book DEX batcher
+// with Smart Order Routing (SOR) capabilities.
 package geniusyield
 
 import (
@@ -22,6 +24,7 @@ import (
 	"github.com/blinklabs-io/adder/event"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
@@ -110,7 +113,7 @@ func (gy *GeniusYield) loadPersistedOrders() {
 				continue
 			}
 
-			var orderConfig OrderConfig
+			var orderConfig dexgy.OrderConfig
 			if _, err := cbor.Decode(datum.Cbor(), &orderConfig); err != nil {
 				continue
 			}
@@ -120,7 +123,7 @@ func (gy *GeniusYield) loadPersistedOrders() {
 			}
 
 			// Create order state
-			orderState := gy.orderConfigToState(
+			orderState := dexgy.OrderConfigToState(
 				&orderConfig,
 				hex.EncodeToString(utxo.Ref.Id().Bytes()),
 				utxo.Ref.Index(),
@@ -258,7 +261,7 @@ func (gy *GeniusYield) handleTransactionOutput(
 	}
 
 	// Parse order config
-	var orderConfig OrderConfig
+	var orderConfig dexgy.OrderConfig
 	if _, err := cbor.Decode(datum.Cbor(), &orderConfig); err != nil {
 		return fmt.Errorf("failed to decode order datum: %w", err)
 	}
@@ -269,7 +272,7 @@ func (gy *GeniusYield) handleTransactionOutput(
 	}
 
 	// Create order state for SOR
-	orderState := gy.orderConfigToState(
+	orderState := dexgy.OrderConfigToState(
 		&orderConfig,
 		txHash,
 		uint32(txOutputIdx),
@@ -350,71 +353,9 @@ func (gy *GeniusYield) handleConsumedOrder(txHash string, txIndex uint32) {
 	}
 }
 
-// orderConfigToState converts an OrderConfig to OrderState
-func (gy *GeniusYield) orderConfigToState(
-	cfg *OrderConfig,
-	txHash string,
-	txIndex uint32,
-	slot uint64,
-) *OrderState {
-	orderId := fmt.Sprintf("gy_%s", hex.EncodeToString(cfg.NFT))
-
-	var startTime, endTime *time.Time
-	if cfg.Start.IsPresent {
-		t := time.UnixMilli(cfg.Start.Time)
-		startTime = &t
-	}
-	if cfg.End.IsPresent {
-		t := time.UnixMilli(cfg.End.Time)
-		endTime = &t
-	}
-
-	isActive := cfg.OfferedAmount > 0
-	now := time.Now()
-	if cfg.Start.IsPresent && time.UnixMilli(cfg.Start.Time).After(now) {
-		isActive = false
-	}
-	if cfg.End.IsPresent && time.UnixMilli(cfg.End.Time).Before(now) {
-		isActive = false
-	}
-
-	return &OrderState{
-		OrderId:        orderId,
-		Protocol:       "geniusyield",
-		Owner:          hex.EncodeToString(cfg.OwnerKey),
-		OfferedAsset:   cfg.OfferedAsset.ToCommon(),
-		OfferedAmount:  cfg.OfferedAmount,
-		OriginalAmount: cfg.OfferedOriginalAmount,
-		AskedAsset:     cfg.AskedAsset.ToCommon(),
-		Price:          cfg.Price.ToFloat64(),
-		PriceNum:       cfg.Price.Numerator,
-		PriceDenom:     cfg.Price.Denominator,
-		IsActive:       isActive,
-		StartTime:      startTime,
-		EndTime:        endTime,
-		PartialFills:   cfg.PartialFills,
-		Slot:           slot,
-		TxHash:         txHash,
-		TxIndex:        txIndex,
-		Timestamp:      time.Now(),
-		UpdatedAt:      time.Now(),
-
-		OwnerAddr:            cfg.OwnerAddr,
-		NFT:                  cfg.NFT,
-		MakerLovelaceFlatFee: cfg.MakerLovelaceFlatFee,
-		MakerFeeNum:          cfg.MakerOfferedPercentFee.Numerator,
-		MakerFeeDenom:        cfg.MakerOfferedPercentFee.Denominator,
-		MakerFeeMax:          cfg.MakerOfferedPercentFeeMax,
-		ContainedLovelaceFee: cfg.ContainedFee.LovelaceFee,
-		ContainedOfferedFee:  cfg.ContainedFee.OfferedFee,
-		ContainedAskedFee:    cfg.ContainedFee.AskedFee,
-		ContainedPayment:     cfg.ContainedPayment,
-	}
-}
-
 // tryMatchOrder attempts to match a new order against existing orders
 func (gy *GeniusYield) tryMatchOrder(
-	order *OrderState,
+	order *dexgy.OrderState,
 	txOutput ledger.TransactionOutput,
 ) error {
 	logger := logging.GetLogger()
@@ -467,7 +408,7 @@ func (gy *GeniusYield) tryMatchOrder(
 // executeRoute builds and submits a transaction to execute a matched route
 func (gy *GeniusYield) executeRoute(
 	route *Route,
-	newOrder *OrderState,
+	newOrder *dexgy.OrderState,
 	newOrderOutput ledger.TransactionOutput,
 ) error {
 	logger := logging.GetLogger()

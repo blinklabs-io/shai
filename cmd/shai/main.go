@@ -7,8 +7,8 @@ import (
 	_ "net/http/pprof"
 	"os"
 
+	"github.com/blinklabs-io/shai/batch/geniusyield"
 	"github.com/blinklabs-io/shai/internal/config"
-	"github.com/blinklabs-io/shai/internal/geniusyield"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/node"

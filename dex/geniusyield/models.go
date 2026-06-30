@@ -12,94 +12,62 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package geniusyield provides datum types and parsing for Genius Yield
+// Package geniusyield provides datum types and parsing for the Genius Yield
 // order-book DEX protocol.
 package geniusyield
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/shai/common"
 )
 
-// Protocol constants
-const (
-	ProtocolName = "geniusyield"
+// ErrNotOrderDatum is returned when CBOR data is not a valid order datum
+var ErrNotOrderDatum = errors.New("not an order datum (constructor != 0)")
 
-	// Mainnet order script hash
-	// Genius Yield order-book DEX contract
-	OrderScriptHash = "f95cab2d4cf78cc5ffa1c6f0bdb17a6f35df9a60e442d59e2d576e32"
-
-	// Mainnet NFT policy ID for order identification
-	OrderNFTPolicy = "2e5f2c41e0a58f5a5a7b1f5c5e5f5e5f5e5f5e5f5e5f5e5f5e5f5e5f"
-)
-
-// PartialOrderDatum represents the Genius Yield order datum structure
-// Based on the Haskell definition:
-//
-//	data PartialOrderDatum = PartialOrderDatum
-//	    { podOwnerKey :: PubKeyHash
-//	    , podOwnerAddr :: Address
-//	    , podOfferedAsset :: AssetClass
-//	    , podOfferedOriginalAmount :: Integer
-//	    , podOfferedAmount :: Integer
-//	    , podAskedAsset :: AssetClass
-//	    , podPrice :: Rational  -- (numerator, denominator)
-//	    , podNFT :: TokenName
-//	    , podStart :: Maybe POSIXTime
-//	    , podEnd :: Maybe POSIXTime
-//	    , podPartialFills :: Integer
-//	    , podMakerLovelaceFlatFee :: Integer
-//	    , podMakerOfferedPercentFee :: Rational
-//	    , podMakerOfferedPercentFeeMax :: Integer
-//	    , podContainedFee :: ContainedFee
-//	    , podContainedPayment :: Integer
-//	    }
-type PartialOrderDatum struct {
+// OrderConfig represents the order configuration extracted from a datum
+// This matches the on-chain PartialOrderDatum structure
+type OrderConfig struct {
 	cbor.StructAsArray
-	cbor.DecodeStoreCbor
-	OwnerKey                  []byte        // PubKeyHash for cancellation
-	OwnerAddr                 Address       // Address for payments
-	OfferedAsset              Asset         // Asset being offered
-	OfferedOriginalAmount     uint64        // Original units offered
-	OfferedAmount             uint64        // Current units offered
-	AskedAsset                Asset         // Asset wanted as payment
-	Price                     Rational      // Price per unit (num/denom)
-	NFT                       []byte        // TokenName identifying this order
-	Start                     OptionalPOSIX // Optional start time
-	End                       OptionalPOSIX // Optional end time
-	PartialFills              uint64        // Number of partial fills
-	MakerLovelaceFlatFee      uint64        // Flat fee in lovelace
-	MakerOfferedPercentFee    Rational      // Percentage fee
-	MakerOfferedPercentFeeMax uint64        // Max percentage fee
+	OwnerKey                  []byte        // PubKeyHash
+	OwnerAddr                 OrderAddress  // Address for payments
+	OfferedAsset              OrderAsset    // Asset being offered
+	OfferedOriginalAmount     uint64        // Original amount
+	OfferedAmount             uint64        // Current amount
+	AskedAsset                OrderAsset    // Asset wanted
+	Price                     OrderRational // Price as rational
+	NFT                       []byte        // Order NFT token name
+	Start                     OptionalPOSIX // Start time
+	End                       OptionalPOSIX // End time
+	PartialFills              uint64        // Number of fills
+	MakerLovelaceFlatFee      uint64        // Flat fee
+	MakerOfferedPercentFee    OrderRational // Percent fee
+	MakerOfferedPercentFeeMax uint64        // Max percent fee
 	ContainedFee              ContainedFee  // Fee tracking
 	ContainedPayment          uint64        // Payment tracking
 }
 
-func (d *PartialOrderDatum) UnmarshalCBOR(cborData []byte) error {
-	d.SetCbor(cborData)
+func (o *OrderConfig) UnmarshalCBOR(cborData []byte) error {
 	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
 	if tmpConstr.Tag() != 0 {
-		return fmt.Errorf(
-			"expected constructor 0, got %d",
-			tmpConstr.Tag(),
-		)
+		return ErrNotOrderDatum
 	}
-	return cbor.DecodeGeneric(tmpConstr.Fields(), d)
+	return cbor.DecodeGeneric(tmpConstr.Fields(), o)
 }
 
-// Asset represents an asset (PolicyId, AssetName) tuple
-type Asset struct {
+// OrderAsset represents an asset class in order datums
+type OrderAsset struct {
 	cbor.StructAsArray
 	PolicyId  []byte
 	AssetName []byte
 }
 
-func (a *Asset) UnmarshalCBOR(cborData []byte) error {
+func (a *OrderAsset) UnmarshalCBOR(cborData []byte) error {
 	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -107,24 +75,27 @@ func (a *Asset) UnmarshalCBOR(cborData []byte) error {
 	return cbor.DecodeGeneric(tmpConstr.Fields(), a)
 }
 
-// ToCommonAssetClass converts to common.AssetClass
-func (a Asset) ToCommonAssetClass() common.AssetClass {
+// ToCommon converts to common.AssetClass
+func (a OrderAsset) ToCommon() common.AssetClass {
 	return common.AssetClass{
 		PolicyId: a.PolicyId,
 		Name:     a.AssetName,
 	}
 }
 
-// Address represents a Cardano address in datum format
-// Constructor 0: PubKeyHash credential
-// Constructor 1: ScriptHash credential
-type Address struct {
+// IsLovelace returns true if this is ADA
+func (a OrderAsset) IsLovelace() bool {
+	return len(a.PolicyId) == 0 && len(a.AssetName) == 0
+}
+
+// OrderAddress represents a Cardano address in datum format
+type OrderAddress struct {
 	cbor.StructAsArray
-	PaymentCredential Credential
+	PaymentCredential OrderCredential
 	StakingCredential OptionalCredential
 }
 
-func (a *Address) UnmarshalCBOR(cborData []byte) error {
+func (a *OrderAddress) UnmarshalCBOR(cborData []byte) error {
 	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -132,23 +103,23 @@ func (a *Address) UnmarshalCBOR(cborData []byte) error {
 	return cbor.DecodeGeneric(tmpConstr.Fields(), a)
 }
 
-// Credential represents a payment or staking credential
-type Credential struct {
+// OrderCredential represents a payment credential
+type OrderCredential struct {
 	Type int // 0 = PubKeyHash, 1 = ScriptHash
 	Hash []byte
 }
 
-func (c *Credential) UnmarshalCBOR(cborData []byte) error {
+func (c *OrderCredential) UnmarshalCBOR(cborData []byte) error {
 	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	tag := tmpConstr.Tag()
-	switch tag {
+	switch tmpConstr.Tag() {
 	case 0, 1:
 	default:
-		return fmt.Errorf("unsupported credential constructor %d", tag)
+		return fmt.Errorf("invalid credential constructor tag %d", tmpConstr.Tag())
 	}
+	c.Type = int(tmpConstr.Tag())
 	var wrapper struct {
 		cbor.StructAsArray
 		Hash []byte
@@ -156,7 +127,6 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
-	c.Type = int(tag)
 	c.Hash = wrapper.Hash
 	return nil
 }
@@ -164,7 +134,7 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 // OptionalCredential represents an optional staking credential
 type OptionalCredential struct {
 	IsPresent  bool
-	Credential *Credential
+	Credential *OrderCredential
 }
 
 func (o *OptionalCredential) UnmarshalCBOR(cborData []byte) error {
@@ -172,35 +142,37 @@ func (o *OptionalCredential) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	// Constructor 0 = Some, Constructor 1 = None
-	switch tag := tmpConstr.Tag(); tag {
+	switch tmpConstr.Tag() {
 	case 0:
 	case 1:
 		o.IsPresent = false
-		o.Credential = nil // Reset to avoid stale data when struct is reused
+		o.Credential = nil // Reset to avoid stale data
 		return nil
 	default:
-		return fmt.Errorf("unsupported optional credential constructor %d", tag)
+		return fmt.Errorf(
+			"invalid optional credential constructor tag %d",
+			tmpConstr.Tag(),
+		)
 	}
+	o.IsPresent = true
 	var wrapper struct {
 		cbor.StructAsArray
-		Inner Credential
+		Inner OrderCredential
 	}
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
-	o.IsPresent = true
 	o.Credential = &wrapper.Inner
 	return nil
 }
 
-// Rational represents a rational number as numerator/denominator pair
-type Rational struct {
+// OrderRational represents a rational number
+type OrderRational struct {
 	Numerator   int64
 	Denominator int64
 }
 
-func (r *Rational) UnmarshalCBOR(cborData []byte) error {
+func (r *OrderRational) UnmarshalCBOR(cborData []byte) error {
 	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
@@ -213,20 +185,23 @@ func (r *Rational) UnmarshalCBOR(cborData []byte) error {
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
+	if wrapper.Denominator == 0 {
+		return fmt.Errorf("invalid rational with zero denominator")
+	}
 	r.Numerator = wrapper.Numerator
 	r.Denominator = wrapper.Denominator
 	return nil
 }
 
-// ToFloat64 converts the rational to a float64 value
-func (r Rational) ToFloat64() float64 {
+// ToFloat64 converts to float64
+func (r OrderRational) ToFloat64() float64 {
 	if r.Denominator == 0 {
 		return 0
 	}
 	return float64(r.Numerator) / float64(r.Denominator)
 }
 
-// OptionalPOSIX represents an optional POSIX timestamp (in milliseconds)
+// OptionalPOSIX represents an optional timestamp
 type OptionalPOSIX struct {
 	IsPresent bool
 	Time      int64 // POSIX time in milliseconds
@@ -237,16 +212,19 @@ func (o *OptionalPOSIX) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	// Constructor 0 = Some, Constructor 1 = None
-	switch tag := tmpConstr.Tag(); tag {
+	switch tmpConstr.Tag() {
 	case 0:
 	case 1:
 		o.IsPresent = false
 		o.Time = 0 // Reset to avoid stale values when struct is reused
 		return nil
 	default:
-		return fmt.Errorf("unsupported optional POSIX constructor %d", tag)
+		return fmt.Errorf(
+			"invalid optional POSIX constructor tag %d",
+			tmpConstr.Tag(),
+		)
 	}
+	o.IsPresent = true
 	var wrapper struct {
 		cbor.StructAsArray
 		Time int64
@@ -254,17 +232,16 @@ func (o *OptionalPOSIX) UnmarshalCBOR(cborData []byte) error {
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
-	o.IsPresent = true
 	o.Time = wrapper.Time
 	return nil
 }
 
-// ContainedFee tracks fee amounts contained in the order
+// ContainedFee tracks fees in an order
 type ContainedFee struct {
 	cbor.StructAsArray
-	LovelaceFee uint64 // Lovelace fees contained
-	OfferedFee  uint64 // Offered asset fees contained
-	AskedFee    uint64 // Asked asset fees contained
+	LovelaceFee uint64
+	OfferedFee  uint64
+	AskedFee    uint64
 }
 
 func (c *ContainedFee) UnmarshalCBOR(cborData []byte) error {
