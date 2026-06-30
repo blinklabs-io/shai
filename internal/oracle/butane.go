@@ -17,7 +17,7 @@ package oracle
 import (
 	"time"
 
-	"github.com/blinklabs-io/shai/internal/oracle/butane"
+	"github.com/blinklabs-io/shai/dex/butane"
 )
 
 // Re-export constants for backward compatibility

@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
-	"github.com/blinklabs-io/shai/internal/common"
+	"github.com/blinklabs-io/shai/common"
 )
 
 // CDPState represents the parsed state of a CDP position
