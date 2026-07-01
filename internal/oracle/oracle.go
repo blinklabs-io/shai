@@ -65,14 +65,22 @@ func New(
 		mempoolMgr:    NewMempoolStateManager(),
 	}
 
-	// Extract pool addresses from profile config
-	if oracleConfig, ok := profile.Config.(config.OracleProfileConfig); ok {
-		for _, addr := range oracleConfig.PoolAddresses {
+	o.addProfileAddresses()
+
+	return o
+}
+
+func (o *Oracle) addProfileAddresses() {
+	switch profileConfig := o.profile.Config.(type) {
+	case config.OracleProfileConfig:
+		for _, addr := range profileConfig.PoolAddresses {
+			o.poolAddresses[addr.Address] = struct{}{}
+		}
+	case config.SyntheticsProfileConfig:
+		for _, addr := range profileConfig.CDPAddresses {
 			o.poolAddresses[addr.Address] = struct{}{}
 		}
 	}
-
-	return o
 }
 
 // Start begins tracking pool states
@@ -269,6 +277,9 @@ func (o *Oracle) handleTransaction(
 		)
 		if err != nil {
 			// Not a valid pool datum for this protocol
+			continue
+		}
+		if state == nil {
 			continue
 		}
 
