@@ -6,6 +6,10 @@ type Network struct {
 }
 
 var Networks = map[string]Network{
+	"preprod": {
+		ShelleyOffsetSlot: 0,
+		ShelleyOffsetTime: 1654041600,
+	},
 	"preview": {
 		ShelleyOffsetSlot: 0,
 		ShelleyOffsetTime: 1666656000,

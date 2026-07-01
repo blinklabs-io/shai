@@ -43,7 +43,7 @@ Shai can be configured via YAML file, environment variables, or both.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NETWORK` | Cardano network (`mainnet`, `preview`) | `mainnet` |
+| `NETWORK` | Cardano network (`mainnet`, `preprod`, `preview`) | `mainnet` |
 | `PROFILES` | Comma-separated list of profiles to enable | `spectrum,teddyswap` |
 | `MNEMONIC` | Wallet seed phrase (auto-generates if not set) | - |
 | `STORAGE_DIR` | BadgerDB storage location | `./.shai` |
@@ -101,6 +101,10 @@ Oracle profiles (price tracking):
 Spectrum batching profiles (matcher bot):
 - `spectrum` - Spectrum DEX on mainnet
 - `teddyswap` - TeddySwap on preview/mainnet
+
+Testnet oracle coverage:
+- `NETWORK=preprod PROFILES=minswap-v2` enables the Minswap V2 preprod pool contract.
+- `NETWORK=preview PROFILES=sundaeswap-v3` enables the SundaeSwap V3 preview pool contract.
 
 ## Usage
 

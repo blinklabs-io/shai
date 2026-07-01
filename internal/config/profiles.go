@@ -87,7 +87,65 @@ func GetAvailableProfiles() []string {
 }
 
 var Profiles = map[string]map[string]Profile{
+	"preprod": {
+		"minswap-v2": {
+			Name:          "minswap-v2",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 62910357,
+			InterceptHash: "42d965bbc11668723b3bc3741a969c2750d2df0d16714a0af63b4ef2ee221eb1",
+			Config: OracleProfileConfig{
+				Protocol: "minswap-v2",
+				PoolAddresses: []ProfileConfigAddress{
+					// Minswap V2 pool script address (preprod)
+					{
+						Address: mustScriptEnterpriseAddress(
+							"preprod",
+							"d6ba9b7509eac866288ff5072d2a18205ac56f744bc82dcd808cb8fe",
+						),
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{
+					// Pool reference script
+					{
+						TxId:      "9f30b1c3948a009ceebda32d0b1d25699674b2eaf8b91ef029a43bfc1073ce28",
+						OutputIdx: 0,
+					},
+				},
+			},
+		},
+	},
 	"preview": {
+		"sundaeswap-v3": {
+			Name:          "sundaeswap-v3",
+			Type:          ProfileTypeOracle,
+			InterceptSlot: 48535234,
+			InterceptHash: "311319fd4889453ddbba6fde8b085cd1ec8d7d341e6128c003ad8cbbfbf09043",
+			Config: OracleProfileConfig{
+				Protocol: "sundaeswap-v3",
+				PoolAddresses: []ProfileConfigAddress{
+					// SundaeSwap V3 pool script address (preview)
+					{
+						Address: mustScriptScriptAddress(
+							"preview",
+							"44a1eb2d9f58add4eb1932bd0048e6a1947e85e3fe4f32956a110414",
+							"cc27980a8557fe9db2c9ac0a2677f4d1306dbf10689983758f0b8dbe",
+						),
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{
+					// Order reference script
+					{
+						TxId:      "92ec2274938de291d3837b7facf9eddfaed57cd6ff97e26af57cb7a9978e3887",
+						OutputIdx: 0,
+					},
+					// Pool reference script
+					{
+						TxId:      "8036a88a61427262aba964a42d0b9924739ffc3214de9a07c54b5a09af7f0d7d",
+						OutputIdx: 0,
+					},
+				},
+			},
+		},
 		"teddyswap": {
 			Name:          "teddyswap",
 			Type:          ProfileTypeSpectrum,
