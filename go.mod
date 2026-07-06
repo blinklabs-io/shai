@@ -7,7 +7,7 @@ require (
 	github.com/blinklabs-io/apollo/v2 v2.0.0-20260625155554-2c0d64b7d8e9
 	github.com/blinklabs-io/bursa v0.16.0
 	github.com/blinklabs-io/dingo v0.60.0
-	github.com/blinklabs-io/gouroboros v0.186.0
+	github.com/blinklabs-io/gouroboros v0.186.2
 	github.com/blinklabs-io/ouroboros-mock v0.14.0
 	github.com/dgraph-io/badger/v4 v4.9.2
 	github.com/gorilla/websocket v1.5.3
@@ -33,7 +33,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.24.4 // indirect
 	github.com/blinklabs-io/go-bip39 v0.2.0 // indirect
-	github.com/blinklabs-io/plutigo v0.1.15 // indirect
+	github.com/blinklabs-io/plutigo v0.1.16 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.5.0 // indirect
 	github.com/btcsuite/btcd/btcutil v1.2.0 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0 // indirect
