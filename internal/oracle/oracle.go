@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/adder/event"
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
 	"github.com/blinklabs-io/shai/internal/logging"
@@ -32,6 +34,20 @@ const (
 	dropLogSampleRate    = 100
 )
 
+// CDPParser parses synthetics/CDP datums that are tracked separately from AMM
+// pool states.
+type CDPParser interface {
+	Protocol() string
+	ParseCDPDatum(
+		datum []byte,
+		txHash string,
+		txIndex uint32,
+		slot uint64,
+		timestamp time.Time,
+	) (*CDPState, error)
+	CDPIdForOutput(txHash string, txIndex uint32) string
+}
+
 // Oracle tracks pool states from on-chain data
 type Oracle struct {
 	idx           *indexer.Indexer
@@ -39,6 +55,8 @@ type Oracle struct {
 	parser        PoolParser
 	pools         map[string]*PoolState
 	poolsMu       sync.RWMutex
+	cdps          map[string]*CDPState
+	cdpsMu        sync.RWMutex
 	poolAddresses map[string]struct{} // Set for O(1) lookup
 	storage       *OracleStorage
 	stopChan      chan struct{}
@@ -60,19 +78,28 @@ func New(
 		profile:       profile,
 		parser:        parser,
 		pools:         make(map[string]*PoolState),
+		cdps:          make(map[string]*CDPState),
 		poolAddresses: make(map[string]struct{}),
 		stopChan:      make(chan struct{}),
 		mempoolMgr:    NewMempoolStateManager(),
 	}
 
-	// Extract pool addresses from profile config
-	if oracleConfig, ok := profile.Config.(config.OracleProfileConfig); ok {
-		for _, addr := range oracleConfig.PoolAddresses {
+	o.addProfileAddresses()
+
+	return o
+}
+
+func (o *Oracle) addProfileAddresses() {
+	switch profileConfig := o.profile.Config.(type) {
+	case config.OracleProfileConfig:
+		for _, addr := range profileConfig.PoolAddresses {
+			o.poolAddresses[addr.Address] = struct{}{}
+		}
+	case config.SyntheticsProfileConfig:
+		for _, addr := range profileConfig.CDPAddresses {
 			o.poolAddresses[addr.Address] = struct{}{}
 		}
 	}
-
-	return o
 }
 
 // Start begins tracking pool states
@@ -245,16 +272,30 @@ func (o *Oracle) handleTransaction(
 		return nil
 	}
 	cfg := config.GetConfig()
+	cdpParser, hasCDPParser := o.parser.(CDPParser)
+	if hasCDPParser && o.isSyntheticsProfile() {
+		o.deleteSpentCDPStates(logger, cdpParser, transactionInputs(txEvt))
+	}
 
-	// Check for pool UTxOs at monitored addresses
-	for _, utxo := range txEvt.Transaction.Produced() {
+	// Check for tracked UTxOs at monitored addresses.
+	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
 		addr := utxo.Output.Address().String()
 		if !o.isPoolAddress(addr) {
 			continue
 		}
-
-		// Skip UTxOs without datum
 		if utxo.Output.Datum() == nil {
+			continue
+		}
+
+		if hasCDPParser && o.isSyntheticsProfile() {
+			o.handleProducedCDPOutput(
+				logger,
+				cdpParser,
+				cfg.Network,
+				txEvt.BlockHash,
+				ctx,
+				utxo,
+			)
 			continue
 		}
 
@@ -269,6 +310,9 @@ func (o *Oracle) handleTransaction(
 		)
 		if err != nil {
 			// Not a valid pool datum for this protocol
+			continue
+		}
+		if state == nil {
 			continue
 		}
 
@@ -313,6 +357,148 @@ func (o *Oracle) handleTransaction(
 	return nil
 }
 
+func (o *Oracle) handleProducedCDPOutput(
+	logger *slog.Logger,
+	parser CDPParser,
+	network string,
+	blockHash string,
+	ctx event.TransactionContext,
+	utxo ledger.Utxo,
+) {
+	now := time.Now()
+	datum := utxo.Output.Datum()
+	if datum == nil {
+		logger.Debug(
+			"skipping produced CDP output without datum",
+			"txHash", ctx.TransactionHash,
+			"outputIndex", utxo.Id.Index(),
+		)
+		return
+	}
+
+	state, err := parser.ParseCDPDatum(
+		datum.Cbor(),
+		ctx.TransactionHash,
+		utxo.Id.Index(),
+		ctx.SlotNumber,
+		now,
+	)
+	if err != nil || state == nil {
+		return
+	}
+
+	state.Network = network
+	state.Protocol = parser.Protocol()
+	state.BlockHash = blockHash
+	state.UpdatedAt = now
+
+	o.cdpsMu.Lock()
+	if o.cdps == nil {
+		o.cdps = make(map[string]*CDPState)
+	}
+	o.cdps[state.CDPId] = state
+	o.cdpsMu.Unlock()
+
+	if err := o.storage.SaveCDPState(state); err != nil {
+		logger.Error(
+			"failed to persist CDP state",
+			"error", err,
+			"cdpId", state.CDPId,
+		)
+	}
+
+	logger.Debug(
+		"CDP state updated",
+		"cdpId", state.CDPId,
+		"protocol", state.Protocol,
+		"slot", state.Slot,
+	)
+}
+
+func (o *Oracle) deleteSpentCDPStates(
+	logger *slog.Logger,
+	parser CDPParser,
+	inputs []ledger.TransactionInput,
+) {
+	for _, input := range inputs {
+		cdpId := parser.CDPIdForOutput(input.Id().String(), input.Index())
+		state, ok := o.deleteCDPStateByID(cdpId)
+		if !ok {
+			continue
+		}
+		network := state.Network
+		if network == "" {
+			network = config.GetConfig().Network
+		}
+		protocol := state.Protocol
+		if protocol == "" {
+			protocol = parser.Protocol()
+		}
+		if err := o.storage.DeleteCDPState(
+			network,
+			protocol,
+			cdpId,
+		); err != nil {
+			logger.Error(
+				"failed to delete spent CDP state",
+				"error", err,
+				"cdpId", cdpId,
+			)
+			continue
+		}
+		logger.Debug(
+			"deleted spent CDP state",
+			"cdpId", cdpId,
+			"protocol", parser.Protocol(),
+		)
+	}
+}
+
+func (o *Oracle) deleteCDPStateByID(cdpId string) (*CDPState, bool) {
+	o.cdpsMu.Lock()
+	defer o.cdpsMu.Unlock()
+	if o.cdps == nil {
+		return nil, false
+	}
+	state, ok := o.cdps[cdpId]
+	if !ok {
+		return nil, false
+	}
+	delete(o.cdps, cdpId)
+	return state, true
+}
+
+func (o *Oracle) isSyntheticsProfile() bool {
+	return o.profile != nil && o.profile.Type == config.ProfileTypeSynthetics
+}
+
+func transactionInputs(txEvt event.TransactionEvent) []ledger.TransactionInput {
+	if len(txEvt.Inputs) > 0 {
+		return txEvt.Inputs
+	}
+	if txEvt.Transaction == nil {
+		return nil
+	}
+	return txEvt.Transaction.Consumed()
+}
+
+func producedUTXOs(
+	txEvt event.TransactionEvent,
+	txHash string,
+) []ledger.Utxo {
+	if txEvt.Transaction != nil {
+		return txEvt.Transaction.Produced()
+	}
+	utxos := make([]ledger.Utxo, 0, len(txEvt.Outputs))
+	for i, output := range txEvt.Outputs {
+		utxos = append(utxos, ledger.Utxo{
+			Id:     shelley.NewShelleyTransactionInput(txHash, i),
+			Output: output,
+		})
+	}
+	return utxos
+}
+
 // handleRollback processes a rollback event by invalidating pool states
 // that were recorded at or after the rollback slot
 func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
@@ -337,6 +523,18 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		delete(o.pools, state.PoolId)
 	}
 	o.poolsMu.Unlock()
+
+	o.cdpsMu.Lock()
+	var cdpsToDelete []*CDPState
+	for _, state := range o.cdps {
+		if state.Slot >= evt.SlotNumber {
+			cdpsToDelete = append(cdpsToDelete, state)
+		}
+	}
+	for _, state := range cdpsToDelete {
+		delete(o.cdps, state.CDPId)
+	}
+	o.cdpsMu.Unlock()
 
 	// Invalidate mempool tracking for rolled-back pools. Otherwise the reorged
 	// confirmed state stays visible to consumers and seeds future pending-tx
@@ -365,10 +563,32 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 			)
 		}
 	}
+	for _, state := range cdpsToDelete {
+		if err := o.storage.DeleteCDPState(
+			state.Network,
+			state.Protocol,
+			state.CDPId,
+		); err != nil {
+			logger.Error(
+				"failed to delete rolled-back CDP state",
+				"error", err,
+				"cdpId", state.CDPId,
+				"slot", state.Slot,
+			)
+			errs = append(errs, err)
+		} else {
+			logger.Info(
+				"invalidated CDP state due to rollback",
+				"cdpId", state.CDPId,
+				"slot", state.Slot,
+				"rollbackSlot", evt.SlotNumber,
+			)
+		}
+	}
 
 	if len(errs) > 0 {
 		return fmt.Errorf(
-			"failed to delete %d pool states during rollback",
+			"failed to delete %d oracle states during rollback",
 			len(errs),
 		)
 	}
@@ -382,18 +602,34 @@ func (o *Oracle) isPoolAddress(addr string) bool {
 	return ok
 }
 
-// loadPersistedStates loads pool states from storage
+// loadPersistedStates loads oracle states from storage.
 func (o *Oracle) loadPersistedStates() error {
 	states, err := o.storage.LoadAllPoolStates()
 	if err != nil {
 		return err
 	}
+	cdpStates, err := o.storage.LoadAllCDPStates()
+	if err != nil {
+		return err
+	}
 
 	o.poolsMu.Lock()
+	if o.pools == nil {
+		o.pools = make(map[string]*PoolState)
+	}
 	for _, state := range states {
 		o.pools[state.PoolId] = state
 	}
 	o.poolsMu.Unlock()
+
+	o.cdpsMu.Lock()
+	if o.cdps == nil {
+		o.cdps = make(map[string]*CDPState)
+	}
+	for _, state := range cdpStates {
+		o.cdps[state.CDPId] = state
+	}
+	o.cdpsMu.Unlock()
 
 	if o.mempoolMgr == nil {
 		o.mempoolMgr = NewMempoolStateManager()
@@ -403,7 +639,11 @@ func (o *Oracle) loadPersistedStates() error {
 	}
 
 	logger := logging.GetLogger()
-	logger.Info("loaded persisted pool states", "count", len(states))
+	logger.Info(
+		"loaded persisted oracle states",
+		"pools", len(states),
+		"cdps", len(cdpStates),
+	)
 
 	return nil
 }
@@ -427,6 +667,34 @@ func (o *Oracle) GetAllPools() []*PoolState {
 		pools = append(pools, state)
 	}
 	return pools
+}
+
+// GetCDPState returns the current state of a CDP.
+func (o *Oracle) GetCDPState(cdpId string) (*CDPState, bool) {
+	o.cdpsMu.RLock()
+	defer o.cdpsMu.RUnlock()
+
+	state, ok := o.cdps[cdpId]
+	return state, ok
+}
+
+// GetAllCDPs returns all tracked CDP states.
+func (o *Oracle) GetAllCDPs() []*CDPState {
+	o.cdpsMu.RLock()
+	defer o.cdpsMu.RUnlock()
+
+	cdps := make([]*CDPState, 0, len(o.cdps))
+	for _, state := range o.cdps {
+		cdps = append(cdps, state)
+	}
+	return cdps
+}
+
+// CDPCount returns the number of tracked CDPs.
+func (o *Oracle) CDPCount() int {
+	o.cdpsMu.RLock()
+	defer o.cdpsMu.RUnlock()
+	return len(o.cdps)
 }
 
 // PoolCount returns the number of tracked pools

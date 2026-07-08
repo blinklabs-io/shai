@@ -25,7 +25,10 @@ import (
 	"github.com/dgraph-io/badger/v4"
 )
 
-const poolStateKeyPrefix = "oracle_pool_"
+const (
+	poolStateKeyPrefix = "oracle_pool_"
+	cdpStateKeyPrefix  = "oracle_cdp_"
+)
 
 // OracleStorage handles persistence of oracle data
 type OracleStorage struct {
@@ -109,6 +112,90 @@ func (s *OracleStorage) LoadAllPoolStates() ([]*PoolState, error) {
 	}
 
 	return states, nil
+}
+
+// SaveCDPState persists a CDP state to storage.
+func (s *OracleStorage) SaveCDPState(state *CDPState) error {
+	key := cdpStateKey(state.Network, state.Protocol, state.CDPId)
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal CDP state: %w", err)
+	}
+
+	err = s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(key), data)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to save CDP state: %w", err)
+	}
+
+	return nil
+}
+
+// LoadAllCDPStates loads all CDP states from storage.
+func (s *OracleStorage) LoadAllCDPStates() ([]*CDPState, error) {
+	logger := logging.GetLogger()
+	var states []*CDPState
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte(cdpStateKeyPrefix)
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			err := item.Value(func(val []byte) error {
+				var state CDPState
+				if err := json.Unmarshal(val, &state); err != nil {
+					logger.Warn(
+						"failed to unmarshal CDP state",
+						"key", string(item.Key()),
+						"error", err,
+					)
+					return nil
+				}
+				states = append(states, &state)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load CDP states: %w", err)
+	}
+
+	return states, nil
+}
+
+// LoadCDPState loads a single CDP state by network, protocol, and CDP ID.
+func (s *OracleStorage) LoadCDPState(
+	network,
+	protocol,
+	cdpId string,
+) (*CDPState, error) {
+	key := cdpStateKey(network, protocol, cdpId)
+
+	var state *CDPState
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			state = &CDPState{}
+			return json.Unmarshal(val, state)
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load CDP state: %w", err)
+	}
+
+	return state, nil
 }
 
 // LoadPoolState loads a single pool state by network, protocol, and pool ID.
@@ -202,9 +289,32 @@ func (s *OracleStorage) DeletePoolState(state *PoolState) error {
 	return nil
 }
 
+// DeleteCDPState removes a CDP state from storage.
+func (s *OracleStorage) DeleteCDPState(
+	network,
+	protocol,
+	cdpId string,
+) error {
+	key := cdpStateKey(network, protocol, cdpId)
+
+	err := s.db.Update(func(txn *badger.Txn) error {
+		return txn.Delete([]byte(key))
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete CDP state: %w", err)
+	}
+
+	return nil
+}
+
 // poolStateKey generates the storage key for a pool state
 func poolStateKey(network, protocol, poolId string) string {
 	return poolStateKeyPrefix + network + ":" + protocol + ":" + poolId
+}
+
+// cdpStateKey generates the storage key for a CDP state.
+func cdpStateKey(network, protocol, cdpId string) string {
+	return cdpStateKeyPrefix + network + ":" + protocol + ":" + cdpId
 }
 
 // ParsePoolStateKey extracts network, protocol, and poolId from a pool key.
@@ -219,6 +329,22 @@ func ParsePoolStateKey(key string) (network, protocol, poolId string, err error)
 	}
 	if parts[0] == "" || parts[1] == "" || parts[2] == "" {
 		return "", "", "", fmt.Errorf("invalid pool state key: %s", key)
+	}
+	return parts[0], parts[1], parts[2], nil
+}
+
+// ParseCDPStateKey extracts network, protocol, and cdpId from a CDP key.
+func ParseCDPStateKey(key string) (network, protocol, cdpId string, err error) {
+	if !strings.HasPrefix(key, cdpStateKeyPrefix) {
+		return "", "", "", fmt.Errorf("invalid CDP state key: %s", key)
+	}
+	trimmed := strings.TrimPrefix(key, cdpStateKeyPrefix)
+	parts := strings.SplitN(trimmed, ":", 3)
+	if len(parts) != 3 {
+		return "", "", "", fmt.Errorf("invalid CDP state key: %s", key)
+	}
+	if parts[0] == "" || parts[1] == "" || parts[2] == "" {
+		return "", "", "", fmt.Errorf("invalid CDP state key: %s", key)
 	}
 	return parts[0], parts[1], parts[2], nil
 }
