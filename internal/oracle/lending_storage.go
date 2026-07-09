@@ -159,6 +159,7 @@ func (s *LendingStorage) DeleteLendingState(
 func (s *LendingStorage) LoadLendingStatesByProtocol(
 	network, protocol string,
 ) ([]*LendingState, error) {
+	logger := logging.GetLogger()
 	prefix := lendingStateKeyPrefix + network + ":" + protocol + ":"
 	var states []*LendingState
 
@@ -173,6 +174,11 @@ func (s *LendingStorage) LoadLendingStatesByProtocol(
 			err := item.Value(func(val []byte) error {
 				var state LendingState
 				if err := json.Unmarshal(val, &state); err != nil {
+					logger.Warn(
+						"failed to unmarshal lending state",
+						"key", string(item.Key()),
+						"error", err,
+					)
 					return nil // Skip invalid entries
 				}
 				states = append(states, &state)
@@ -195,6 +201,7 @@ func (s *LendingStorage) LoadLendingStatesByProtocol(
 func (s *LendingStorage) LoadLendingStatesByType(
 	stateType LendingStateType,
 ) ([]*LendingState, error) {
+	logger := logging.GetLogger()
 	var states []*LendingState
 
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -208,6 +215,11 @@ func (s *LendingStorage) LoadLendingStatesByType(
 			err := item.Value(func(val []byte) error {
 				var state LendingState
 				if err := json.Unmarshal(val, &state); err != nil {
+					logger.Warn(
+						"failed to unmarshal lending state",
+						"key", string(item.Key()),
+						"error", err,
+					)
 					return nil // Skip invalid entries
 				}
 				if state.StateType == stateType {

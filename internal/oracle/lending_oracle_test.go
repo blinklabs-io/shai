@@ -72,6 +72,39 @@ func TestLendingOracleGetStateRawIdAmbiguity(t *testing.T) {
 	}
 }
 
+func TestLendingOracleGetInterestRateUsesMarketLookup(t *testing.T) {
+	o := newTestLendingOracleWithStates(
+		&LendingState{
+			StateId:         "market-1",
+			StateType:       LendingStateTypeMarket,
+			Protocol:        "liqwid",
+			Network:         "mainnet",
+			InterestRatePct: 0.02,
+		},
+		&LendingState{
+			StateId:         "position-1",
+			StateType:       LendingStateTypePosition,
+			Protocol:        "liqwid",
+			Network:         "mainnet",
+			InterestRatePct: 0.99,
+		},
+	)
+
+	rate, ok := o.GetInterestRate("market-1")
+	if !ok || rate != 0.02 {
+		t.Fatalf("expected raw market lookup to return 0.02, got %f ok=%t", rate, ok)
+	}
+
+	rate, ok = o.GetInterestRate("mainnet:liqwid:market-1")
+	if !ok || rate != 0.02 {
+		t.Fatalf("expected scoped market lookup to return 0.02, got %f ok=%t", rate, ok)
+	}
+
+	if rate, ok := o.GetInterestRate("position-1"); ok {
+		t.Fatalf("expected non-market lookup to fail, got %f", rate)
+	}
+}
+
 func TestLendingOracleRegisterHandlersDelegatesToAPI(t *testing.T) {
 	o := newTestLendingOracleWithStates(&LendingState{
 		StateId:         "market-1",
@@ -214,6 +247,35 @@ func TestMultiLendingOracleAPIGetMarketAcrossOracles(t *testing.T) {
 	}
 	if state.StateId != "market-2" {
 		t.Fatalf("expected market-2, got %s", state.StateId)
+	}
+}
+
+func TestMultiLendingOracleAPIGetStateRawIdAmbiguityAcrossOracles(t *testing.T) {
+	api := NewMultiLendingOracleAPI([]*LendingOracle{
+		newTestLendingOracleWithStates(&LendingState{
+			StateId:   "market-1",
+			StateType: LendingStateTypeMarket,
+			Protocol:  "liqwid",
+			Network:   "mainnet",
+		}),
+		newTestLendingOracleWithStates(&LendingState{
+			StateId:   "market-1",
+			StateType: LendingStateTypeMarket,
+			Protocol:  "liqwid-alt",
+			Network:   "mainnet",
+		}),
+	})
+
+	if _, ok := api.getState("market-1"); ok {
+		t.Fatal("expected duplicate raw market ID across oracles to be ambiguous")
+	}
+
+	state, ok := api.getState("mainnet:liqwid-alt:market-1")
+	if !ok {
+		t.Fatal("expected scoped state ID lookup to succeed")
+	}
+	if state.Protocol != "liqwid-alt" {
+		t.Fatalf("expected liqwid-alt state, got %s", state.Protocol)
 	}
 }
 

@@ -15,6 +15,7 @@
 package oracle
 
 import (
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,6 +72,24 @@ func TestLiqwidLendingAdapterParseDatumReturnsMarketError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "failed to decode Liqwid market datum") {
 		t.Fatalf("expected market parse error, got %v", err)
+	}
+}
+
+func TestLiqwidLendingAdapterGetAddressesUsesMarketDefaults(t *testing.T) {
+	expected := []string{
+		liqwid.MarketInboxAddress,
+		liqwid.BatchFinalAddress,
+		liqwid.DemandActionAddress,
+		liqwid.SupplyActionAddress,
+	}
+
+	if addrs := liqwid.GetMarketAddresses(); !slices.Equal(addrs, expected) {
+		t.Fatalf("unexpected Liqwid market addresses: %#v", addrs)
+	}
+
+	adapter := NewLiqwidLendingAdapter()
+	if addrs := adapter.GetAddresses(); !slices.Equal(addrs, expected) {
+		t.Fatalf("unexpected adapter addresses: %#v", addrs)
 	}
 }
 

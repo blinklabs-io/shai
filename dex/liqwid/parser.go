@@ -335,22 +335,27 @@ const (
 	// Liqwid was the first Cardano protocol to integrate Charli3 oracles
 	// See: https://cexplorer.io/address/addr1wyd8cezjr0gcf8nfxuc9trd4hs7ec520jmkwkqzywx6l5jg0al0ya
 	Charli3OracleAddress = "addr1wyd8cezjr0gcf8nfxuc9trd4hs7ec520jmkwkqzywx6l5jg0al0ya"
+
+	// MarketInboxAddress is the mainnet Liqwid market inbox validator address.
+	MarketInboxAddress = "addr1w8dprfgfdxnlwu3948579jrwg0ferf5a63ln8xj0mqcdzegayxmqq"
+
+	// BatchFinalAddress is the mainnet Liqwid batch final validator address.
+	BatchFinalAddress = "addr1w9wjz8tjt87gldh2usu8t5mfe4nkmlngp30a387h8s94fyg5uup5n"
+
+	// DemandActionAddress is the mainnet Liqwid demand action validator address.
+	DemandActionAddress = "addr1wyw3ap36lnepstpjadwg8cg73llvmju4y94kmfld23lkzjggq4hyj"
+
+	// SupplyActionAddress is the mainnet Liqwid supply action validator address.
+	SupplyActionAddress = "addr1wxrxa3ucywn3lqpkzlyucak0a7aavkudh49fqt06yc05sws4l4zs2"
 )
 
-// GetMarketAddresses returns mainnet Liqwid market addresses
-// NOTE: Liqwid market validator script addresses are not publicly documented.
-// The protocol uses Plutarch scripts with liqwid-markets.json internal config.
-// Contact Liqwid Labs or analyze on-chain transactions for specific addresses.
-// See: https://github.com/Liqwid-Labs
+// GetMarketAddresses returns mainnet Liqwid market/action validator addresses.
 func GetMarketAddresses() []string {
 	return []string{
-		// Market addresses need to be obtained from Liqwid Labs
-		// or by analyzing on-chain transactions via Cardanoscan
-		// The protocol architecture uses:
-		// - MarketInbox validator (market state and parameters)
-		// - BatchFinal validator (batch finalization logic)
-		// - DemandAction validator (redeem, borrow actions)
-		// - SupplyAction validator (mint, repay actions)
+		MarketInboxAddress,
+		BatchFinalAddress,
+		DemandActionAddress,
+		SupplyActionAddress,
 	}
 }
 

@@ -607,10 +607,7 @@ func (o *LendingOracle) GetUtilization(stateId string) (float64, bool) {
 
 // GetInterestRate returns the interest rate for a market
 func (o *LendingOracle) GetInterestRate(stateId string) (float64, bool) {
-	o.statesMu.RLock()
-	defer o.statesMu.RUnlock()
-
-	if state, ok := o.states[stateId]; ok {
+	if state, ok := o.GetState(stateId); ok && state.IsMarket() {
 		return state.InterestRatePct, true
 	}
 	return 0, false

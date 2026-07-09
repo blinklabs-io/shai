@@ -395,28 +395,17 @@ func (a *LendingOracleAPI) getOverdueLoans() []*LendingState {
 }
 
 func (a *LendingOracleAPI) getState(stateId string) (*LendingState, bool) {
-	for _, o := range a.oracles {
-		o.statesMu.RLock()
-		state, ok := o.states[stateId]
-		o.statesMu.RUnlock()
-		if ok {
-			return state, true
-		}
-	}
-
 	var matched *LendingState
 	for _, o := range a.oracles {
-		o.statesMu.RLock()
-		for _, state := range o.states {
-			if state.StateId == stateId {
-				if matched != nil {
-					o.statesMu.RUnlock()
-					return nil, false
-				}
-				matched = state
+		if state, ok := o.GetState(stateId); ok {
+			if state.Key() == stateId {
+				return state, true
 			}
+			if matched != nil {
+				return nil, false
+			}
+			matched = state
 		}
-		o.statesMu.RUnlock()
 	}
 	if matched != nil {
 		return matched, true
