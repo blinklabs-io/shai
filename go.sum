@@ -21,12 +21,12 @@ github.com/blinklabs-io/apollo/v2 v2.0.0-20260625155554-2c0d64b7d8e9 h1:XFQMZ9Fc
 github.com/blinklabs-io/apollo/v2 v2.0.0-20260625155554-2c0d64b7d8e9/go.mod h1:2V+ozsEcpAYykzUlTBBdMW7+aQTVJSbizRjXli3D92s=
 github.com/blinklabs-io/bursa v0.16.0 h1:EyiEJIvRo5u2nxYQAILUNaCpubUuBrCgnWxIHI1YnoU=
 github.com/blinklabs-io/bursa v0.16.0/go.mod h1:QushjySLaOipI158YageIEIRksjCxGpAwtM1WbYx4Qo=
-github.com/blinklabs-io/dingo v0.60.0 h1:nvTndXhwS2Dy/JEgpZcc9VYR4WNvJPrUKfKGcM1Gffo=
-github.com/blinklabs-io/dingo v0.60.0/go.mod h1:Fhn9U1phJ+sToiw1fsS5V3RlwTzpEDPFgc/wUaFdVMg=
+github.com/blinklabs-io/dingo v0.63.0 h1:gIrPvV7J1Tyc85dsLQzXePwZFyueSnMfu3gUKxAX0yk=
+github.com/blinklabs-io/dingo v0.63.0/go.mod h1:YS+L9gsAazwtOmWG9kN24AxnFMlQA4Kygr2ndl14qcM=
 github.com/blinklabs-io/go-bip39 v0.2.0 h1:rHYih+JzqaFVuP+UfvByKTAdJPeYtlvZu49yUGrZUk8=
 github.com/blinklabs-io/go-bip39 v0.2.0/go.mod h1:9Bp7a+XDc/KTPOqNnS7T/v1vH2lDXpmjM0GArwvOQL4=
-github.com/blinklabs-io/gouroboros v0.186.2 h1:gxeb21GcMUqzSiVwAnW5PgQ3BBmpUOplnVGVn1rdmbs=
-github.com/blinklabs-io/gouroboros v0.186.2/go.mod h1:09vvwDxB6WPjrNYEx5losv87sclYDUWP/ZUFsxsesZ4=
+github.com/blinklabs-io/gouroboros v0.187.3 h1:UyAUsgNiKwLIKEytErvN0beTZK8/L8IzlqbXIRU7m7U=
+github.com/blinklabs-io/gouroboros v0.187.3/go.mod h1:09vvwDxB6WPjrNYEx5losv87sclYDUWP/ZUFsxsesZ4=
 github.com/blinklabs-io/ouroboros-mock v0.14.0 h1:tWOjItzHmdcGv1HfH23jJxumOQ0wbeRnayG4mQv5QQg=
 github.com/blinklabs-io/ouroboros-mock v0.14.0/go.mod h1:nvY6cwqImZekjCfuutzTjdMR4/gOkNUO9lZuOGlQGl4=
 github.com/blinklabs-io/plutigo v0.1.16 h1:SgBN2S1f2AeUxuI4UupVY/0rPYBTFtfj+ALQPCi7XaU=
