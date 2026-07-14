@@ -25,6 +25,7 @@ const (
 	ProfileTypeSpectrum
 	ProfileTypeOracle
 	ProfileTypeSynthetics
+	ProfileTypeBonds
 )
 
 type Profile struct {
@@ -69,6 +70,18 @@ type OracleProfileConfig struct {
 type SyntheticsProfileConfig struct {
 	Protocol     string                 // Protocol name (e.g., "indigo")
 	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+}
+
+// BondsProfileConfig contains configuration for liquidity bonds protocols
+// (e.g., Optim Finance)
+type BondsProfileConfig struct {
+	Protocol        string                 // Protocol name (e.g., "optim")
+	BondAddresses   []ProfileConfigAddress // Bond contract addresses to monitor
+	OADAAddresses   []ProfileConfigAddress // OADA/sOADA contract addresses
+	StakePoolIds    []string               // Stake pool IDs to track
+	OracleAddress   string                 // Price oracle address if applicable
+	BondNFTPolicy   string                 // Policy ID for bond NFTs
+	OADATokenPolicy string                 // Policy ID for OADA tokens
 }
 
 func GetProfiles() []Profile {
@@ -301,6 +314,57 @@ var Profiles = map[string]map[string]Profile{
 						Address: "addr1w80ptp0qgmcklhmeweesqgeurtlma8fsxsr9dt8au30fzss0czhl9",
 					},
 				},
+			},
+		},
+		// Optim Finance - Liquidity Bonds and OADA staked ADA derivatives
+		// Optim Finance allows users to borrow ADA staking rights for fixed
+		// periods through liquidity bonds. Lenders provide ADA principal and
+		// earn interest, while borrowers gain delegation rights to stake pools.
+		// The protocol also provides OADA/sOADA - liquid staking derivatives.
+		//
+		// Documentation: https://www.optim.finance/
+		// GitBook: https://optim-finance.gitbook.io/optim-finance
+		// GitHub: https://github.com/OptimFinance
+		// Audited by: Tweag & Mlabs (Manual Audit)
+		//
+		// From CRFA Off-chain Data Registry (OptimFinance.json):
+		// - Bond Token Policy: 53fb41609e208f1cd3cae467c0b9abfc69f1a552bf9a90d51665a4d6
+		// - Optim EQT Policy: 4702f1ff21a54f728a59b3f5f0f351891c99015a2158b816c721ea72
+		// - Borrower Token Policy: 68fa031807f52dfea48be90d3ba788935386126b63463c84c31baac0
+		// - Bond Validator (v139): addr1z9fvxytwm8dv0aht3x8cxetm3tu4f47kaqdgxney8mu6hjq2v3hc4ckyd3njjt4ml5nndss2a6ltup4qeww5xw9qgusqxaw9d2
+		//
+		// Timeline:
+		// - Liquidity Bonds launched: December 9, 2022 (epoch ~381)
+		// - OPTIM token ILE: October 29, 2023
+		// - OADA launched: June/July 2024 (epoch ~485)
+		//
+		// Token Policy IDs (verified):
+		// - OADA: f6099832f9563e4cf59602b3351c3c5a8a7dda2d44575ef69b82cf8d
+		// - OPTIM (governance): e52964af4fffdb54504859875b1827b60ba679074996156461143dc1
+		// - sOADA: Uses same minting policy as OADA system
+		//
+		"optim": {
+			Name:          "optim",
+			Type:          ProfileTypeBonds,
+			InterceptSlot: 78623998, // pre-launch block, ~Dec 4 2022 (epoch 379)
+			InterceptHash: "7f9d6a941e3e81f5b16ac34a1364983684d6c4b008d7d9520ad1e1bad276870e",
+			Config: BondsProfileConfig{
+				Protocol: "optim",
+				BondAddresses: []ProfileConfigAddress{
+					// Bond Validator v139 from CRFA (latest version)
+					{
+						Address: "addr1z9fvxytwm8dv0aht3x8cxetm3tu4f47kaqdgxney8mu6hjq2v3hc4ckyd3njjt4ml5nndss2a6ltup4qeww5xw9qgusqxaw9d2",
+					},
+				},
+				OADAAddresses: []ProfileConfigAddress{
+					// OADA/sOADA addresses to be obtained from on-chain data
+				},
+				StakePoolIds:  []string{},
+				OracleAddress: "",
+				// Bond Token Policy from CRFA
+				BondNFTPolicy: "53fb41609e208f1cd3cae467c0b9abfc69f1a552bf9a90d51665a4d6",
+				// OADA token policy ID (mainnet)
+				OADATokenPolicy: "f6099832f9563e4cf59602b3351c3c5a8a7dda2d44575ef69b82cf8d",
 			},
 		},
 		"spectrum": {
