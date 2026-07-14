@@ -273,6 +273,8 @@ func getSyntheticsParser(protocol string) oracle.PoolParser {
 	switch protocol {
 	case "indigo":
 		return oracle.NewIndigoParser()
+	case "butane":
+		return oracle.NewButaneParser()
 	default:
 		return nil
 	}
