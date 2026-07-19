@@ -7,7 +7,7 @@ require (
 	github.com/blinklabs-io/apollo/v2 v2.0.0-20260625155554-2c0d64b7d8e9
 	github.com/blinklabs-io/bursa v0.16.0
 	github.com/blinklabs-io/dingo v0.60.0
-	github.com/blinklabs-io/gouroboros v0.186.2
+	github.com/blinklabs-io/gouroboros v0.187.3
 	github.com/blinklabs-io/ouroboros-mock v0.14.0
 	github.com/dgraph-io/badger/v4 v4.9.2
 	github.com/gorilla/websocket v1.5.3
