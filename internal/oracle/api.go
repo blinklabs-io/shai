@@ -79,6 +79,11 @@ type OracleAPI struct {
 	broadcastOnce sync.Once
 }
 
+// APIHandlerRegistrar registers API handlers on an HTTP mux.
+type APIHandlerRegistrar interface {
+	RegisterHandlers(*http.ServeMux)
+}
+
 // NewOracleAPI creates a new OracleAPI instance
 func NewOracleAPI(oracle *Oracle) *OracleAPI {
 	return NewMultiOracleAPI([]*Oracle{oracle})
@@ -182,12 +187,19 @@ func (a *OracleAPI) RegisterHandlers(mux *http.ServeMux) {
 	a.startBroadcastPriceUpdates()
 }
 
-// StartServer starts the HTTP server
-func (a *OracleAPI) StartServer(addr string) error {
+// StartAPIServer starts an HTTP server with all supplied API handlers.
+func StartAPIServer(
+	addr string,
+	registrars ...APIHandlerRegistrar,
+) error {
 	logger := logging.GetLogger()
 
 	mux := http.NewServeMux()
-	a.RegisterHandlers(mux)
+	for _, registrar := range registrars {
+		if registrar != nil {
+			registrar.RegisterHandlers(mux)
+		}
+	}
 
 	logger.Info("starting oracle API server", "addr", addr)
 	// WriteTimeout is intentionally omitted: setting it on a server that
@@ -202,6 +214,11 @@ func (a *OracleAPI) StartServer(addr string) error {
 		IdleTimeout:       120 * time.Second,
 	}
 	return server.ListenAndServe()
+}
+
+// StartServer starts the HTTP server
+func (a *OracleAPI) StartServer(addr string) error {
+	return StartAPIServer(addr, a)
 }
 
 // HandleListPools returns all tracked pools
