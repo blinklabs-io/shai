@@ -200,6 +200,7 @@ func TestClientAuthenticatedRequestSignsHeaders(t *testing.T) {
 	client, err := NewClient(
 		config,
 		WithSigner(signer),
+		WithInsecureHTTPForTests(),
 		WithClock(func() time.Time {
 			return time.UnixMilli(1700000000123)
 		}),
@@ -342,6 +343,95 @@ func TestExternalAPIConfigValidateRejectsInvalidURLs(t *testing.T) {
 	}
 }
 
+func TestNewClientRequiresHTTPS(t *testing.T) {
+	for name, config := range map[string]dexstrike.ExternalAPIConfig{
+		"base URL": {
+			Enabled: true,
+			BaseURL: "http://example.com",
+		},
+		"price base URL": {
+			Enabled:      true,
+			BaseURL:      "https://example.com",
+			PriceBaseURL: "http://prices.example.com",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewClient(config)
+			if !errors.Is(err, dexstrike.ErrInvalidExternalAPIConfig) {
+				t.Fatalf(
+					"expected dexstrike.ErrInvalidExternalAPIConfig, got %v",
+					err,
+				)
+			}
+			if !strings.Contains(err.Error(), "must use HTTPS") {
+				t.Fatalf("expected HTTPS requirement error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestClientAuthenticatedRequestDoesNotFollowRedirect(t *testing.T) {
+	privateKey := ed25519.NewKeyFromSeed(
+		[]byte("01234567890123456789012345678901"),
+	)
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	signer, err := NewEd25519Signer(publicKey, privateKey)
+	if err != nil {
+		t.Fatalf("NewEd25519Signer returned error: %v", err)
+	}
+
+	var redirectedHits atomic.Int64
+	redirected := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			redirectedHits.Add(1)
+			if r.Header.Get(HeaderWalletSignature) != "" {
+				t.Error("redirect target received authentication signature")
+			}
+			w.WriteHeader(http.StatusOK)
+		},
+	))
+	defer redirected.Close()
+
+	source := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if r.Header.Get(HeaderWalletSignature) == "" {
+				t.Error("original request was not authenticated")
+			}
+			http.Redirect(w, r, redirected.URL+"/replay", http.StatusTemporaryRedirect)
+		},
+	))
+	defer source.Close()
+
+	config := dexstrike.ExternalAPIConfig{
+		Enabled: true,
+		BaseURL: source.URL,
+	}
+	client, err := NewClient(
+		config,
+		WithSigner(signer),
+		WithInsecureHTTPForTests(),
+	)
+	if err != nil {
+		t.Fatalf("NewClient returned error: %v", err)
+	}
+
+	err = client.DoAuthenticated(
+		context.Background(),
+		http.MethodPost,
+		"/v2/orders",
+		nil,
+		map[string]string{"symbol": "BTC-USD"},
+		nil,
+	)
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusTemporaryRedirect {
+		t.Fatalf("expected 307 API error, got %v", err)
+	}
+	if redirectedHits.Load() != 0 {
+		t.Fatalf("redirect target received %d requests", redirectedHits.Load())
+	}
+}
+
 func TestRandomNonceReturnsUUIDV4(t *testing.T) {
 	nonce, err := randomNonce()
 	if err != nil {
@@ -373,7 +463,7 @@ func newEnabledTestClient(
 	if len(priceBaseURLs) > 0 {
 		config.PriceBaseURL = priceBaseURLs[0]
 	}
-	client, err := NewClient(config)
+	client, err := NewClient(config, WithInsecureHTTPForTests())
 	if err != nil {
 		t.Fatalf("NewClient returned error: %v", err)
 	}

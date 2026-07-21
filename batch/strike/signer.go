@@ -127,10 +127,7 @@ func SignaturePayload(
 	)
 }
 
-func BodyHash(method string, body []byte) string {
-	if strings.EqualFold(method, http.MethodGet) {
-		return ""
-	}
+func BodyHash(_ string, body []byte) string {
 	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
 }

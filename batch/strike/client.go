@@ -48,10 +48,11 @@ type Client struct {
 type ClientOption func(*clientOptions)
 
 type clientOptions struct {
-	httpClient *http.Client
-	signer     *Ed25519Signer
-	now        func() time.Time
-	nonce      func() (string, error)
+	httpClient                *http.Client
+	signer                    *Ed25519Signer
+	now                       func() time.Time
+	nonce                     func() (string, error)
+	allowInsecureHTTPForTests bool
 }
 
 func WithHTTPClient(httpClient *http.Client) ClientOption {
@@ -75,6 +76,15 @@ func WithClock(now func() time.Time) ClientOption {
 func WithNonce(nonce func() (string, error)) ClientOption {
 	return func(options *clientOptions) {
 		options.nonce = nonce
+	}
+}
+
+// WithInsecureHTTPForTests permits cleartext HTTP endpoints. It is intended
+// only for local test servers; production API credentials must always be sent
+// over HTTPS.
+func WithInsecureHTTPForTests() ClientOption {
+	return func(options *clientOptions) {
+		options.allowInsecureHTTPForTests = true
 	}
 }
 
@@ -115,6 +125,12 @@ func NewClient(config dexstrike.ExternalAPIConfig, opts ...ClientOption) (*Clien
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid base URL: %w", dexstrike.ErrInvalidExternalAPIConfig, err)
 	}
+	if baseURL.Scheme != "https" && !options.allowInsecureHTTPForTests {
+		return nil, fmt.Errorf(
+			"%w: base URL must use HTTPS",
+			dexstrike.ErrInvalidExternalAPIConfig,
+		)
+	}
 	priceBaseURL := config.PriceBaseURL
 	if priceBaseURL == "" {
 		priceBaseURL = joinURLPath(baseURL, "/price").String()
@@ -125,6 +141,13 @@ func NewClient(config dexstrike.ExternalAPIConfig, opts ...ClientOption) (*Clien
 			"%w: invalid price base URL: %w",
 			dexstrike.ErrInvalidExternalAPIConfig,
 			err,
+		)
+	}
+	if parsedPriceBaseURL.Scheme != "https" &&
+		!options.allowInsecureHTTPForTests {
+		return nil, fmt.Errorf(
+			"%w: price base URL must use HTTPS",
+			dexstrike.ErrInvalidExternalAPIConfig,
 		)
 	}
 	client.baseURL = baseURL
@@ -292,7 +315,21 @@ func (c *Client) doJSON(
 		}
 	}
 
-	resp, err := c.httpClient.Do(req)
+	httpClient := c.httpClient
+	if authenticated {
+		// Do not allow a redirect response to replay an authenticated request,
+		// potentially to another host. Clone the client so public requests keep
+		// the caller's configured redirect behavior.
+		httpClientCopy := *c.httpClient
+		httpClientCopy.CheckRedirect = func(
+			_ *http.Request,
+			_ []*http.Request,
+		) error {
+			return http.ErrUseLastResponse
+		}
+		httpClient = &httpClientCopy
+	}
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
