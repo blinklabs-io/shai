@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -79,9 +80,9 @@ func WithNonce(nonce func() (string, error)) ClientOption {
 	}
 }
 
-// WithInsecureHTTPForTests permits cleartext HTTP endpoints. It is intended
-// only for local test servers; production API credentials must always be sent
-// over HTTPS.
+// WithInsecureHTTPForTests permits cleartext HTTP endpoints on loopback hosts.
+// It is intended only for local test servers; production API credentials must
+// always be sent over HTTPS.
 func WithInsecureHTTPForTests() ClientOption {
 	return func(options *clientOptions) {
 		options.allowInsecureHTTPForTests = true
@@ -125,9 +126,9 @@ func NewClient(config dexstrike.ExternalAPIConfig, opts ...ClientOption) (*Clien
 	if err != nil {
 		return nil, fmt.Errorf("%w: invalid base URL: %w", dexstrike.ErrInvalidExternalAPIConfig, err)
 	}
-	if baseURL.Scheme != "https" && !options.allowInsecureHTTPForTests {
+	if !isAllowedEndpoint(baseURL, options.allowInsecureHTTPForTests) {
 		return nil, fmt.Errorf(
-			"%w: base URL must use HTTPS",
+			"%w: base URL must use HTTPS or loopback HTTP for tests",
 			dexstrike.ErrInvalidExternalAPIConfig,
 		)
 	}
@@ -143,16 +144,30 @@ func NewClient(config dexstrike.ExternalAPIConfig, opts ...ClientOption) (*Clien
 			err,
 		)
 	}
-	if parsedPriceBaseURL.Scheme != "https" &&
-		!options.allowInsecureHTTPForTests {
+	if !isAllowedEndpoint(
+		parsedPriceBaseURL,
+		options.allowInsecureHTTPForTests,
+	) {
 		return nil, fmt.Errorf(
-			"%w: price base URL must use HTTPS",
+			"%w: price base URL must use HTTPS or loopback HTTP for tests",
 			dexstrike.ErrInvalidExternalAPIConfig,
 		)
 	}
 	client.baseURL = baseURL
 	client.priceBaseURL = parsedPriceBaseURL
 	return client, nil
+}
+
+func isAllowedEndpoint(endpoint *url.URL, allowLoopbackHTTP bool) bool {
+	if endpoint.Scheme == "https" {
+		return true
+	}
+	if !allowLoopbackHTTP || endpoint.Scheme != "http" {
+		return false
+	}
+	hostname := endpoint.Hostname()
+	return strings.EqualFold(hostname, "localhost") ||
+		net.ParseIP(hostname).IsLoopback()
 }
 
 func (c *Client) Enabled() bool {

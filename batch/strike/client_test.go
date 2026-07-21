@@ -370,6 +370,54 @@ func TestNewClientRequiresHTTPS(t *testing.T) {
 	}
 }
 
+func TestInsecureHTTPForTestsRequiresLoopback(t *testing.T) {
+	for name, config := range map[string]dexstrike.ExternalAPIConfig{
+		"base URL": {
+			Enabled: true,
+			BaseURL: "http://192.0.2.1",
+		},
+		"price base URL": {
+			Enabled:      true,
+			BaseURL:      "https://example.com",
+			PriceBaseURL: "http://prices.example.com",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NewClient(config, WithInsecureHTTPForTests())
+			if !errors.Is(err, dexstrike.ErrInvalidExternalAPIConfig) {
+				t.Fatalf(
+					"expected dexstrike.ErrInvalidExternalAPIConfig, got %v",
+					err,
+				)
+			}
+			if !strings.Contains(err.Error(), "loopback HTTP") {
+				t.Fatalf("expected loopback HTTP requirement error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestInsecureHTTPForTestsAllowsLoopback(t *testing.T) {
+	for _, baseURL := range []string{
+		"http://localhost:8080",
+		"http://127.0.0.1:8080",
+		"http://[::1]:8080",
+	} {
+		t.Run(baseURL, func(t *testing.T) {
+			config := dexstrike.ExternalAPIConfig{
+				Enabled: true,
+				BaseURL: baseURL,
+			}
+			if _, err := NewClient(
+				config,
+				WithInsecureHTTPForTests(),
+			); err != nil {
+				t.Fatalf("NewClient returned error: %v", err)
+			}
+		})
+	}
+}
+
 func TestClientAuthenticatedRequestDoesNotFollowRedirect(t *testing.T) {
 	privateKey := ed25519.NewKeyFromSeed(
 		[]byte("01234567890123456789012345678901"),
