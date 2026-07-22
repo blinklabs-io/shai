@@ -319,6 +319,18 @@ type OrderBookPoolUtxo struct {
 	Raw             json.RawMessage `json:"-"`
 }
 
+func (u *OrderBookPoolUtxo) UnmarshalJSON(data []byte) error {
+	type orderBookPoolUtxo OrderBookPoolUtxo
+
+	var decoded orderBookPoolUtxo
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*u = OrderBookPoolUtxo(decoded)
+	u.Raw = append(json.RawMessage(nil), data...)
+	return nil
+}
+
 // OrderTransaction is the CBOR transaction handle returned by create and
 // consumed by submit.
 type OrderTransaction struct {

@@ -33,6 +33,8 @@ const (
 	DefaultGraphQLEndpoint = "https://api.saturnswap.io/v1/graphql/"
 
 	defaultAPITimeout = 15 * time.Second
+
+	maxGraphQLResponseBodySize = 1 << 20
 )
 
 var (
@@ -185,8 +187,21 @@ func (c *Client) Query(
 		)
 	}
 
+	body, err := io.ReadAll(
+		io.LimitReader(resp.Body, maxGraphQLResponseBodySize+1),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to read GraphQL response: %w", err)
+	}
+	if len(body) > maxGraphQLResponseBodySize {
+		return fmt.Errorf(
+			"SaturnSwap GraphQL response exceeds %d bytes",
+			maxGraphQLResponseBodySize,
+		)
+	}
+
 	var graphResp graphQLResponse
-	if err := json.NewDecoder(resp.Body).Decode(&graphResp); err != nil {
+	if err := json.Unmarshal(body, &graphResp); err != nil {
 		return fmt.Errorf("failed to decode GraphQL response: %w", err)
 	}
 	if len(graphResp.Errors) > 0 {
@@ -230,6 +245,9 @@ func (c *Client) PoolByTokens(
 	ctx context.Context,
 	input PoolByTokensInput,
 ) (*Pool, error) {
+	if err := validatePoolByTokensInput(input); err != nil {
+		return nil, err
+	}
 	var out struct {
 		PoolByTokens *Pool `json:"poolByTokens"`
 	}
@@ -245,6 +263,20 @@ func (c *Client) PoolByTokens(
 		return nil, fmt.Errorf("SaturnSwap poolByTokens returned no pool")
 	}
 	return out.PoolByTokens, nil
+}
+
+func validatePoolByTokensInput(input PoolByTokensInput) error {
+	if input.PolicyIDOne == "" && input.AssetNameOne != "" {
+		return fmt.Errorf("token one asset name requires a policy ID")
+	}
+	if input.PolicyIDTwo == "" && input.AssetNameTwo != "" {
+		return fmt.Errorf("token two asset name requires a policy ID")
+	}
+	if input.PolicyIDOne == input.PolicyIDTwo &&
+		input.AssetNameOne == input.AssetNameTwo {
+		return fmt.Errorf("pool tokens must be different")
+	}
+	return nil
 }
 
 func (c *Client) CreateOrderTransaction(

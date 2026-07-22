@@ -15,12 +15,14 @@
 package saturnswap
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -222,6 +224,66 @@ func TestPoolByTokens(t *testing.T) {
 	}
 }
 
+func TestPoolByTokensRejectsInvalidInputBeforeRequest(t *testing.T) {
+	t.Parallel()
+
+	var requestReceived atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, _ *http.Request) {
+			requestReceived.Store(true)
+			http.Error(w, "unexpected request", http.StatusInternalServerError)
+		},
+	))
+	t.Cleanup(server.Close)
+
+	client := newEnabledTestClient(t, server.URL)
+	tests := []struct {
+		name    string
+		input   PoolByTokensInput
+		wantErr string
+	}{
+		{
+			name:    "empty pair",
+			wantErr: "tokens must be different",
+		},
+		{
+			name: "token one asset without policy",
+			input: PoolByTokensInput{
+				AssetNameOne: "746f6b656e",
+			},
+			wantErr: "token one asset name requires a policy ID",
+		},
+		{
+			name: "token two asset without policy",
+			input: PoolByTokensInput{
+				AssetNameTwo: "746f6b656e",
+			},
+			wantErr: "token two asset name requires a policy ID",
+		},
+		{
+			name: "same native token",
+			input: PoolByTokensInput{
+				PolicyIDOne:  "abcd",
+				AssetNameOne: "746f6b656e",
+				PolicyIDTwo:  "abcd",
+				AssetNameTwo: "746f6b656e",
+			},
+			wantErr: "tokens must be different",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := client.PoolByTokens(context.Background(), test.input)
+			if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+				t.Fatalf("expected %q error, got %v", test.wantErr, err)
+			}
+		})
+	}
+	if requestReceived.Load() {
+		t.Fatal("invalid input caused an HTTP request")
+	}
+}
+
 func TestSubmitOrderTransactionReturnsAPIError(t *testing.T) {
 	t.Parallel()
 
@@ -328,6 +390,32 @@ func TestHTTPErrorReturned(t *testing.T) {
 		t.Fatal("expected HTTP status error")
 	}
 	if !strings.Contains(err.Error(), "503") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestGraphQLResponseSizeIsLimited(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(
+		func(w http.ResponseWriter, r *http.Request) {
+			if _, ok := readGraphQLRequest(t, w, r); !ok {
+				return
+			}
+			_, _ = w.Write(bytes.Repeat(
+				[]byte("x"),
+				maxGraphQLResponseBodySize+1,
+			))
+		},
+	))
+	t.Cleanup(server.Close)
+
+	client := newEnabledTestClient(t, server.URL)
+	_, err := client.PoolsByTicker(context.Background(), "SNEK")
+	if err == nil {
+		t.Fatal("expected oversized GraphQL response error")
+	}
+	if !strings.Contains(err.Error(), "response exceeds") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }

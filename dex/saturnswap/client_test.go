@@ -141,7 +141,11 @@ func TestCreateAndSubmitOrderTransactions(t *testing.T) {
 			if !ok {
 				return
 			}
-			input := variables["input"].(map[string]interface{})
+			input, ok := variables["input"].(map[string]any)
+			if !ok {
+				failTestHandler(t, w, "unexpected input shape: %#v", variables["input"])
+				return
+			}
 			if input["paymentAddress"] != "addr1test" {
 				failTestHandler(t, w, "unexpected create input: %#v", input)
 				return
@@ -165,7 +169,11 @@ func TestCreateAndSubmitOrderTransactions(t *testing.T) {
 			if !ok {
 				return
 			}
-			input := variables["input"].(map[string]interface{})
+			input, ok := variables["input"].(map[string]any)
+			if !ok {
+				failTestHandler(t, w, "unexpected input shape: %#v", variables["input"])
+				return
+			}
 			if input["paymentAddress"] != "addr1test" {
 				failTestHandler(t, w, "unexpected submit input: %#v", input)
 				return
