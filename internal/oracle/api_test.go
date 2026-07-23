@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/shai/common"
+	shaiprice "github.com/blinklabs-io/shai/price"
 	"github.com/gorilla/websocket"
 )
 
@@ -190,6 +191,88 @@ func TestHandleListPrices(t *testing.T) {
 	}
 	if response.Count != 2 {
 		t.Fatalf("expected count 2, got %d", response.Count)
+	}
+}
+
+func TestHandleADAUSDPriceFromLocalPools(t *testing.T) {
+	usdm, err := common.NewAssetClass(
+		shaiprice.USDMPolicyID,
+		shaiprice.USDMAssetName,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	usdcx, err := common.NewAssetClass(
+		shaiprice.USDCxPolicyID,
+		shaiprice.USDCxAssetName,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := &Oracle{
+		pools: map[string]*PoolState{
+			"usdm": {
+				PoolId:   "usdm",
+				Protocol: "cswap",
+				AssetX: common.AssetAmount{
+					Class:  common.Lovelace(),
+					Amount: 4_579_285_253,
+				},
+				AssetY: common.AssetAmount{
+					Class:  usdm,
+					Amount: 774_654_393,
+				},
+			},
+			"usdcx": {
+				PoolId:   "usdcx",
+				Protocol: "cswap",
+				AssetX: common.AssetAmount{
+					Class:  common.Lovelace(),
+					Amount: 8_547_275_688,
+				},
+				AssetY: common.AssetAmount{
+					Class:  usdcx,
+					Amount: 1_439_463_431,
+				},
+			},
+		},
+		stopChan: make(chan struct{}),
+	}
+	api := NewOracleAPI(o)
+	mux := http.NewServeMux()
+	api.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/prices/ada-usd", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var response shaiprice.Result
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Pair != "ADA/USD" {
+		t.Fatalf("expected ADA/USD, got %s", response.Pair)
+	}
+	if response.Price < 0.16 || response.Price > 0.18 {
+		t.Fatalf("unexpected ADA/USD price %f", response.Price)
+	}
+	if len(response.Observations) != 2 {
+		t.Fatalf("expected 2 observations, got %d", len(response.Observations))
+	}
+}
+
+func TestHandleADAUSDPriceUnavailableWithoutDiversity(t *testing.T) {
+	api := NewOracleAPI(newTestOracleWithPools())
+	mux := http.NewServeMux()
+	api.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/prices/ada-usd", nil)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", rr.Code)
 	}
 }
 

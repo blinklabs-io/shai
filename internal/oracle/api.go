@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/shai/internal/logging"
+	shaiprice "github.com/blinklabs-io/shai/price"
 	"github.com/gorilla/websocket"
 )
 
@@ -183,6 +184,7 @@ func (a *OracleAPI) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/cdps", a.HandleListCDPs)
 	mux.HandleFunc("GET /api/v1/cdps/{cdpId}", a.HandleGetCDP)
 	mux.HandleFunc("GET /api/v1/prices", a.HandleListPrices)
+	mux.HandleFunc("GET /api/v1/prices/ada-usd", a.HandleADAUSDPrice)
 	mux.HandleFunc("/ws/prices", a.HandlePriceStream)
 	a.startBroadcastPriceUpdates()
 }
@@ -336,6 +338,28 @@ func (a *OracleAPI) HandleListPrices(w http.ResponseWriter, r *http.Request) {
 		"prices": prices,
 		"count":  len(prices),
 	})
+}
+
+// HandleADAUSDPrice returns an ADA/USD estimate derived only from qualified
+// locally tracked ADA/stablecoin DEX pools.
+func (a *OracleAPI) HandleADAUSDPrice(
+	w http.ResponseWriter,
+	_ *http.Request,
+) {
+	result, err := shaiprice.AggregateADAUSD(
+		a.getAllPools(),
+		shaiprice.DefaultConfig(),
+	)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":  err.Error(),
+			"result": result,
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // HandlePriceStream handles WebSocket connections for price streaming
