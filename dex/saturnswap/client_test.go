@@ -1,0 +1,292 @@
+// Copyright 2026 Blink Labs Software
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package saturnswap
+
+import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestDefaultExternalAPIConfigDisabled(t *testing.T) {
+	t.Parallel()
+
+	config := DefaultAPIConfig()
+	if config.Enabled {
+		t.Fatal("default external API config must be disabled")
+	}
+	if config.Endpoint != DefaultGraphQLEndpoint {
+		t.Fatalf(
+			"unexpected endpoint: got %q want %q",
+			config.Endpoint,
+			DefaultGraphQLEndpoint,
+		)
+	}
+	if err := config.Validate(); err != nil {
+		t.Fatalf("disabled config should not require validation: %v", err)
+	}
+}
+
+func TestClientRefusesNetworkWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewClient(DefaultAPIConfig())
+	if !errors.Is(err, ErrExternalAPIDisabled) {
+		t.Fatalf("expected ErrExternalAPIDisabled, got %v", err)
+	}
+}
+
+func TestQueryPoolsByTicker(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := readGraphQLRequest(t, w, r)
+		if !ok {
+			return
+		}
+		if !strings.Contains(body.Query, "pools") {
+			failTestHandler(t, w, "query did not request pools: %s", body.Query)
+			return
+		}
+		variables, ok := graphqlVariables(t, w, body)
+		if !ok {
+			return
+		}
+		if variables["ticker"] != "SNEK" {
+			failTestHandler(
+				t,
+				w,
+				"unexpected ticker variable: %#v",
+				variables["ticker"],
+			)
+			return
+		}
+
+		writeJSON(t, w, map[string]any{
+			"data": map[string]any{
+				"pools": map[string]any{
+					"nodes": []map[string]any{
+						{
+							"id":                   "pool-1",
+							"ticker":               "SNEK",
+							"lp_fee_percent":       0.3,
+							"protocol_fee_percent": 0,
+							"token_project_one":    map[string]any{},
+							"token_project_two": map[string]any{
+								"policy_id":  "aa",
+								"asset_name": "bb",
+							},
+							"pool_stats": map[string]any{
+								"reserve_token_one": "5000000",
+								"reserve_token_two": 100,
+							},
+						},
+					},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+
+	client := newEnabledTestClient(t, server.URL)
+	pools, err := client.PoolsByTicker(context.Background(), "SNEK")
+	if err != nil {
+		t.Fatalf("PoolsByTicker failed: %v", err)
+	}
+	if len(pools) != 1 {
+		t.Fatalf("expected one pool, got %d", len(pools))
+	}
+	if pools[0].ID != "pool-1" || pools[0].Ticker != "SNEK" {
+		t.Fatalf("unexpected pool: %#v", pools[0])
+	}
+	if pools[0].LPFeePercent.String() != "0.3" {
+		t.Fatalf("unexpected fee percent: %s", pools[0].LPFeePercent)
+	}
+	state, err := pools[0].ToPoolState(123, time.Unix(1, 0))
+	if err != nil {
+		t.Fatalf("ToPoolState failed: %v", err)
+	}
+	if state.AssetX.Amount != 5000000 || state.AssetY.Amount != 100 {
+		t.Fatalf("unexpected reserves: %#v", state)
+	}
+}
+
+func TestCreateAndSubmitOrderTransactions(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, ok := readGraphQLRequest(t, w, r)
+		if !ok {
+			return
+		}
+		switch {
+		case strings.Contains(body.Query, "createOrderTransaction"):
+			variables, ok := graphqlVariables(t, w, body)
+			if !ok {
+				return
+			}
+			input, ok := variables["input"].(map[string]any)
+			if !ok {
+				failTestHandler(t, w, "unexpected input shape: %#v", variables["input"])
+				return
+			}
+			if input["paymentAddress"] != "addr1test" {
+				failTestHandler(t, w, "unexpected create input: %#v", input)
+				return
+			}
+			writeJSON(t, w, map[string]any{
+				"data": map[string]any{
+					"createOrderTransaction": map[string]any{
+						"successTransactions": []map[string]any{
+							{
+								"transactionId":  "draft-1",
+								"hexTransaction": "84a1",
+							},
+						},
+						"failTransactions": []map[string]any{},
+						"error":            nil,
+					},
+				},
+			})
+		case strings.Contains(body.Query, "submitOrderTransaction"):
+			variables, ok := graphqlVariables(t, w, body)
+			if !ok {
+				return
+			}
+			input, ok := variables["input"].(map[string]any)
+			if !ok {
+				failTestHandler(t, w, "unexpected input shape: %#v", variables["input"])
+				return
+			}
+			if input["paymentAddress"] != "addr1test" {
+				failTestHandler(t, w, "unexpected submit input: %#v", input)
+				return
+			}
+			writeJSON(t, w, map[string]any{
+				"data": map[string]any{
+					"submitOrderTransaction": map[string]any{
+						"transactionIds": []string{"tx-1"},
+						"error":          nil,
+					},
+				},
+			})
+		default:
+			failTestHandler(t, w, "unexpected query: %s", body.Query)
+			return
+		}
+	}))
+	defer server.Close()
+
+	client := newEnabledTestClient(t, server.URL)
+	createResult, err := client.CreateOrderTransaction(
+		context.Background(),
+		CreateOrderTransactionInput{
+			PaymentAddress: "addr1test",
+			MarketOrderComponents: []MarketOrderComponent{
+				{
+					PoolID:          "pool-1",
+					TokenAmountSell: 5,
+					TokenAmountBuy:  1,
+					MarketOrderType: PoolUtxoTypeMarketBuyOrder,
+					Slippage:        2,
+					Version:         2,
+				},
+			},
+		},
+	)
+	if err != nil {
+		t.Fatalf("CreateOrderTransaction failed: %v", err)
+	}
+	if len(createResult.SuccessTransactions) != 1 {
+		t.Fatalf("unexpected create result: %#v", createResult)
+	}
+
+	submitResult, err := client.SubmitOrderTransaction(
+		context.Background(),
+		SubmitOrderTransactionInput{
+			PaymentAddress:      "addr1test",
+			SuccessTransactions: createResult.SuccessTransactions,
+		},
+	)
+	if err != nil {
+		t.Fatalf("SubmitOrderTransaction failed: %v", err)
+	}
+	if len(submitResult.TransactionIDs) != 1 || submitResult.TransactionIDs[0] != "tx-1" {
+		t.Fatalf("unexpected submit result: %#v", submitResult)
+	}
+}
+
+func TestGraphQLError(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"errors":[{"message":"bad pool"}]}`))
+	}))
+	defer server.Close()
+
+	client := newEnabledTestClient(t, server.URL)
+	_, err := client.PoolsByTicker(context.Background(), "SNEK")
+	if !errors.Is(err, ErrGraphQL) {
+		t.Fatalf("expected ErrGraphQL, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "bad pool") {
+		t.Fatalf("expected graphql error message, got %v", err)
+	}
+}
+
+func TestExternalAPIConfigValidation(t *testing.T) {
+	t.Parallel()
+
+	config := APIConfig{Enabled: true, Endpoint: "ftp://example.com"}
+	if !errors.Is(config.Validate(), ErrInvalidExternalAPIConfig) {
+		t.Fatal("expected invalid config for unsupported scheme")
+	}
+
+	config = APIConfig{Enabled: true, Timeout: -time.Second}
+	if !errors.Is(config.Validate(), ErrInvalidExternalAPIConfig) {
+		t.Fatal("expected invalid config for negative timeout")
+	}
+}
+
+func newEnabledTestClient(t *testing.T, endpoint string) *Client {
+	t.Helper()
+	client, err := NewClient(APIConfig{
+		Enabled:  true,
+		Endpoint: endpoint,
+	}, WithInsecureHTTPForTests())
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	return client
+}
+
+func graphqlVariables(
+	t *testing.T,
+	w http.ResponseWriter,
+	body graphQLRequest,
+) (map[string]any, bool) {
+	t.Helper()
+	variables, ok := body.Variables.(map[string]any)
+	if !ok {
+		failTestHandler(t, w, "unexpected variables shape: %#v", body.Variables)
+		return nil, false
+	}
+	return variables, true
+}
