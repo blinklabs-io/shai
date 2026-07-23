@@ -94,6 +94,11 @@ func main() {
 	// Initialize indexer and node
 	idx := indexer.New()
 	n := node.New(idx)
+	feedOracle := oracle.NewFeedOracle(idx)
+	if err := feedOracle.Start(); err != nil {
+		logger.Error("failed to start price feed oracle", "error", err)
+		os.Exit(1)
+	}
 	var oracles []*oracle.Oracle
 	var lendingOracles []*oracle.LendingOracle
 	var lendingStorage *oracle.LendingStorage
@@ -216,36 +221,35 @@ func main() {
 		}
 	}
 
-	// Start Oracle API if enabled and at least one API-backed profile is active
+	// Start the Oracle API if enabled. The local price-feed endpoints are
+	// available even when no DEX or lending profiles are active.
 	if cfg.Oracle.APIEnabled {
-		if len(oracles) == 0 && len(lendingOracles) == 0 {
-			logger.Warn(
-				"oracle API enabled but no API-backed profiles initialized; API server not started",
+		var apiHandlers []oracle.APIHandlerRegistrar
+		apiHandlers = append(
+			apiHandlers,
+			oracle.NewFeedAPI(feedOracle.Tracker()),
+		)
+		if len(oracles) > 0 {
+			apiHandlers = append(
+				apiHandlers,
+				oracle.NewMultiOracleAPI(oracles),
 			)
-		} else {
-			var apiHandlers []oracle.APIHandlerRegistrar
-			if len(oracles) > 0 {
-				apiHandlers = append(
-					apiHandlers,
-					oracle.NewMultiOracleAPI(oracles),
-				)
-			}
-			if len(lendingOracles) > 0 {
-				apiHandlers = append(
-					apiHandlers,
-					oracle.NewMultiLendingOracleAPI(lendingOracles),
-				)
-			}
-			go func() {
-				if err := oracle.StartAPIServer(
-					cfg.Oracle.APIAddress,
-					apiHandlers...,
-				); err != nil {
-					logger.Error("oracle API server failed", "error", err)
-					os.Exit(1)
-				}
-			}()
 		}
+		if len(lendingOracles) > 0 {
+			apiHandlers = append(
+				apiHandlers,
+				oracle.NewMultiLendingOracleAPI(lendingOracles),
+			)
+		}
+		go func() {
+			if err := oracle.StartAPIServer(
+				cfg.Oracle.APIAddress,
+				apiHandlers...,
+			); err != nil {
+				logger.Error("oracle API server failed", "error", err)
+				os.Exit(1)
+			}
+		}()
 	}
 
 	// Start node

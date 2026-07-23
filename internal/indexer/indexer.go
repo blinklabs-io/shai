@@ -51,6 +51,7 @@ type Indexer struct {
 	syncLogTimer *time.Timer
 	syncLogDone  bool
 	eventFuncs   []EventFunc
+	replayPoint  *ocommon.Point
 	Watches      *WatchManager
 }
 
@@ -60,6 +61,26 @@ func New() *Indexer {
 	return &Indexer{
 		Watches: NewWatchManager(),
 	}
+}
+
+// SetReplayPoint requests a one-time chainsync intersection older than the
+// persisted cursor. Callers use this for stateful features whose own storage
+// needs to be bootstrapped from an already-produced UTxO.
+func (i *Indexer) SetReplayPoint(slot uint64, blockHash string) error {
+	hashBytes, err := hex.DecodeString(blockHash)
+	if err != nil {
+		return fmt.Errorf("decode replay block hash: %w", err)
+	}
+	if len(hashBytes) != 32 {
+		return fmt.Errorf(
+			"replay block hash must be 32 bytes, got %d",
+			len(hashBytes),
+		)
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	i.replayPoint = &ocommon.Point{Hash: hashBytes, Slot: slot}
+	return nil
 }
 
 func (i *Indexer) Start() error {
@@ -85,7 +106,21 @@ func (i *Indexer) Start() error {
 	if err != nil {
 		return err
 	}
-	if cursorSlotNumber > 0 {
+	i.mu.Lock()
+	replayPoint := i.replayPoint
+	i.mu.Unlock()
+	if replayPoint != nil &&
+		(cursorSlotNumber == 0 || replayPoint.Slot < cursorSlotNumber) {
+		logger.Info(
+			"replaying chainsync for feature bootstrap",
+			"slotNumber", replayPoint.Slot,
+			"blockHash", fmt.Sprintf("%x", replayPoint.Hash),
+		)
+		inputOpts = append(
+			inputOpts,
+			input_chainsync.WithIntersectPoints([]ocommon.Point{*replayPoint}),
+		)
+	} else if cursorSlotNumber > 0 {
 		logger.Info(
 			"found previous chainsync cursor",
 			"slotNumber", cursorSlotNumber,
