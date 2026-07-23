@@ -50,13 +50,15 @@ var (
 // OracleDatum is the authenticated price and validity interval stored with the
 // Djed Oracle NFT.
 type OracleDatum struct {
-	Signature        []byte
-	PriceNumerator   uint64
-	PriceDenominator uint64
-	ValidFrom        time.Time
-	ValidUntil       time.Time
-	ExpressedIn      []byte
-	OraclePolicy     []byte
+	Signature           []byte
+	PriceNumerator      uint64
+	PriceDenominator    uint64
+	ValidFrom           time.Time
+	ValidFromInclusive  bool
+	ValidUntil          time.Time
+	ValidUntilInclusive bool
+	ExpressedIn         []byte
+	OraclePolicy        []byte
 }
 
 // OracleUTxO contains the identity-bearing parts of the UTxO holding a datum.
@@ -69,15 +71,17 @@ type OracleUTxO struct {
 
 // Observation is a validated local-ledger ADA/USD observation.
 type Observation struct {
-	Pair             string    `json:"pair"`
-	Source           string    `json:"source"`
-	PriceNumerator   uint64    `json:"priceNumerator"`
-	PriceDenominator uint64    `json:"priceDenominator"`
-	Price            float64   `json:"price"`
-	ValidFrom        time.Time `json:"validFrom"`
-	ValidUntil       time.Time `json:"validUntil"`
-	TxHash           string    `json:"txHash"`
-	TxIndex          uint32    `json:"txIndex"`
+	Pair                string    `json:"pair"`
+	Source              string    `json:"source"`
+	PriceNumerator      uint64    `json:"priceNumerator"`
+	PriceDenominator    uint64    `json:"priceDenominator"`
+	Price               float64   `json:"price"`
+	ValidFrom           time.Time `json:"validFrom"`
+	ValidFromInclusive  bool      `json:"validFromInclusive"`
+	ValidUntil          time.Time `json:"validUntil"`
+	ValidUntilInclusive bool      `json:"validUntilInclusive"`
+	TxHash              string    `json:"txHash"`
+	TxIndex             uint32    `json:"txIndex"`
 }
 
 // ParseOracleDatum decodes the Open Djed OracleDatum schema.
@@ -141,7 +145,9 @@ func ParseOracleDatum(data []byte) (OracleDatum, error) {
 			err,
 		)
 	}
-	validFromMillis, err := finiteBoundMillis(validityFields[0])
+	validFromMillis, validFromInclusive, err := finiteBound(
+		validityFields[0],
+	)
 	if err != nil {
 		return OracleDatum{}, fmt.Errorf(
 			"%w: lower bound: %v",
@@ -149,7 +155,9 @@ func ParseOracleDatum(data []byte) (OracleDatum, error) {
 			err,
 		)
 	}
-	validUntilMillis, err := finiteBoundMillis(validityFields[1])
+	validUntilMillis, validUntilInclusive, err := finiteBound(
+		validityFields[1],
+	)
 	if err != nil {
 		return OracleDatum{}, fmt.Errorf(
 			"%w: upper bound: %v",
@@ -158,7 +166,9 @@ func ParseOracleDatum(data []byte) (OracleDatum, error) {
 		)
 	}
 	datum.ValidFrom = time.UnixMilli(validFromMillis).UTC()
+	datum.ValidFromInclusive = validFromInclusive
 	datum.ValidUntil = time.UnixMilli(validUntilMillis).UTC()
+	datum.ValidUntilInclusive = validUntilInclusive
 
 	if _, err := cbor.Decode(
 		oracleFields[2],
@@ -222,14 +232,18 @@ func (d OracleDatum) ValidateMainnet(
 	if d.PriceNumerator == 0 || d.PriceDenominator == 0 {
 		return ErrInvalidRate
 	}
-	if !d.ValidFrom.Before(d.ValidUntil) {
+	if d.ValidFrom.After(d.ValidUntil) ||
+		(d.ValidFrom.Equal(d.ValidUntil) &&
+			(!d.ValidFromInclusive || !d.ValidUntilInclusive)) {
 		return fmt.Errorf("%w: invalid validity interval", ErrInvalidDatum)
 	}
 	now = now.UTC()
-	if now.Before(d.ValidFrom) {
+	if now.Before(d.ValidFrom) ||
+		(now.Equal(d.ValidFrom) && !d.ValidFromInclusive) {
 		return ErrNotYetValid
 	}
-	if !now.Before(d.ValidUntil) {
+	if now.After(d.ValidUntil) ||
+		(now.Equal(d.ValidUntil) && !d.ValidUntilInclusive) {
 		return ErrExpired
 	}
 	return nil
@@ -265,15 +279,17 @@ func ParseMainnetObservation(
 	}
 	price, _ := rate.Float64()
 	return Observation{
-		Pair:             "ADA/USD",
-		Source:           "djed",
-		PriceNumerator:   datum.PriceNumerator,
-		PriceDenominator: datum.PriceDenominator,
-		Price:            price,
-		ValidFrom:        datum.ValidFrom,
-		ValidUntil:       datum.ValidUntil,
-		TxHash:           utxo.TxHash,
-		TxIndex:          utxo.TxIndex,
+		Pair:                "ADA/USD",
+		Source:              "djed",
+		PriceNumerator:      datum.PriceNumerator,
+		PriceDenominator:    datum.PriceDenominator,
+		Price:               price,
+		ValidFrom:           datum.ValidFrom,
+		ValidFromInclusive:  datum.ValidFromInclusive,
+		ValidUntil:          datum.ValidUntil,
+		ValidUntilInclusive: datum.ValidUntilInclusive,
+		TxHash:              utxo.TxHash,
+		TxIndex:             utxo.TxIndex,
 	}, nil
 }
 
@@ -307,21 +323,49 @@ func constructorFields(
 	return fields, nil
 }
 
-func finiteBoundMillis(data []byte) (int64, error) {
+func finiteBound(data []byte) (int64, bool, error) {
 	boundFields, err := constructorFields(data, 0, 2)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	valueFields, err := constructorFields(boundFields[0], 1, 1)
 	if err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	var millis uint64
 	if _, err := cbor.Decode(valueFields[0], &millis); err != nil {
-		return 0, err
+		return 0, false, err
 	}
 	if millis > math.MaxInt64 {
-		return 0, fmt.Errorf("timestamp overflows int64")
+		return 0, false, fmt.Errorf("timestamp overflows int64")
 	}
-	return int64(millis), nil
+	inclusive, err := plutusBool(boundFields[1])
+	if err != nil {
+		return 0, false, fmt.Errorf("closure: %w", err)
+	}
+	return int64(millis), inclusive, nil
+}
+
+func plutusBool(data []byte) (bool, error) {
+	var constructor cbor.ConstructorDecoder
+	if _, err := cbor.Decode(data, &constructor); err != nil {
+		return false, err
+	}
+	if constructor.Tag() > 1 {
+		return false, fmt.Errorf(
+			"expected boolean constructor 0 or 1, got %d",
+			constructor.Tag(),
+		)
+	}
+	var fields []cbor.RawMessage
+	if _, err := cbor.Decode(constructor.Fields(), &fields); err != nil {
+		return false, err
+	}
+	if len(fields) != 0 {
+		return false, fmt.Errorf(
+			"expected boolean with no fields, got %d",
+			len(fields),
+		)
+	}
+	return constructor.Tag() == 1, nil
 }

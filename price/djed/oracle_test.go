@@ -44,11 +44,13 @@ func TestParseMainnetObservationCurrentFixture(t *testing.T) {
 		time.UnixMilli(1_784_842_616_000).UTC(),
 		observation.ValidFrom,
 	)
+	require.True(t, observation.ValidFromInclusive)
 	require.Equal(
 		t,
 		time.UnixMilli(1_784_843_516_000).UTC(),
 		observation.ValidUntil,
 	)
+	require.True(t, observation.ValidUntilInclusive)
 	require.Equal(
 		t,
 		"b8ec7d85670902edafdc73b1f2faa57e2aed867e3718851b2c1489ae7c0587d4",
@@ -77,6 +79,8 @@ func TestParseOfficialOpenDjedFixture(t *testing.T) {
 		time.UnixMilli(1_744_157_344_000).UTC(),
 		datum.ValidUntil,
 	)
+	require.True(t, datum.ValidFromInclusive)
+	require.True(t, datum.ValidUntilInclusive)
 }
 
 func TestValidateMainnetRejectsInvalidCandidates(t *testing.T) {
@@ -149,9 +153,17 @@ func TestValidateMainnetRejectsInvalidCandidates(t *testing.T) {
 		{
 			name: "invalid interval",
 			mutate: func(d *OracleDatum, _ *OracleUTxO, _ *time.Time) {
-				d.ValidUntil = d.ValidFrom
+				d.ValidUntil = d.ValidFrom.Add(-time.Nanosecond)
 			},
 			want: ErrInvalidDatum,
+		},
+		{
+			name: "exclusive lower endpoint",
+			mutate: func(d *OracleDatum, _ *OracleUTxO, now *time.Time) {
+				d.ValidFromInclusive = false
+				*now = d.ValidFrom
+			},
+			want: ErrNotYetValid,
 		},
 		{
 			name: "not yet valid",
@@ -161,9 +173,17 @@ func TestValidateMainnetRejectsInvalidCandidates(t *testing.T) {
 			want: ErrNotYetValid,
 		},
 		{
+			name: "exclusive upper endpoint",
+			mutate: func(d *OracleDatum, _ *OracleUTxO, now *time.Time) {
+				d.ValidUntilInclusive = false
+				*now = d.ValidUntil
+			},
+			want: ErrExpired,
+		},
+		{
 			name: "expired",
-			mutate: func(_ *OracleDatum, _ *OracleUTxO, now *time.Time) {
-				*now = time.UnixMilli(1_784_843_516_000).UTC()
+			mutate: func(d *OracleDatum, _ *OracleUTxO, now *time.Time) {
+				*now = d.ValidUntil.Add(time.Nanosecond)
 			},
 			want: ErrExpired,
 		},
@@ -181,6 +201,15 @@ func TestValidateMainnetRejectsInvalidCandidates(t *testing.T) {
 	}
 }
 
+func TestValidateMainnetAcceptsInclusiveEndpoints(t *testing.T) {
+	datum, err := ParseOracleDatum(mustDecodeHex(t, currentMainnetDatum))
+	require.NoError(t, err)
+	utxo := currentMainnetUTxO(t)
+
+	require.NoError(t, datum.ValidateMainnet(utxo, datum.ValidFrom))
+	require.NoError(t, datum.ValidateMainnet(utxo, datum.ValidUntil))
+}
+
 func TestParseOracleDatumRejectsMalformedSchema(t *testing.T) {
 	for _, data := range [][]byte{
 		{0xff},
@@ -196,6 +225,20 @@ func TestParseOracleDatumRejectsMalformedSchema(t *testing.T) {
 		_, err := ParseOracleDatum(data)
 		require.ErrorIs(t, err, ErrInvalidDatum)
 	}
+}
+
+func TestPlutusBoolRejectsMalformedClosure(t *testing.T) {
+	_, err := plutusBool(mustEncode(
+		t,
+		cbor.NewConstructorEncoder(2, cbor.IndefLengthList{}),
+	))
+	require.Error(t, err)
+
+	_, err = plutusBool(mustEncode(
+		t,
+		cbor.NewConstructorEncoder(1, cbor.IndefLengthList{uint64(1)}),
+	))
+	require.Error(t, err)
 }
 
 func currentMainnetUTxO(t *testing.T) OracleUTxO {
