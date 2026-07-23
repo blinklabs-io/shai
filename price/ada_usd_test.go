@@ -16,6 +16,7 @@ package price
 
 import (
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/blinklabs-io/shai/common"
@@ -157,6 +158,127 @@ func TestAggregateADAUSDRejectsThinAndConcentratedPools(t *testing.T) {
 	require.ErrorIs(t, err, ErrConcentratedLiquidity)
 }
 
+func TestAggregateADAUSDAllowsExactDivergenceLimit(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MaxDivergence = 0.05
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"usdcx",
+			USDCxPolicyID,
+			USDCxAssetName,
+			10_000_000_000,
+			1_000_000_000,
+			"one",
+			1,
+		),
+		poolFixture(
+			t,
+			"usdm",
+			USDMPolicyID,
+			USDMAssetName,
+			10_000_000_000,
+			1_050_000_000,
+			"two",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, 0.05, result.Spread)
+}
+
+func TestAggregateADAUSDRejectsZeroReservesWithZeroThresholds(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MinObservations = 1
+	config.MinStablecoins = 1
+	config.MaxPoolShare = 1
+
+	for _, amounts := range []struct {
+		name   string
+		ada    uint64
+		stable uint64
+	}{
+		{name: "ADA", stable: 1_000_000},
+		{name: "stablecoin", ada: 1_000_000},
+	} {
+		t.Run(amounts.name, func(t *testing.T) {
+			pool := poolFixture(
+				t,
+				"zero",
+				USDCxPolicyID,
+				USDCxAssetName,
+				amounts.ada,
+				amounts.stable,
+				"zero",
+				1,
+			)
+			_, err := AggregateADAUSD([]*dex.PoolState{pool}, config)
+			require.ErrorIs(t, err, ErrInsufficientObservations)
+		})
+	}
+}
+
+func TestObservationsFromPoolsUsesLatestSameSlotOutput(t *testing.T) {
+	older := poolFixture(
+		t,
+		"usdcx",
+		USDCxPolicyID,
+		USDCxAssetName,
+		8_000_000_000,
+		1_000_000_000,
+		"older",
+		1,
+	)
+	newer := poolFixture(
+		t,
+		"usdcx",
+		USDCxPolicyID,
+		USDCxAssetName,
+		8_000_000_000,
+		1_250_000_000,
+		"newer",
+		2,
+	)
+
+	observations := observationsFromPools(
+		[]*dex.PoolState{newer, older},
+		DefaultConfig(),
+	)
+	require.Len(t, observations, 1)
+	require.Equal(t, uint32(2), observations[0].TxIndex)
+	require.Equal(t, uint64(1_250_000_000), observations[0].StableReserve)
+}
+
+func TestAggregateADAUSDRejectsNonFiniteConfig(t *testing.T) {
+	pool := poolFixture(
+		t,
+		"usdcx",
+		USDCxPolicyID,
+		USDCxAssetName,
+		8_000_000_000,
+		1_000_000_000,
+		"one",
+		1,
+	)
+	for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+		config := DefaultConfig()
+		config.MaxPoolShare = value
+		_, err := AggregateADAUSD([]*dex.PoolState{pool}, config)
+		require.Error(t, err)
+
+		config = DefaultConfig()
+		config.MaxDivergence = value
+		_, err = AggregateADAUSD([]*dex.PoolState{pool}, config)
+		require.Error(t, err)
+	}
+}
+
 func TestMainnetStablecoinRegistry(t *testing.T) {
 	stablecoins := MainnetStablecoins()
 	require.Len(t, stablecoins, 2)
@@ -167,6 +289,7 @@ func TestMainnetStablecoinRegistry(t *testing.T) {
 	require.Equal(t, "USDCx", stablecoins[1].Symbol)
 	require.Equal(t, USDCxPolicyID, stablecoins[1].Asset.PolicyIdHex())
 	require.Equal(t, USDCxAssetName, stablecoins[1].Asset.NameHex())
+	require.Equal(t, uint8(6), stablecoins[1].Decimals)
 }
 
 func poolFixture(

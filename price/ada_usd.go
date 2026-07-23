@@ -18,8 +18,10 @@ package price
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/big"
 	"sort"
+	"strconv"
 
 	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/dex"
@@ -131,21 +133,29 @@ func AggregateADAUSD(
 	if len(symbols) < config.MinStablecoins {
 		return result, ErrInsufficientDiversity
 	}
+	if totalWeight == 0 {
+		return result, ErrInsufficientObservations
+	}
+	maxPoolShare := configRatio(config.MaxPoolShare)
 	for _, observation := range observations {
-		share := float64(observation.StableMicros) / float64(totalWeight)
-		if share > config.MaxPoolShare {
+		share := new(big.Rat).SetFrac(
+			new(big.Int).SetUint64(observation.StableMicros),
+			new(big.Int).SetUint64(totalWeight),
+		)
+		if share.Cmp(maxPoolShare) > 0 {
 			return result, ErrConcentratedLiquidity
 		}
 	}
 
-	minPrice, maxPrice := observations[0].Price, observations[0].Price
+	minPrice := new(big.Rat).Set(observations[0].price)
+	maxPrice := new(big.Rat).Set(observations[0].price)
 	weightedPrice := new(big.Rat)
 	for _, observation := range observations {
-		if observation.Price < minPrice {
-			minPrice = observation.Price
+		if observation.price.Cmp(minPrice) < 0 {
+			minPrice.Set(observation.price)
 		}
-		if observation.Price > maxPrice {
-			maxPrice = observation.Price
+		if observation.price.Cmp(maxPrice) > 0 {
+			maxPrice.Set(observation.price)
 		}
 		term := new(big.Rat).Mul(
 			observation.price,
@@ -155,8 +165,12 @@ func AggregateADAUSD(
 		)
 		weightedPrice.Add(weightedPrice, term)
 	}
-	result.Spread = (maxPrice - minPrice) / minPrice
-	if result.Spread > config.MaxDivergence {
+	spread := new(big.Rat).Quo(
+		new(big.Rat).Sub(maxPrice, minPrice),
+		minPrice,
+	)
+	result.Spread, _ = spread.Float64()
+	if spread.Cmp(configRatio(config.MaxDivergence)) > 0 {
 		return result, ErrDivergentPrices
 	}
 	weightedPrice.Quo(
@@ -181,7 +195,13 @@ func observationsFromPools(
 		}
 		key := pool.Protocol + ":" + pool.PoolId
 		current, ok := latest[key]
-		if !ok || pool.Slot > current.Slot {
+		if !ok ||
+			pool.Slot > current.Slot ||
+			(pool.Slot == current.Slot &&
+				pool.TxIndex > current.TxIndex) ||
+			(pool.Slot == current.Slot &&
+				pool.TxIndex == current.TxIndex &&
+				pool.TxHash > current.TxHash) {
 			latest[key] = pool
 		}
 	}
@@ -228,7 +248,10 @@ func observationFromPool(
 			break
 		}
 	}
-	if stablecoin.Symbol == "" || ada.Amount < config.MinADAReserve {
+	if stablecoin.Symbol == "" ||
+		ada.Amount == 0 ||
+		stable.Amount == 0 ||
+		ada.Amount < config.MinADAReserve {
 		return PoolObservation{}, false
 	}
 	stableMicros, ok := normalizeToMicros(stable.Amount, stablecoin.Decimals)
@@ -292,13 +315,28 @@ func validateConfig(config Config) error {
 	if config.MinObservations < 1 || config.MinStablecoins < 1 {
 		return errors.New("price: minimum counts must be positive")
 	}
-	if config.MaxPoolShare <= 0 || config.MaxPoolShare > 1 {
+	if math.IsNaN(config.MaxPoolShare) ||
+		math.IsInf(config.MaxPoolShare, 0) ||
+		config.MaxPoolShare <= 0 ||
+		config.MaxPoolShare > 1 {
 		return errors.New("price: max pool share must be in (0,1]")
 	}
-	if config.MaxDivergence < 0 {
+	if math.IsNaN(config.MaxDivergence) ||
+		math.IsInf(config.MaxDivergence, 0) ||
+		config.MaxDivergence < 0 {
 		return errors.New("price: max divergence must be non-negative")
 	}
 	return nil
+}
+
+func configRatio(value float64) *big.Rat {
+	ratio, ok := new(big.Rat).SetString(
+		strconv.FormatFloat(value, 'g', -1, 64),
+	)
+	if !ok {
+		panic("validated floating-point configuration is not rational")
+	}
+	return ratio
 }
 
 func pow10Uint(power uint8) uint64 {
