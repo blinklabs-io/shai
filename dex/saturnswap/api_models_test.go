@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -72,6 +73,56 @@ func TestPoolFeeUnitsFromAPIResponseFixture(t *testing.T) {
 					feeNum,
 					feeDenom,
 					test.wantFeeNum,
+					FeeDenom,
+				)
+			}
+		})
+	}
+}
+
+func TestPoolEffectiveFeePartsOptionalProtocolFee(t *testing.T) {
+	tests := []struct {
+		name    string
+		pool    Pool
+		wantErr string
+	}{
+		{
+			name: "omitted protocol fee defaults to zero",
+			pool: Pool{
+				LPFeePercent: "0.5",
+			},
+		},
+		{
+			name: "malformed protocol fee is rejected",
+			pool: Pool{
+				LPFeePercent:       "0.5",
+				ProtocolFeePercent: "invalid",
+			},
+			wantErr: "protocol_fee_percent",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			feeNum, feeDenom, err := test.pool.EffectiveFeeParts()
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf(
+						"EffectiveFeeParts error = %v, want error containing %q",
+						err,
+						test.wantErr,
+					)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("EffectiveFeeParts returned error: %v", err)
+			}
+			if feeNum != FeeDenom || feeDenom != FeeDenom {
+				t.Fatalf(
+					"fee parts = %d/%d, want %d/%d",
+					feeNum,
+					feeDenom,
+					FeeDenom,
 					FeeDenom,
 				)
 			}

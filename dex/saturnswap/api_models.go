@@ -247,9 +247,14 @@ func (p Pool) EffectiveFeeParts() (uint64, uint64, error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("lp_fee_percent: %w", err)
 	}
-	protocolPercent, err := p.ProtocolFeePercent.Float64()
-	if err != nil {
-		return 0, 0, fmt.Errorf("protocol_fee_percent: %w", err)
+	// protocol_fee_percent is optional. An omitted (or null) field decodes to
+	// an empty DecimalString, which represents no protocol share.
+	protocolPercent := 0.0
+	if strings.TrimSpace(p.ProtocolFeePercent.String()) != "" {
+		protocolPercent, err = p.ProtocolFeePercent.Float64()
+		if err != nil {
+			return 0, 0, fmt.Errorf("protocol_fee_percent: %w", err)
+		}
 	}
 	if protocolPercent < 0 || protocolPercent > 100 {
 		return 0, 0, fmt.Errorf(
