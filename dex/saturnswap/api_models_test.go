@@ -17,8 +17,67 @@ package saturnswap
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"testing"
 )
+
+func TestPoolFeeUnitsFromAPIResponseFixture(t *testing.T) {
+	// Captured from DefaultGraphQLEndpoint on 2026-07-23. The values also
+	// match the fee calculation shipped by SaturnSwap's web client.
+	payload, err := os.ReadFile("testdata/pools_fee_units.json")
+	if err != nil {
+		t.Fatalf("read pool fixture: %v", err)
+	}
+
+	var response struct {
+		Data struct {
+			Pools PoolConnection `json:"pools"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(payload, &response); err != nil {
+		t.Fatalf("unmarshal pool fixture: %v", err)
+	}
+	if len(response.Data.Pools.Nodes) != 2 {
+		t.Fatalf(
+			"pool fixture contains %d nodes, want 2",
+			len(response.Data.Pools.Nodes),
+		)
+	}
+
+	tests := []struct {
+		name       string
+		pool       Pool
+		wantFeeNum uint64
+	}{
+		{
+			name:       "0.5 percent LP fee with 30 percent protocol share",
+			pool:       response.Data.Pools.Nodes[0],
+			wantFeeNum: 9985,
+		},
+		{
+			name:       "1 percent LP fee with 30 percent protocol share",
+			pool:       response.Data.Pools.Nodes[1],
+			wantFeeNum: 9970,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			feeNum, feeDenom, err := test.pool.EffectiveFeeParts()
+			if err != nil {
+				t.Fatalf("EffectiveFeeParts returned error: %v", err)
+			}
+			if feeNum != test.wantFeeNum || feeDenom != FeeDenom {
+				t.Fatalf(
+					"fee parts = %d/%d, want %d/%d",
+					feeNum,
+					feeDenom,
+					test.wantFeeNum,
+					FeeDenom,
+				)
+			}
+		})
+	}
+}
 
 func TestOrderBookPoolUtxoUnmarshalJSON(t *testing.T) {
 	payload := []byte(`{"id":"order-1","pool_utxo_type":"LIMIT_BUY_ORDER",` +

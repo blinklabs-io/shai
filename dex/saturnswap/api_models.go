@@ -179,6 +179,10 @@ type PoolStats struct {
 }
 
 // Pool is the public SaturnSwap pool shape used by the web app and docs.
+//
+// LPFeePercent is expressed in percentage points (0.5 means 0.5%).
+// ProtocolFeePercent is the percentage of that LP fee charged by the protocol
+// (30 means 30% of the LP fee), not another percentage-point fee.
 type Pool struct {
 	ID                 string        `json:"id"`
 	Name               string        `json:"name,omitempty"`
@@ -235,26 +239,29 @@ func (p Pool) ToPoolState(slot uint64, timestamp time.Time) (*PoolState, error) 
 	}, nil
 }
 
+// EffectiveFeeParts returns the client-visible protocol charge as a post-fee
+// multiplier. SaturnSwap computes that charge from the LP fee rate and the
+// protocol's percentage share of that rate.
 func (p Pool) EffectiveFeeParts() (uint64, uint64, error) {
 	lpPercent, err := p.LPFeePercent.Float64()
 	if err != nil {
 		return 0, 0, fmt.Errorf("lp_fee_percent: %w", err)
 	}
-	// protocol_fee_percent is optional; treat a missing value as zero
-	// rather than erroring so pools without a protocol surcharge still
-	// produce a valid fee.
-	protocolPercent := 0.0
-	if strings.TrimSpace(p.ProtocolFeePercent.String()) != "" {
-		protocolPercent, err = p.ProtocolFeePercent.Float64()
-		if err != nil {
-			return 0, 0, fmt.Errorf("protocol_fee_percent: %w", err)
-		}
+	protocolPercent, err := p.ProtocolFeePercent.Float64()
+	if err != nil {
+		return 0, 0, fmt.Errorf("protocol_fee_percent: %w", err)
 	}
-	percent := lpPercent + protocolPercent
+	if protocolPercent < 0 || protocolPercent > 100 {
+		return 0, 0, fmt.Errorf(
+			"protocol_fee_percent %q outside supported range",
+			p.ProtocolFeePercent,
+		)
+	}
+	percent := lpPercent * protocolPercent / 100
 	feeBasisPoints := math.Round(percent * 100)
 	if feeBasisPoints < 0 || feeBasisPoints > FeeDenom {
 		return 0, 0, fmt.Errorf(
-			"fee percent %q + %q outside supported range",
+			"effective fee from lp percent %q and protocol percent %q outside supported range",
 			p.LPFeePercent,
 			p.ProtocolFeePercent,
 		)

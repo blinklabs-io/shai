@@ -43,6 +43,62 @@ func TestNewClientUsesDocumentedEndpointWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestNewClientRequiresHTTPS(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewClient(APIConfig{
+		Enabled:  true,
+		Endpoint: "http://example.com/graphql",
+	})
+	if !errors.Is(err, ErrInvalidExternalAPIConfig) {
+		t.Fatalf("expected ErrInvalidExternalAPIConfig, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "must use HTTPS") {
+		t.Fatalf("expected HTTPS requirement error, got %v", err)
+	}
+}
+
+func TestInsecureHTTPForTestsRequiresLoopback(t *testing.T) {
+	t.Parallel()
+
+	_, err := NewClient(
+		APIConfig{
+			Enabled:  true,
+			Endpoint: "http://192.0.2.1/graphql",
+		},
+		WithInsecureHTTPForTests(),
+	)
+	if !errors.Is(err, ErrInvalidExternalAPIConfig) {
+		t.Fatalf("expected ErrInvalidExternalAPIConfig, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "loopback HTTP") {
+		t.Fatalf("expected loopback HTTP requirement error, got %v", err)
+	}
+}
+
+func TestInsecureHTTPForTestsAllowsLoopback(t *testing.T) {
+	t.Parallel()
+
+	for _, endpoint := range []string{
+		"http://localhost:8080/graphql",
+		"http://127.0.0.1:8080/graphql",
+		"http://[::1]:8080/graphql",
+	} {
+		t.Run(endpoint, func(t *testing.T) {
+			_, err := NewClient(
+				APIConfig{
+					Enabled:  true,
+					Endpoint: endpoint,
+				},
+				WithInsecureHTTPForTests(),
+			)
+			if err != nil {
+				t.Fatalf("NewClient returned error: %v", err)
+			}
+		})
+	}
+}
+
 func TestPoolsByTickerAndPoolStateParsing(t *testing.T) {
 	t.Parallel()
 
@@ -76,8 +132,8 @@ func TestPoolsByTickerAndPoolStateParsing(t *testing.T) {
 								"id":                   "pool-1",
 								"name":                 "ADA x SNEK",
 								"ticker":               "SNEK",
-								"lp_fee_percent":       "0.3",
-								"protocol_fee_percent": "0.05",
+								"lp_fee_percent":       "0.5",
+								"protocol_fee_percent": "30",
 								"is_swap_active":       true,
 								"is_verified":          true,
 								"token_project_one": map[string]any{
@@ -145,9 +201,9 @@ func TestPoolsByTickerAndPoolStateParsing(t *testing.T) {
 	if state.AssetY.Amount != 123_456_789 {
 		t.Fatalf("unexpected reserve Y: %d", state.AssetY.Amount)
 	}
-	if state.FeeNum != 9965 || state.FeeDenom != FeeDenom {
+	if state.FeeNum != 9985 || state.FeeDenom != FeeDenom {
 		t.Fatalf(
-			"unexpected fee parts: got %d/%d want 9965/%d",
+			"unexpected fee parts: got %d/%d want 9985/%d",
 			state.FeeNum,
 			state.FeeDenom,
 			FeeDenom,

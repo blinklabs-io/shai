@@ -270,7 +270,7 @@ func newEnabledTestClient(t *testing.T, endpoint string) *Client {
 	client, err := NewClient(APIConfig{
 		Enabled:  true,
 		Endpoint: endpoint,
-	})
+	}, WithInsecureHTTPForTests())
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -95,9 +96,19 @@ func WithHTTPClient(httpClient *http.Client) ClientOption {
 	}
 }
 
+// WithInsecureHTTPForTests permits cleartext HTTP endpoints on loopback hosts.
+// It is intended only for local test servers; production requests must always
+// use HTTPS.
+func WithInsecureHTTPForTests() ClientOption {
+	return func(c *Client) {
+		c.allowInsecureHTTPForTests = true
+	}
+}
+
 type Client struct {
-	endpoint   string
-	httpClient *http.Client
+	endpoint                  string
+	httpClient                *http.Client
+	allowInsecureHTTPForTests bool
 }
 
 func NewClient(cfg APIConfig, opts ...ClientOption) (*Client, error) {
@@ -127,7 +138,32 @@ func NewClient(cfg APIConfig, opts ...ClientOption) (*Client, error) {
 	if client.httpClient == nil {
 		return nil, fmt.Errorf("SaturnSwap API HTTP client is nil")
 	}
+	parsedEndpoint, err := url.Parse(client.endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidExternalAPIConfig, err)
+	}
+	if !isAllowedEndpoint(
+		parsedEndpoint,
+		client.allowInsecureHTTPForTests,
+	) {
+		return nil, fmt.Errorf(
+			"%w: endpoint must use HTTPS or loopback HTTP for tests",
+			ErrInvalidExternalAPIConfig,
+		)
+	}
 	return client, nil
+}
+
+func isAllowedEndpoint(endpoint *url.URL, allowLoopbackHTTP bool) bool {
+	if endpoint.Scheme == "https" {
+		return true
+	}
+	if !allowLoopbackHTTP || endpoint.Scheme != "http" {
+		return false
+	}
+	hostname := endpoint.Hostname()
+	return strings.EqualFold(hostname, "localhost") ||
+		net.ParseIP(hostname).IsLoopback()
 }
 
 func (c *Client) Endpoint() string {
