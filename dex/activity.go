@@ -115,7 +115,8 @@ func InferSwapTransition(
 	xOut := current.AssetX.Amount < previous.AssetX.Amount
 	yIn := current.AssetY.Amount > previous.AssetY.Amount
 	yOut := current.AssetY.Amount < previous.AssetY.Amount
-	if !((xIn && yOut) || (xOut && yIn)) {
+	isSwap := (xIn && yOut) || (xOut && yIn)
+	if !isSwap {
 		return SwapTransition{}, false, nil
 	}
 
@@ -187,34 +188,34 @@ func (t *ActivityTracker) Volume(
 	if atSlot > t.windowSlots {
 		cutoff = atSlot - t.windowSlots
 	}
-	first := 0
-	for first < len(swaps) && swaps[first].Slot < cutoff {
-		first++
-	}
-	swaps = swaps[first:]
-	if len(swaps) == 0 {
-		return PoolVolume{}, false, nil
-	}
 	volume := PoolVolume{
-		PoolID:        poolID,
-		Network:       network,
-		Protocol:      protocol,
-		AssetX:        swaps[0].AssetX,
-		AssetY:        swaps[0].AssetY,
-		WindowSlots:   t.windowSlots,
-		WindowEnd:     atSlot,
-		FirstSwapSlot: swaps[0].Slot,
-		LastSwapSlot:  swaps[len(swaps)-1].Slot,
+		PoolID:      poolID,
+		Network:     network,
+		Protocol:    protocol,
+		WindowSlots: t.windowSlots,
+		WindowEnd:   atSlot,
 	}
 	for _, swap := range swaps {
+		if swap.Slot < cutoff {
+			continue
+		}
 		if ^uint64(0)-volume.VolumeX < swap.AmountX ||
 			^uint64(0)-volume.VolumeY < swap.AmountY ||
 			volume.SwapCount == ^uint64(0) {
 			return PoolVolume{}, false, ErrVolumeOverflow
 		}
+		if volume.SwapCount == 0 {
+			volume.AssetX = swap.AssetX
+			volume.AssetY = swap.AssetY
+			volume.FirstSwapSlot = swap.Slot
+		}
 		volume.VolumeX += swap.AmountX
 		volume.VolumeY += swap.AmountY
 		volume.SwapCount++
+		volume.LastSwapSlot = swap.Slot
+	}
+	if volume.SwapCount == 0 {
+		return PoolVolume{}, false, nil
 	}
 	return volume, true, nil
 }

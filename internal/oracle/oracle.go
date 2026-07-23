@@ -689,7 +689,7 @@ func (o *Oracle) GetPoolVolume(
 	atSlot uint64,
 ) (PoolVolume, bool, error) {
 	state, ok := o.GetPoolState(poolId)
-	if !ok || o.activity == nil {
+	if !ok || state == nil || o.activity == nil {
 		return PoolVolume{}, false, nil
 	}
 	return o.activity.Volume(
