@@ -30,8 +30,9 @@ import (
 )
 
 const (
-	subscriberBufferSize = 100
-	dropLogSampleRate    = 100
+	subscriberBufferSize           = 100
+	dropLogSampleRate              = 100
+	defaultPoolActivityWindowSlots = 86_400
 )
 
 // CDPParser parses synthetics/CDP datums that are tracked separately from AMM
@@ -65,6 +66,7 @@ type Oracle struct {
 	stopped       bool
 	dropCount     atomic.Uint64
 	mempoolMgr    *MempoolStateManager
+	activity      *ActivityTracker
 }
 
 // New creates a new Oracle instance
@@ -73,6 +75,10 @@ func New(
 	profile *config.Profile,
 	parser PoolParser,
 ) *Oracle {
+	activity, err := NewActivityTracker(defaultPoolActivityWindowSlots)
+	if err != nil {
+		panic(err)
+	}
 	o := &Oracle{
 		idx:           idx,
 		profile:       profile,
@@ -82,6 +88,7 @@ func New(
 		poolAddresses: make(map[string]struct{}),
 		stopChan:      make(chan struct{}),
 		mempoolMgr:    NewMempoolStateManager(),
+		activity:      activity,
 	}
 
 	o.addProfileAddresses()
@@ -323,9 +330,23 @@ func (o *Oracle) handleTransaction(
 
 		// Update pool state
 		o.poolsMu.Lock()
-		var prevPrice float64
+		var (
+			prevPrice float64
+			prevState *PoolState
+		)
 		if prev, ok := o.pools[state.PoolId]; ok {
 			prevPrice = prev.PriceXY()
+			prevState = prev
+		}
+		if o.activity != nil {
+			if _, err := o.activity.Observe(prevState, state); err != nil {
+				logger.Warn(
+					"failed to record pool activity",
+					"error", err,
+					"poolId", state.PoolId,
+					"slot", state.Slot,
+				)
+			}
 		}
 		o.pools[state.PoolId] = state
 		o.poolsMu.Unlock()
@@ -536,6 +557,10 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 	o.cdpsMu.Unlock()
 
+	if o.activity != nil {
+		o.activity.Rollback(evt.SlotNumber)
+	}
+
 	// Invalidate mempool tracking for rolled-back pools. Otherwise the reorged
 	// confirmed state stays visible to consumers and seeds future pending-tx
 	// delta calculations with stale data.
@@ -655,6 +680,24 @@ func (o *Oracle) GetPoolState(poolId string) (*PoolState, bool) {
 
 	state, ok := o.pools[poolId]
 	return state, ok
+}
+
+// GetPoolVolume returns locally inferred, confirmed activity for a pool over
+// the configured rolling slot window.
+func (o *Oracle) GetPoolVolume(
+	poolId string,
+	atSlot uint64,
+) (PoolVolume, bool, error) {
+	state, ok := o.GetPoolState(poolId)
+	if !ok || o.activity == nil {
+		return PoolVolume{}, false, nil
+	}
+	return o.activity.Volume(
+		state.Network,
+		state.Protocol,
+		state.PoolId,
+		atSlot,
+	)
 }
 
 // GetAllPools returns all tracked pool states
