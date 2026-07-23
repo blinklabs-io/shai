@@ -16,7 +16,6 @@ package dex
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/blinklabs-io/shai/common"
@@ -182,8 +181,12 @@ func (t *ActivityTracker) Volume(
 		return PoolVolume{}, false, ErrOutOfOrderActivity
 	}
 
-	key := fmt.Sprintf("%s:%s:%s", network, protocol, poolID)
-	swaps := t.swaps[key]
+	pool := PoolState{
+		PoolId:   poolID,
+		Network:  network,
+		Protocol: protocol,
+	}
+	swaps := t.swaps[pool.Key()]
 	var cutoff uint64
 	if atSlot > t.windowSlots {
 		cutoff = atSlot - t.windowSlots
