@@ -18,6 +18,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/dex"
@@ -58,6 +59,54 @@ func TestAggregateADAUSDCurrentCSwapFixtures(t *testing.T) {
 	require.InDelta(t, 0.16868, result.Price, 0.0001)
 	require.NotZero(t, result.PriceNum)
 	require.NotZero(t, result.PriceDen)
+}
+
+func TestAggregateADAUSDReportsLocalProvenance(t *testing.T) {
+	now := time.Date(2026, 7, 23, 20, 0, 0, 0, time.UTC)
+	usdcx := poolFixture(
+		t,
+		"usdcx",
+		USDCxPolicyID,
+		USDCxAssetName,
+		8_547_275_688,
+		1_439_463_431,
+		"usdcx-tx",
+		1,
+	)
+	usdcx.BlockHash = "usdcx-block"
+	usdcx.Timestamp = now.Add(-2 * time.Minute)
+	usdm := poolFixture(
+		t,
+		"usdm",
+		USDMPolicyID,
+		USDMAssetName,
+		4_579_285_253,
+		774_654_393,
+		"usdm-tx",
+		1,
+	)
+	usdm.BlockHash = "usdm-block"
+	usdm.Timestamp = now.Add(-5 * time.Minute)
+
+	result, err := AggregateADAUSDAt(
+		[]*dex.PoolState{usdcx, usdm},
+		DefaultConfig(),
+		now,
+	)
+	require.NoError(t, err)
+	require.Equal(t, SourceLocalDEXStablecoins, result.Source)
+	require.Equal(t, ValidationQualified, result.Validation)
+	require.Equal(t, usdm.Timestamp, result.ObservedAt)
+	require.NotNil(t, result.AgeSeconds)
+	require.Equal(t, int64(300), *result.AgeSeconds)
+	require.Equal(t, "usdcx-block", result.Observations[0].BlockHash)
+	require.Equal(
+		t,
+		ValidationQualified,
+		result.Observations[0].Validation,
+	)
+	require.NotNil(t, result.Observations[0].AgeSeconds)
+	require.Equal(t, int64(120), *result.Observations[0].AgeSeconds)
 }
 
 func TestAggregateADAUSDRequiresStablecoinDiversity(t *testing.T) {
@@ -249,6 +298,7 @@ func TestObservationsFromPoolsUsesLatestSameSlotOutput(t *testing.T) {
 	observations := observationsFromPools(
 		[]*dex.PoolState{newer, older},
 		DefaultConfig(),
+		time.Now(),
 	)
 	require.Len(t, observations, 1)
 	require.Equal(t, uint32(2), observations[0].TxIndex)
