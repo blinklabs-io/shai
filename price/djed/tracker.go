@@ -79,17 +79,18 @@ func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) {
 	t.observations[ref] = tracked
 }
 
-// Rollback removes observations produced at or after the rollback slot and
-// restores observations whose spends were rolled back.
+// Rollback removes observations produced after the rollback point and restores
+// observations whose spends occurred after it. State in the point's block is
+// retained.
 func (t *Tracker) Rollback(slot uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	for ref, tracked := range t.observations {
-		if tracked.observation.Slot >= slot {
+		if tracked.observation.Slot > slot {
 			delete(t.observations, ref)
 			continue
 		}
-		if tracked.spentAt != nil && *tracked.spentAt >= slot {
+		if tracked.spentAt != nil && *tracked.spentAt > slot {
 			tracked.spentAt = nil
 			t.observations[ref] = tracked
 		}

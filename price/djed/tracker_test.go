@@ -84,7 +84,7 @@ func TestTrackerRollbackRestoresSpentObservation(t *testing.T) {
 	tracker.ConsumeAt(ref, 20)
 	require.ErrorIs(t, currentError(tracker, now), ErrNoCurrentObservation)
 
-	tracker.Rollback(20)
+	tracker.Rollback(19)
 	current, err := tracker.Current(now)
 	require.NoError(t, err)
 	require.Equal(t, applied, current)
@@ -102,6 +102,31 @@ func TestTrackerRollbackRemovesProducedObservation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	tracker.Rollback(19)
+	require.ErrorIs(t, currentError(tracker, now), ErrNoCurrentObservation)
+}
+
+func TestTrackerRollbackRetainsPointState(t *testing.T) {
+	tracker := NewTracker()
+	now := time.Unix(1_784_842_625, 0).UTC()
+	utxo := currentMainnetUTxO(t)
+	utxo.Slot = 20
+	applied, err := tracker.Apply(
+		mustDecodeHex(t, currentMainnetDatum),
+		utxo,
+		now,
+	)
+	require.NoError(t, err)
+
+	tracker.Rollback(20)
+	current, err := tracker.Current(now)
+	require.NoError(t, err)
+	require.Equal(t, applied, current)
+
+	tracker.ConsumeAt(
+		OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex},
+		20,
+	)
 	tracker.Rollback(20)
 	require.ErrorIs(t, currentError(tracker, now), ErrNoCurrentObservation)
 }
