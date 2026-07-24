@@ -53,12 +53,128 @@ func TestAggregateADAUSDCurrentCSwapFixtures(t *testing.T) {
 	result, err := AggregateADAUSD(pools, DefaultConfig())
 	require.NoError(t, err)
 	require.Equal(t, "ADA/USD", result.Pair)
-	require.Equal(t, "local-dex-stablecoin-weighted", result.Method)
+	require.Equal(t, "local-dex-liquidity-weighted-median", result.Method)
 	require.Len(t, result.Observations, 2)
 	require.Less(t, result.Spread, 0.01)
-	require.InDelta(t, 0.16868, result.Price, 0.0001)
-	require.NotZero(t, result.PriceNum)
-	require.NotZero(t, result.PriceDen)
+	require.Equal(t, "205637633/1221039384", result.Rat().String())
+	require.InDelta(t, 0.168412, result.Price, 0.000001)
+	require.Equal(t, "205637633", result.PriceNum)
+	require.Equal(t, "1221039384", result.PriceDen)
+}
+
+func TestAggregateADAUSDUsesLiquidityWeightedMedian(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MinObservations = 3
+	config.MaxPoolShare = 1
+	config.MaxDivergence = 10
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"low",
+			USDCxPolicyID,
+			USDCxAssetName,
+			200,
+			20,
+			"low",
+			1,
+		),
+		poolFixture(
+			t,
+			"median",
+			USDMPolicyID,
+			USDMAssetName,
+			250,
+			50,
+			"median",
+			1,
+		),
+		poolFixture(
+			t,
+			"high",
+			USDCxPolicyID,
+			USDCxAssetName,
+			100,
+			30,
+			"high",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, "1/5", result.Rat().String())
+	require.Equal(t, 0.2, result.Price)
+}
+
+func TestAggregateADAUSDMidpointsExactWeightSplit(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MaxPoolShare = 0.5
+	config.MaxDivergence = 10
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"low",
+			USDCxPolicyID,
+			USDCxAssetName,
+			600,
+			60,
+			"low",
+			1,
+		),
+		poolFixture(
+			t,
+			"high",
+			USDMPolicyID,
+			USDMAssetName,
+			200,
+			60,
+			"high",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, "1/5", result.Rat().String())
+	require.Equal(t, 0.2, result.Price)
+}
+
+func TestAggregateADAUSDSelectsPriceAboveHalfWeight(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MaxPoolShare = 1
+	config.MaxDivergence = 10
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"low",
+			USDCxPolicyID,
+			USDCxAssetName,
+			510,
+			51,
+			"low",
+			1,
+		),
+		poolFixture(
+			t,
+			"high",
+			USDMPolicyID,
+			USDMAssetName,
+			245,
+			49,
+			"high",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, "1/10", result.Rat().String())
 }
 
 func TestAggregateADAUSDReportsLocalProvenance(t *testing.T) {

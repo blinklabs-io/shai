@@ -118,7 +118,7 @@ func (r Result) Rat() *big.Rat {
 }
 
 // AggregateADAUSD qualifies ADA/stablecoin pools, enforces diversity and
-// agreement, then computes a stablecoin-liquidity-weighted mean.
+// agreement, then computes a stablecoin-liquidity-weighted median.
 func AggregateADAUSD(
 	pools []*dex.PoolState,
 	config Config,
@@ -140,7 +140,7 @@ func AggregateADAUSDAt(
 	result := Result{
 		Pair:         "ADA/USD",
 		Source:       SourceLocalDEXStablecoins,
-		Method:       "local-dex-stablecoin-weighted",
+		Method:       "local-dex-liquidity-weighted-median",
 		Validation:   ValidationUnavailable,
 		Observations: observations,
 	}
@@ -176,7 +176,6 @@ func AggregateADAUSDAt(
 
 	minPrice := new(big.Rat).Set(observations[0].price)
 	maxPrice := new(big.Rat).Set(observations[0].price)
-	weightedPrice := new(big.Rat)
 	for _, observation := range observations {
 		if observation.price.Cmp(minPrice) < 0 {
 			minPrice.Set(observation.price)
@@ -184,13 +183,6 @@ func AggregateADAUSDAt(
 		if observation.price.Cmp(maxPrice) > 0 {
 			maxPrice.Set(observation.price)
 		}
-		term := new(big.Rat).Mul(
-			observation.price,
-			new(big.Rat).SetInt(
-				new(big.Int).SetUint64(observation.StableMicros),
-			),
-		)
-		weightedPrice.Add(weightedPrice, term)
 	}
 	spread := new(big.Rat).Quo(
 		new(big.Rat).Sub(maxPrice, minPrice),
@@ -200,14 +192,11 @@ func AggregateADAUSDAt(
 	if spread.Cmp(configRatio(config.MaxDivergence)) > 0 {
 		return result, ErrDivergentPrices
 	}
-	weightedPrice.Quo(
-		weightedPrice,
-		new(big.Rat).SetInt(new(big.Int).SetUint64(totalWeight)),
-	)
-	result.price = weightedPrice
-	result.PriceNum = weightedPrice.Num().String()
-	result.PriceDen = weightedPrice.Denom().String()
-	result.Price, _ = weightedPrice.Float64()
+	medianPrice := liquidityWeightedMedian(observations, totalWeight)
+	result.price = medianPrice
+	result.PriceNum = medianPrice.Num().String()
+	result.PriceDen = medianPrice.Denom().String()
+	result.Price, _ = medianPrice.Float64()
 	result.Validation = ValidationQualified
 	for _, observation := range observations {
 		if observation.ObservedAt.IsZero() {
@@ -220,6 +209,40 @@ func AggregateADAUSDAt(
 		}
 	}
 	return result, nil
+}
+
+func liquidityWeightedMedian(
+	observations []PoolObservation,
+	totalWeight uint64,
+) *big.Rat {
+	ordered := append([]PoolObservation(nil), observations...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return ordered[i].price.Cmp(ordered[j].price) < 0
+	})
+
+	var cumulative uint64
+	for i, observation := range ordered {
+		if observation.StableMicros == 0 {
+			continue
+		}
+		cumulative += observation.StableMicros
+		remaining := totalWeight - cumulative
+		switch {
+		case cumulative > remaining:
+			return new(big.Rat).Set(observation.price)
+		case cumulative == remaining:
+			for _, next := range ordered[i+1:] {
+				if next.StableMicros == 0 {
+					continue
+				}
+				return new(big.Rat).Quo(
+					new(big.Rat).Add(observation.price, next.price),
+					big.NewRat(2, 1),
+				)
+			}
+		}
+	}
+	panic("qualified observations have no positive liquidity")
 }
 
 func observationsFromPools(
