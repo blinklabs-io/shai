@@ -41,6 +41,9 @@ func TestOracleNewUsesSyntheticsCDPAddresses(t *testing.T) {
 	}
 
 	o := New(nil, &profile, NewIndigoParser())
+	if o.activity == nil {
+		t.Fatal("expected local pool activity tracking")
+	}
 	if !o.isPoolAddress(cdpAddress) {
 		t.Fatalf("expected CDP address to be monitored")
 	}
@@ -53,11 +56,16 @@ func TestOracleNewUsesSyntheticsCDPAddresses(t *testing.T) {
 }
 
 func TestOracleRollbackClearsMempoolState(t *testing.T) {
+	activity, err := NewActivityTracker(100)
+	if err != nil {
+		t.Fatalf("failed to create activity tracker: %v", err)
+	}
 	o := &Oracle{
 		pools:      make(map[string]*PoolState),
 		stopChan:   make(chan struct{}),
 		storage:    newTestOracleStorage(t),
 		mempoolMgr: NewMempoolStateManager(),
+		activity:   activity,
 	}
 
 	// A confirmed pool state at slot 100, tracked in o.pools, storage, and the
@@ -68,10 +76,35 @@ func TestOracleRollbackClearsMempoolState(t *testing.T) {
 		Protocol: "test",
 		TxHash:   "tx100",
 		Slot:     100,
-		AssetX:   common.AssetAmount{Amount: 1000},
-		AssetY:   common.AssetAmount{Amount: 2000},
+		AssetX: common.AssetAmount{
+			Class:  common.Lovelace(),
+			Amount: 1000,
+		},
+		AssetY: common.AssetAmount{
+			Class: common.AssetClass{
+				PolicyId: []byte{1},
+				Name:     []byte{2},
+			},
+			Amount: 2000,
+		},
+	}
+	previous := clonePoolState(state)
+	previous.Slot = 90
+	previous.AssetX.Amount = 900
+	previous.AssetY.Amount = 2200
+	recorded, err := o.activity.Observe(previous, state)
+	if err != nil {
+		t.Fatalf("failed to record pool activity: %v", err)
+	}
+	if !recorded {
+		t.Fatal("expected swap-shaped activity to be recorded")
 	}
 	o.pools[state.PoolId] = state
+	if volume, ok, err := o.GetPoolVolume("pool1", 100); err != nil {
+		t.Fatalf("failed to read pool activity: %v", err)
+	} else if !ok || volume.SwapCount != 1 {
+		t.Fatalf("expected one recorded swap, got %+v", volume)
+	}
 	if err := o.storage.SavePoolState(state); err != nil {
 		t.Fatalf("failed to save pool state: %v", err)
 	}
@@ -103,6 +136,16 @@ func TestOracleRollbackClearsMempoolState(t *testing.T) {
 			"expected 0 tracked pools in mempool manager, got %d",
 			o.mempoolMgr.PoolCount(),
 		)
+	}
+	if _, ok, err := o.activity.Volume(
+		"mainnet",
+		"test",
+		"pool1",
+		49,
+	); err != nil {
+		t.Fatalf("failed to read rolled-back pool activity: %v", err)
+	} else if ok {
+		t.Error("expected rolled-back pool activity to be removed")
 	}
 }
 
