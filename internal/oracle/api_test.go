@@ -195,6 +195,7 @@ func TestHandleListPrices(t *testing.T) {
 }
 
 func TestHandleADAUSDPriceFromLocalPools(t *testing.T) {
+	observedAt := time.Now().Add(-time.Minute)
 	usdm, err := common.NewAssetClass(
 		shaiprice.USDMPolicyID,
 		shaiprice.USDMAssetName,
@@ -212,8 +213,10 @@ func TestHandleADAUSDPriceFromLocalPools(t *testing.T) {
 	o := &Oracle{
 		pools: map[string]*PoolState{
 			"usdm": {
-				PoolId:   "usdm",
-				Protocol: "cswap",
+				PoolId:    "usdm",
+				Protocol:  "cswap",
+				BlockHash: "usdm-block",
+				Timestamp: observedAt,
 				AssetX: common.AssetAmount{
 					Class:  common.Lovelace(),
 					Amount: 4_579_285_253,
@@ -224,8 +227,10 @@ func TestHandleADAUSDPriceFromLocalPools(t *testing.T) {
 				},
 			},
 			"usdcx": {
-				PoolId:   "usdcx",
-				Protocol: "cswap",
+				PoolId:    "usdcx",
+				Protocol:  "cswap",
+				BlockHash: "usdcx-block",
+				Timestamp: observedAt,
 				AssetX: common.AssetAmount{
 					Class:  common.Lovelace(),
 					Amount: 8_547_275_688,
@@ -261,6 +266,15 @@ func TestHandleADAUSDPriceFromLocalPools(t *testing.T) {
 	if len(response.Observations) != 2 {
 		t.Fatalf("expected 2 observations, got %d", len(response.Observations))
 	}
+	if response.Source != shaiprice.SourceLocalDEXStablecoins {
+		t.Fatalf("unexpected source %q", response.Source)
+	}
+	if response.Validation != shaiprice.ValidationQualified {
+		t.Fatalf("unexpected validation %q", response.Validation)
+	}
+	if response.ObservedAt.IsZero() || response.AgeSeconds == nil {
+		t.Fatal("expected observation time and age")
+	}
 }
 
 func TestHandleADAUSDPriceUnavailableWithoutDiversity(t *testing.T) {
@@ -273,6 +287,18 @@ func TestHandleADAUSDPriceUnavailableWithoutDiversity(t *testing.T) {
 	mux.ServeHTTP(rr, req)
 	if rr.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected status 503, got %d", rr.Code)
+	}
+	var response struct {
+		Result shaiprice.Result `json:"result"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.Result.Validation != shaiprice.ValidationUnavailable {
+		t.Fatalf(
+			"unexpected validation %q",
+			response.Result.Validation,
+		)
 	}
 }
 

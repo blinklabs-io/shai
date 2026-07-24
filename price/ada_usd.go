@@ -22,6 +22,7 @@ import (
 	"math/big"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/dex"
@@ -34,7 +35,13 @@ var (
 	ErrDivergentPrices          = errors.New("price: qualified pool prices diverge")
 )
 
-const usdMicrosDecimals = 6
+const (
+	usdMicrosDecimals = 6
+
+	SourceLocalDEXStablecoins = "local-dex-stablecoins"
+	ValidationQualified       = "qualified"
+	ValidationUnavailable     = "unavailable"
+)
 
 // Config controls qualification and agreement for ADA/USD pool observations.
 type Config struct {
@@ -65,18 +72,22 @@ func DefaultConfig() Config {
 
 // PoolObservation is one qualified ADA/stablecoin spot price.
 type PoolObservation struct {
-	PoolID        string  `json:"poolId"`
-	Protocol      string  `json:"protocol"`
-	Stablecoin    string  `json:"stablecoin"`
-	ADAReserve    uint64  `json:"adaReserve"`
-	StableReserve uint64  `json:"stableReserve"`
-	StableMicros  uint64  `json:"stableMicros"`
-	PriceNum      string  `json:"priceNumerator"`
-	PriceDen      string  `json:"priceDenominator"`
-	Price         float64 `json:"price"`
-	Slot          uint64  `json:"slot"`
-	TxHash        string  `json:"txHash"`
-	TxIndex       uint32  `json:"txIndex"`
+	PoolID        string    `json:"poolId"`
+	Protocol      string    `json:"protocol"`
+	Stablecoin    string    `json:"stablecoin"`
+	ADAReserve    uint64    `json:"adaReserve"`
+	StableReserve uint64    `json:"stableReserve"`
+	StableMicros  uint64    `json:"stableMicros"`
+	PriceNum      string    `json:"priceNumerator"`
+	PriceDen      string    `json:"priceDenominator"`
+	Price         float64   `json:"price"`
+	Slot          uint64    `json:"slot"`
+	BlockHash     string    `json:"blockHash"`
+	TxHash        string    `json:"txHash"`
+	TxIndex       uint32    `json:"txIndex"`
+	ObservedAt    time.Time `json:"observedAt"`
+	AgeSeconds    *int64    `json:"ageSeconds"`
+	Validation    string    `json:"validation"`
 
 	price *big.Rat
 }
@@ -84,7 +95,11 @@ type PoolObservation struct {
 // Result is a liquidity-weighted local ADA/USD estimate.
 type Result struct {
 	Pair         string            `json:"pair"`
+	Source       string            `json:"source"`
 	Method       string            `json:"method"`
+	Validation   string            `json:"validation"`
+	ObservedAt   time.Time         `json:"observedAt"`
+	AgeSeconds   *int64            `json:"ageSeconds"`
 	PriceNum     string            `json:"priceNumerator"`
 	PriceDen     string            `json:"priceDenominator"`
 	Price        float64           `json:"price"`
@@ -108,13 +123,25 @@ func AggregateADAUSD(
 	pools []*dex.PoolState,
 	config Config,
 ) (Result, error) {
+	return AggregateADAUSDAt(pools, config, time.Now())
+}
+
+// AggregateADAUSDAt is AggregateADAUSD with an explicit evaluation time for
+// deterministic provenance and age reporting.
+func AggregateADAUSDAt(
+	pools []*dex.PoolState,
+	config Config,
+	now time.Time,
+) (Result, error) {
 	if err := validateConfig(config); err != nil {
 		return Result{}, err
 	}
-	observations := observationsFromPools(pools, config)
+	observations := observationsFromPools(pools, config, now)
 	result := Result{
 		Pair:         "ADA/USD",
+		Source:       SourceLocalDEXStablecoins,
 		Method:       "local-dex-stablecoin-weighted",
+		Validation:   ValidationUnavailable,
 		Observations: observations,
 	}
 	if len(observations) < config.MinObservations {
@@ -181,12 +208,24 @@ func AggregateADAUSD(
 	result.PriceNum = weightedPrice.Num().String()
 	result.PriceDen = weightedPrice.Denom().String()
 	result.Price, _ = weightedPrice.Float64()
+	result.Validation = ValidationQualified
+	for _, observation := range observations {
+		if observation.ObservedAt.IsZero() {
+			continue
+		}
+		if result.ObservedAt.IsZero() ||
+			observation.ObservedAt.Before(result.ObservedAt) {
+			result.ObservedAt = observation.ObservedAt
+			result.AgeSeconds = observation.AgeSeconds
+		}
+	}
 	return result, nil
 }
 
 func observationsFromPools(
 	pools []*dex.PoolState,
 	config Config,
+	now time.Time,
 ) []PoolObservation {
 	latest := make(map[string]*dex.PoolState)
 	for _, pool := range pools {
@@ -208,7 +247,7 @@ func observationsFromPools(
 
 	var observations []PoolObservation
 	for _, pool := range latest {
-		observation, ok := observationFromPool(pool, config)
+		observation, ok := observationFromPool(pool, config, now)
 		if ok {
 			observations = append(observations, observation)
 		}
@@ -228,6 +267,7 @@ func observationsFromPools(
 func observationFromPool(
 	pool *dex.PoolState,
 	config Config,
+	now time.Time,
 ) (PoolObservation, bool) {
 	var ada common.AssetAmount
 	var stable common.AssetAmount
@@ -269,6 +309,11 @@ func observationFromPool(
 		),
 	)
 	priceFloat, _ := price.Float64()
+	var ageSeconds *int64
+	if !pool.Timestamp.IsZero() {
+		age := int64(now.Sub(pool.Timestamp).Seconds())
+		ageSeconds = &age
+	}
 	return PoolObservation{
 		PoolID:        pool.PoolId,
 		Protocol:      pool.Protocol,
@@ -280,8 +325,12 @@ func observationFromPool(
 		PriceDen:      price.Denom().String(),
 		Price:         priceFloat,
 		Slot:          pool.Slot,
+		BlockHash:     pool.BlockHash,
 		TxHash:        pool.TxHash,
 		TxIndex:       pool.TxIndex,
+		ObservedAt:    pool.Timestamp,
+		AgeSeconds:    ageSeconds,
+		Validation:    ValidationQualified,
 		price:         price,
 	}, true
 }
