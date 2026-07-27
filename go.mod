@@ -9,7 +9,7 @@ require (
 	github.com/blinklabs-io/dingo v0.66.0
 	github.com/blinklabs-io/gouroboros v0.188.0
 	github.com/blinklabs-io/ouroboros-mock v0.14.0
-	github.com/dgraph-io/badger/v4 v4.9.4
+	github.com/dgraph-io/badger/v4 v4.9.5
 	github.com/gorilla/websocket v1.5.3
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.11.1
