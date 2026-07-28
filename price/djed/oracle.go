@@ -63,12 +63,14 @@ type OracleDatum struct {
 
 // OracleUTxO contains the identity-bearing parts of the UTxO holding a datum.
 type OracleUTxO struct {
-	Address   string
-	Assets    []common.AssetAmount
-	TxHash    string
-	TxIndex   uint32
-	Slot      uint64
-	BlockHash string
+	Address string
+	Assets  []common.AssetAmount
+	TxHash  string
+	TxIndex uint32
+	// TransactionIndex is the transaction's position within its block.
+	TransactionIndex uint32
+	Slot             uint64
+	BlockHash        string
 }
 
 // Observation is a validated local-ledger ADA/USD observation.
@@ -84,6 +86,7 @@ type Observation struct {
 	ValidUntilInclusive bool      `json:"validUntilInclusive"`
 	TxHash              string    `json:"txHash"`
 	TxIndex             uint32    `json:"txIndex"`
+	TransactionIndex    uint32    `json:"transactionIndex"`
 	Slot                uint64    `json:"slot"`
 	BlockHash           string    `json:"blockHash"`
 }
@@ -284,7 +287,10 @@ func ParseMainnetObservation(
 	if err != nil {
 		return Observation{}, err
 	}
-	price, _ := rate.Float64()
+	price, err := finiteRateFloat64(rate)
+	if err != nil {
+		return Observation{}, err
+	}
 	return Observation{
 		Pair:                "ADA/USD",
 		Source:              "djed",
@@ -297,9 +303,22 @@ func ParseMainnetObservation(
 		ValidUntilInclusive: datum.ValidUntilInclusive,
 		TxHash:              utxo.TxHash,
 		TxIndex:             utxo.TxIndex,
+		TransactionIndex:    utxo.TransactionIndex,
 		Slot:                utxo.Slot,
 		BlockHash:           utxo.BlockHash,
 	}, nil
+}
+
+func finiteRateFloat64(rate *big.Rat) (float64, error) {
+	approximation, exact := rate.Float64()
+	if math.IsInf(approximation, 0) || math.IsNaN(approximation) {
+		return 0, ErrInvalidRate
+	}
+	if exact {
+		return approximation, nil
+	}
+	// JSON exposes an approximation alongside the exact rational fields.
+	return approximation, nil
 }
 
 func validateInterval(

@@ -24,6 +24,10 @@ var ErrNoCurrentObservation = errors.New(
 	"djed: no authenticated unspent oracle observation",
 )
 
+var ErrConflictingObservation = errors.New(
+	"djed: output reference has conflicting oracle observations",
+)
+
 // OutputRef identifies an on-chain transaction output.
 type OutputRef struct {
 	TxHash  string
@@ -62,6 +66,14 @@ func (t *Tracker) Apply(
 	ref := OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if existing, ok := t.observations[ref]; ok {
+		if existing.observation != observation {
+			return Observation{}, ErrConflictingObservation
+		}
+		// Chain replay may deliver the same output again. Preserve its spend
+		// state rather than resurrecting an already-consumed UTxO.
+		return observation, nil
+	}
 	t.observations[ref] = trackedObservation{observation: observation}
 	return observation, nil
 }
@@ -72,11 +84,29 @@ func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) {
 	defer t.mu.Unlock()
 	tracked, ok := t.observations[ref]
 	if !ok {
+		// A tracker started mid-chain may see a spend whose output predates
+		// its local history. There is no state to update in that case.
 		return
 	}
 	spentAt := slot
 	tracked.spentAt = &spentAt
 	t.observations[ref] = tracked
+}
+
+// Prune removes spent entries older than beforeSlot. Callers should advance
+// beforeSlot only beyond their immutable rollback horizon. Entries spent at the
+// boundary are retained.
+func (t *Tracker) Prune(beforeSlot uint64) int {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	removed := 0
+	for ref, tracked := range t.observations {
+		if tracked.spentAt != nil && *tracked.spentAt < beforeSlot {
+			delete(t.observations, ref)
+			removed++
+		}
+	}
+	return removed
 }
 
 // Rollback removes observations produced after the rollback point and restores
@@ -104,31 +134,49 @@ func (t *Tracker) Current(now time.Time) (Observation, error) {
 	defer t.mu.RUnlock()
 	var current Observation
 	found := false
+	var newestInvalid Observation
+	var newestInvalidErr error
+	sawUnspent := false
 	for _, tracked := range t.observations {
 		if tracked.spentAt != nil {
 			continue
 		}
+		sawUnspent = true
 		candidate := tracked.observation
+		if err := candidate.ValidateAt(now); err != nil {
+			if newestInvalidErr == nil ||
+				observationAfter(candidate, newestInvalid) {
+				newestInvalid = candidate
+				newestInvalidErr = err
+			}
+			continue
+		}
 		if !found || observationAfter(candidate, current) {
 			current = candidate
 			found = true
 		}
 	}
-	if !found {
+	if found {
+		return current, nil
+	}
+	if !sawUnspent {
 		return Observation{}, ErrNoCurrentObservation
 	}
-	if err := current.ValidateAt(now); err != nil {
-		return current, err
-	}
-	return current, nil
+	return Observation{}, newestInvalidErr
 }
 
 func observationAfter(candidate, current Observation) bool {
 	if candidate.Slot != current.Slot {
 		return candidate.Slot > current.Slot
 	}
+	if candidate.TransactionIndex != current.TransactionIndex {
+		return candidate.TransactionIndex > current.TransactionIndex
+	}
 	if candidate.TxIndex != current.TxIndex {
 		return candidate.TxIndex > current.TxIndex
 	}
+	// With complete provenance, block transaction index and output index are
+	// unique. The hash fallback is deterministic for incomplete caller data,
+	// but does not claim to reconstruct chain order.
 	return candidate.TxHash > current.TxHash
 }
