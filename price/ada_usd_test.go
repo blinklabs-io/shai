@@ -17,6 +17,7 @@ package price
 import (
 	"errors"
 	"math"
+	"math/big"
 	"testing"
 	"time"
 
@@ -53,12 +54,213 @@ func TestAggregateADAUSDCurrentCSwapFixtures(t *testing.T) {
 	result, err := AggregateADAUSD(pools, DefaultConfig())
 	require.NoError(t, err)
 	require.Equal(t, "ADA/USD", result.Pair)
-	require.Equal(t, "local-dex-stablecoin-weighted", result.Method)
+	require.Equal(t, "local-dex-liquidity-weighted-median", result.Method)
 	require.Len(t, result.Observations, 2)
 	require.Less(t, result.Spread, 0.01)
-	require.InDelta(t, 0.16868, result.Price, 0.0001)
-	require.NotZero(t, result.PriceNum)
-	require.NotZero(t, result.PriceDen)
+	require.Equal(t, "205637633/1221039384", result.Rat().String())
+	require.InDelta(t, 0.168412, result.Price, 0.000001)
+	require.Equal(t, "205637633", result.PriceNum)
+	require.Equal(t, "1221039384", result.PriceDen)
+}
+
+func TestAggregateADAUSDUsesLiquidityWeightedMedian(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MinObservations = 3
+	config.MaxPoolShare = 1
+	config.MaxDivergence = 10
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"low",
+			USDCxPolicyID,
+			USDCxAssetName,
+			200,
+			20,
+			"low",
+			1,
+		),
+		poolFixture(
+			t,
+			"median",
+			USDMPolicyID,
+			USDMAssetName,
+			250,
+			50,
+			"median",
+			1,
+		),
+		poolFixture(
+			t,
+			"high",
+			USDCxPolicyID,
+			USDCxAssetName,
+			100,
+			30,
+			"high",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, "1/5", result.Rat().String())
+	require.Equal(t, 0.2, result.Price)
+}
+
+func TestAggregateADAUSDMidpointsExactWeightSplit(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MaxPoolShare = 0.5
+	config.MaxDivergence = 10
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"low",
+			USDCxPolicyID,
+			USDCxAssetName,
+			600,
+			60,
+			"low",
+			1,
+		),
+		poolFixture(
+			t,
+			"high",
+			USDMPolicyID,
+			USDMAssetName,
+			200,
+			60,
+			"high",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, "1/5", result.Rat().String())
+	require.Equal(t, 0.2, result.Price)
+}
+
+func TestAggregateADAUSDSelectsPriceAboveHalfWeight(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MaxPoolShare = 1
+	config.MaxDivergence = 10
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"low",
+			USDCxPolicyID,
+			USDCxAssetName,
+			510,
+			51,
+			"low",
+			1,
+		),
+		poolFixture(
+			t,
+			"high",
+			USDMPolicyID,
+			USDMAssetName,
+			245,
+			49,
+			"high",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, "1/10", result.Rat().String())
+}
+
+func TestAggregateADAUSDDefaultAllowsDominantQualifiedLiquidity(
+	t *testing.T,
+) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	pools := []*dex.PoolState{
+		poolFixture(
+			t,
+			"dominant",
+			USDCxPolicyID,
+			USDCxAssetName,
+			10_000,
+			2_100,
+			"dominant",
+			1,
+		),
+		poolFixture(
+			t,
+			"minority",
+			USDMPolicyID,
+			USDMAssetName,
+			3_500,
+			700,
+			"minority",
+			1,
+		),
+	}
+
+	result, err := AggregateADAUSD(pools, config)
+	require.NoError(t, err)
+	require.Equal(t, "21/100", result.Rat().String())
+	require.Equal(t, 0.05, result.Spread)
+}
+
+func TestAggregateADAUSDCanUseOneQualifiedPool(t *testing.T) {
+	config := DefaultConfig()
+	config.MinADAReserve = 0
+	config.MinStableUSD = 0
+	config.MinObservations = 1
+	config.MinStablecoins = 1
+	config.MaxPoolShare = 1
+	pool := poolFixture(
+		t,
+		"single",
+		USDCxPolicyID,
+		USDCxAssetName,
+		1_000,
+		200,
+		"single",
+		1,
+	)
+
+	result, err := AggregateADAUSD([]*dex.PoolState{pool}, config)
+	require.NoError(t, err)
+	require.Equal(t, "1/5", result.Rat().String())
+}
+
+func TestLiquidityWeightedMedianRejectsInvalidWeights(t *testing.T) {
+	_, _, err := liquidityWeightedMedian(nil)
+	require.ErrorIs(t, err, ErrInsufficientObservations)
+
+	_, _, err = liquidityWeightedMedian([]PoolObservation{{
+		StableMicros: 1,
+	}})
+	require.ErrorContains(t, err, "invalid pool observation price")
+
+	observations := []PoolObservation{
+		{StableMicros: ^uint64(0), price: big.NewRat(1, 5)},
+		{StableMicros: 1, price: big.NewRat(1, 5)},
+	}
+	_, _, err = liquidityWeightedMedian(observations)
+	require.ErrorContains(t, err, "overflows")
+}
+
+func TestFiniteFloat64RejectsOverflow(t *testing.T) {
+	hugeInteger := new(big.Int).Exp(
+		big.NewInt(10),
+		big.NewInt(400),
+		nil,
+	)
+	_, err := finiteFloat64(new(big.Rat).SetInt(hugeInteger))
+	require.ErrorIs(t, err, ErrNonFinitePrice)
 }
 
 func TestAggregateADAUSDReportsLocalProvenance(t *testing.T) {
@@ -295,11 +497,12 @@ func TestObservationsFromPoolsUsesLatestSameSlotOutput(t *testing.T) {
 		2,
 	)
 
-	observations := observationsFromPools(
+	observations, err := observationsFromPools(
 		[]*dex.PoolState{newer, older},
 		DefaultConfig(),
 		time.Now(),
 	)
+	require.NoError(t, err)
 	require.Len(t, observations, 1)
 	require.Equal(t, uint32(2), observations[0].TxIndex)
 	require.Equal(t, uint64(1_250_000_000), observations[0].StableReserve)

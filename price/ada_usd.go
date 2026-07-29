@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -33,6 +34,7 @@ var (
 	ErrInsufficientDiversity    = errors.New("price: insufficient stablecoin diversity")
 	ErrConcentratedLiquidity    = errors.New("price: one pool dominates qualified liquidity")
 	ErrDivergentPrices          = errors.New("price: qualified pool prices diverge")
+	ErrNonFinitePrice           = errors.New("price: non-finite floating-point price")
 )
 
 const (
@@ -55,9 +57,12 @@ type Config struct {
 	IncludeMempool  bool
 }
 
-// DefaultConfig is conservative enough to reject dust pools while accepting
-// the independently pegged mainnet USDM and USDCx CSWAP pools observed during
-// implementation.
+// DefaultConfig rejects dust pools while accepting the independently pegged
+// mainnet USDM and USDCx CSWAP pools observed during implementation. A pool
+// holding up to 75% of qualified liquidity may determine the weighted median;
+// the remaining pools must still agree within MaxDivergence. Operators may
+// explicitly lower the minimum counts and raise MaxPoolShare when only one
+// sufficiently liquid pool is available.
 func DefaultConfig() Config {
 	return Config{
 		Stablecoins:     MainnetStablecoins(),
@@ -118,7 +123,7 @@ func (r Result) Rat() *big.Rat {
 }
 
 // AggregateADAUSD qualifies ADA/stablecoin pools, enforces diversity and
-// agreement, then computes a stablecoin-liquidity-weighted mean.
+// agreement, then computes a stablecoin-liquidity-weighted median.
 func AggregateADAUSD(
 	pools []*dex.PoolState,
 	config Config,
@@ -136,11 +141,14 @@ func AggregateADAUSDAt(
 	if err := validateConfig(config); err != nil {
 		return Result{}, err
 	}
-	observations := observationsFromPools(pools, config, now)
+	observations, err := observationsFromPools(pools, config, now)
+	if err != nil {
+		return Result{}, err
+	}
 	result := Result{
 		Pair:         "ADA/USD",
 		Source:       SourceLocalDEXStablecoins,
-		Method:       "local-dex-stablecoin-weighted",
+		Method:       "local-dex-liquidity-weighted-median",
 		Validation:   ValidationUnavailable,
 		Observations: observations,
 	}
@@ -149,19 +157,15 @@ func AggregateADAUSDAt(
 	}
 
 	symbols := make(map[string]struct{}, len(observations))
-	var totalWeight uint64
 	for _, observation := range observations {
 		symbols[observation.Stablecoin] = struct{}{}
-		if ^uint64(0)-totalWeight < observation.StableMicros {
-			return result, fmt.Errorf("price: aggregate liquidity overflows uint64")
-		}
-		totalWeight += observation.StableMicros
 	}
 	if len(symbols) < config.MinStablecoins {
 		return result, ErrInsufficientDiversity
 	}
-	if totalWeight == 0 {
-		return result, ErrInsufficientObservations
+	medianPrice, totalWeight, err := liquidityWeightedMedian(observations)
+	if err != nil {
+		return result, err
 	}
 	maxPoolShare := configRatio(config.MaxPoolShare)
 	for _, observation := range observations {
@@ -176,7 +180,6 @@ func AggregateADAUSDAt(
 
 	minPrice := new(big.Rat).Set(observations[0].price)
 	maxPrice := new(big.Rat).Set(observations[0].price)
-	weightedPrice := new(big.Rat)
 	for _, observation := range observations {
 		if observation.price.Cmp(minPrice) < 0 {
 			minPrice.Set(observation.price)
@@ -184,30 +187,25 @@ func AggregateADAUSDAt(
 		if observation.price.Cmp(maxPrice) > 0 {
 			maxPrice.Set(observation.price)
 		}
-		term := new(big.Rat).Mul(
-			observation.price,
-			new(big.Rat).SetInt(
-				new(big.Int).SetUint64(observation.StableMicros),
-			),
-		)
-		weightedPrice.Add(weightedPrice, term)
 	}
 	spread := new(big.Rat).Quo(
 		new(big.Rat).Sub(maxPrice, minPrice),
 		minPrice,
 	)
-	result.Spread, _ = spread.Float64()
+	result.Spread, err = finiteFloat64(spread)
+	if err != nil {
+		return result, err
+	}
 	if spread.Cmp(configRatio(config.MaxDivergence)) > 0 {
 		return result, ErrDivergentPrices
 	}
-	weightedPrice.Quo(
-		weightedPrice,
-		new(big.Rat).SetInt(new(big.Int).SetUint64(totalWeight)),
-	)
-	result.price = weightedPrice
-	result.PriceNum = weightedPrice.Num().String()
-	result.PriceDen = weightedPrice.Denom().String()
-	result.Price, _ = weightedPrice.Float64()
+	result.price = medianPrice
+	result.PriceNum = medianPrice.Num().String()
+	result.PriceDen = medianPrice.Denom().String()
+	result.Price, err = finiteFloat64(medianPrice)
+	if err != nil {
+		return result, err
+	}
 	result.Validation = ValidationQualified
 	for _, observation := range observations {
 		if observation.ObservedAt.IsZero() {
@@ -222,11 +220,65 @@ func AggregateADAUSDAt(
 	return result, nil
 }
 
+func liquidityWeightedMedian(
+	observations []PoolObservation,
+) (*big.Rat, uint64, error) {
+	ordered := append([]PoolObservation(nil), observations...)
+	for _, observation := range ordered {
+		if observation.price == nil || observation.price.Sign() <= 0 {
+			return nil, 0, fmt.Errorf(
+				"price: invalid pool observation price",
+			)
+		}
+	}
+	slices.SortStableFunc(ordered, func(a, b PoolObservation) int {
+		return a.price.Cmp(b.price)
+	})
+
+	var totalWeight uint64
+	for _, observation := range ordered {
+		if ^uint64(0)-totalWeight < observation.StableMicros {
+			return nil, 0, fmt.Errorf(
+				"price: aggregate liquidity overflows uint64",
+			)
+		}
+		totalWeight += observation.StableMicros
+	}
+	if totalWeight == 0 {
+		return nil, 0, ErrInsufficientObservations
+	}
+
+	var cumulative uint64
+	for i, observation := range ordered {
+		if observation.StableMicros == 0 {
+			continue
+		}
+		cumulative += observation.StableMicros
+		remaining := totalWeight - cumulative
+		switch {
+		case cumulative > remaining:
+			return new(big.Rat).Set(observation.price), totalWeight, nil
+		case cumulative == remaining:
+			for _, next := range ordered[i+1:] {
+				if next.StableMicros == 0 {
+					continue
+				}
+				median := new(big.Rat).Quo(
+					new(big.Rat).Add(observation.price, next.price),
+					big.NewRat(2, 1),
+				)
+				return median, totalWeight, nil
+			}
+		}
+	}
+	return nil, 0, ErrInsufficientObservations
+}
+
 func observationsFromPools(
 	pools []*dex.PoolState,
 	config Config,
 	now time.Time,
-) []PoolObservation {
+) ([]PoolObservation, error) {
 	latest := make(map[string]*dex.PoolState)
 	for _, pool := range pools {
 		if pool == nil || (!config.IncludeMempool && pool.FromMempool) {
@@ -247,7 +299,10 @@ func observationsFromPools(
 
 	var observations []PoolObservation
 	for _, pool := range latest {
-		observation, ok := observationFromPool(pool, config, now)
+		observation, ok, err := observationFromPool(pool, config, now)
+		if err != nil {
+			return nil, err
+		}
 		if ok {
 			observations = append(observations, observation)
 		}
@@ -261,14 +316,14 @@ func observationsFromPools(
 		}
 		return observations[i].PoolID < observations[j].PoolID
 	})
-	return observations
+	return observations, nil
 }
 
 func observationFromPool(
 	pool *dex.PoolState,
 	config Config,
 	now time.Time,
-) (PoolObservation, bool) {
+) (PoolObservation, bool, error) {
 	var ada common.AssetAmount
 	var stable common.AssetAmount
 	var stablecoin Stablecoin
@@ -280,7 +335,7 @@ func observationFromPool(
 		ada = pool.AssetY
 		stable = pool.AssetX
 	default:
-		return PoolObservation{}, false
+		return PoolObservation{}, false, nil
 	}
 	for _, candidate := range config.Stablecoins {
 		if stable.IsAsset(candidate.Asset) {
@@ -292,11 +347,11 @@ func observationFromPool(
 		ada.Amount == 0 ||
 		stable.Amount == 0 ||
 		ada.Amount < config.MinADAReserve {
-		return PoolObservation{}, false
+		return PoolObservation{}, false, nil
 	}
 	stableMicros, ok := normalizeToMicros(stable.Amount, stablecoin.Decimals)
 	if !ok || stableMicros < config.MinStableUSD {
-		return PoolObservation{}, false
+		return PoolObservation{}, false, nil
 	}
 	price := new(big.Rat).SetFrac(
 		new(big.Int).Mul(
@@ -308,7 +363,10 @@ func observationFromPool(
 			pow10Big(stablecoin.Decimals),
 		),
 	)
-	priceFloat, _ := price.Float64()
+	priceFloat, err := finiteFloat64(price)
+	if err != nil {
+		return PoolObservation{}, false, err
+	}
 	var ageSeconds *int64
 	if !pool.Timestamp.IsZero() {
 		age := int64(now.Sub(pool.Timestamp).Seconds())
@@ -332,7 +390,19 @@ func observationFromPool(
 		AgeSeconds:    ageSeconds,
 		Validation:    ValidationQualified,
 		price:         price,
-	}, true
+	}, true, nil
+}
+
+func finiteFloat64(value *big.Rat) (float64, error) {
+	approximation, exact := value.Float64()
+	if math.IsInf(approximation, 0) || math.IsNaN(approximation) {
+		return 0, ErrNonFinitePrice
+	}
+	if exact {
+		return approximation, nil
+	}
+	// JSON exposes a float approximation alongside the exact rational fields.
+	return approximation, nil
 }
 
 func normalizeToMicros(
