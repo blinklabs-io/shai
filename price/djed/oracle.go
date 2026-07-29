@@ -67,6 +67,10 @@ type OracleUTxO struct {
 	Assets  []common.AssetAmount
 	TxHash  string
 	TxIndex uint32
+	// TransactionIndex is the transaction's position within its block.
+	TransactionIndex uint32
+	Slot             uint64
+	BlockHash        string
 }
 
 // Observation is a validated local-ledger ADA/USD observation.
@@ -82,6 +86,20 @@ type Observation struct {
 	ValidUntilInclusive bool      `json:"validUntilInclusive"`
 	TxHash              string    `json:"txHash"`
 	TxIndex             uint32    `json:"txIndex"`
+	TransactionIndex    uint32    `json:"transactionIndex"`
+	Slot                uint64    `json:"slot"`
+	BlockHash           string    `json:"blockHash"`
+}
+
+// ValidateAt checks whether the observation is usable at the supplied time.
+func (o Observation) ValidateAt(now time.Time) error {
+	return validateInterval(
+		o.ValidFrom,
+		o.ValidFromInclusive,
+		o.ValidUntil,
+		o.ValidUntilInclusive,
+		now,
+	)
 }
 
 // ParseOracleDatum decodes the Open Djed OracleDatum schema.
@@ -232,21 +250,13 @@ func (d OracleDatum) ValidateMainnet(
 	if d.PriceNumerator == 0 || d.PriceDenominator == 0 {
 		return ErrInvalidRate
 	}
-	if d.ValidFrom.After(d.ValidUntil) ||
-		(d.ValidFrom.Equal(d.ValidUntil) &&
-			(!d.ValidFromInclusive || !d.ValidUntilInclusive)) {
-		return fmt.Errorf("%w: invalid validity interval", ErrInvalidDatum)
-	}
-	now = now.UTC()
-	if now.Before(d.ValidFrom) ||
-		(now.Equal(d.ValidFrom) && !d.ValidFromInclusive) {
-		return ErrNotYetValid
-	}
-	if now.After(d.ValidUntil) ||
-		(now.Equal(d.ValidUntil) && !d.ValidUntilInclusive) {
-		return ErrExpired
-	}
-	return nil
+	return validateInterval(
+		d.ValidFrom,
+		d.ValidFromInclusive,
+		d.ValidUntil,
+		d.ValidUntilInclusive,
+		now,
+	)
 }
 
 // Rat returns the exact ADA/USD exchange rate.
@@ -277,7 +287,10 @@ func ParseMainnetObservation(
 	if err != nil {
 		return Observation{}, err
 	}
-	price, _ := rate.Float64()
+	price, err := finiteRateFloat64(rate)
+	if err != nil {
+		return Observation{}, err
+	}
 	return Observation{
 		Pair:                "ADA/USD",
 		Source:              "djed",
@@ -290,7 +303,46 @@ func ParseMainnetObservation(
 		ValidUntilInclusive: datum.ValidUntilInclusive,
 		TxHash:              utxo.TxHash,
 		TxIndex:             utxo.TxIndex,
+		TransactionIndex:    utxo.TransactionIndex,
+		Slot:                utxo.Slot,
+		BlockHash:           utxo.BlockHash,
 	}, nil
+}
+
+func finiteRateFloat64(rate *big.Rat) (float64, error) {
+	approximation, exact := rate.Float64()
+	if math.IsInf(approximation, 0) || math.IsNaN(approximation) {
+		return 0, ErrInvalidRate
+	}
+	if exact {
+		return approximation, nil
+	}
+	// JSON exposes an approximation alongside the exact rational fields.
+	return approximation, nil
+}
+
+func validateInterval(
+	validFrom time.Time,
+	validFromInclusive bool,
+	validUntil time.Time,
+	validUntilInclusive bool,
+	now time.Time,
+) error {
+	if validFrom.After(validUntil) ||
+		(validFrom.Equal(validUntil) &&
+			(!validFromInclusive || !validUntilInclusive)) {
+		return fmt.Errorf("%w: invalid validity interval", ErrInvalidDatum)
+	}
+	now = now.UTC()
+	if now.Before(validFrom) ||
+		(now.Equal(validFrom) && !validFromInclusive) {
+		return ErrNotYetValid
+	}
+	if now.After(validUntil) ||
+		(now.Equal(validUntil) && !validUntilInclusive) {
+		return ErrExpired
+	}
+	return nil
 }
 
 func constructorFields(

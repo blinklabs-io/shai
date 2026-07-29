@@ -17,6 +17,7 @@ package djed
 import (
 	"encoding/hex"
 	"errors"
+	"math/big"
 	"testing"
 	"time"
 
@@ -284,4 +285,14 @@ func mustEncode(t *testing.T, value any) []byte {
 func TestRatRejectsInvalidRate(t *testing.T) {
 	_, err := (OracleDatum{}).Rat()
 	require.True(t, errors.Is(err, ErrInvalidRate))
+}
+
+func TestFiniteRateFloat64RejectsOverflow(t *testing.T) {
+	hugeInteger := new(big.Int).Exp(
+		big.NewInt(10),
+		big.NewInt(400),
+		nil,
+	)
+	_, err := finiteRateFloat64(new(big.Rat).SetInt(hugeInteger))
+	require.ErrorIs(t, err, ErrInvalidRate)
 }
