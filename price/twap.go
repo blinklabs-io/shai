@@ -77,11 +77,10 @@ type twapObservation struct {
 // exact price observations. Prices use step-function weighting: an observation
 // remains in effect until the next observation.
 type TWAPEngine struct {
-	mu                sync.RWMutex
-	config            TWAPConfig
-	observations      []twapObservation
-	prunedThroughSlot uint64
-	historyPruned     bool
+	mu            sync.RWMutex
+	config        TWAPConfig
+	observations  []twapObservation
+	historyPruned bool
 }
 
 // NewTWAPEngine creates an empty local TWAP engine.
@@ -186,7 +185,10 @@ func (e *TWAPEngine) TWAPAt(now time.Time) (TWAPResult, error) {
 		weighted,
 		new(big.Rat).SetInt64(int64(coverage)),
 	)
-	value, _ := weighted.Float64()
+	value, err := finiteFloat64(weighted)
+	if err != nil {
+		return TWAPResult{}, err
+	}
 	return TWAPResult{
 		PriceNum:         weighted.Num().String(),
 		PriceDen:         weighted.Denom().String(),
@@ -210,7 +212,9 @@ func (e *TWAPEngine) Rollback(slot uint64) error {
 		slot >= e.observations[len(e.observations)-1].slot {
 		return nil
 	}
-	if e.historyPruned && slot <= e.prunedThroughSlot {
+	if e.historyPruned &&
+		(len(e.observations) == 0 ||
+			slot < e.observations[0].slot) {
 		return ErrTWAPRollbackUnavailable
 	}
 	end := len(e.observations)
@@ -245,16 +249,13 @@ func (e *TWAPEngine) prune(latest time.Time) {
 	if keepFrom == 0 {
 		return
 	}
-	e.notePruned(e.observations[keepFrom-1].slot)
+	e.notePruned()
 	copy(e.observations, e.observations[keepFrom:])
 	e.observations = e.observations[:len(e.observations)-keepFrom]
 }
 
-func (e *TWAPEngine) notePruned(slot uint64) {
+func (e *TWAPEngine) notePruned() {
 	e.historyPruned = true
-	if slot > e.prunedThroughSlot {
-		e.prunedThroughSlot = slot
-	}
 }
 
 func addWeightedPrice(total, value *big.Rat, duration time.Duration) {

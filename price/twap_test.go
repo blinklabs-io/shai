@@ -219,20 +219,22 @@ func TestTWAPBoundedHistoryAndRollback(t *testing.T) {
 	config := validTWAPConfig()
 	config.MaxObservations = 3
 	engine := newTestTWAP(t, config)
-	for i := 1; i <= 4; i++ {
+	slots := []uint64{1, 100, 101, 102}
+	for i, slot := range slots {
 		require.NoError(t, engine.Observe(
-			uint64(i),
-			now.Add(time.Duration(i)*time.Second),
-			big.NewRat(int64(i), 1),
+			slot,
+			now.Add(time.Duration(i+1)*time.Second),
+			big.NewRat(int64(i+1), 1),
 		))
 	}
 	require.Equal(t, 3, engine.Len())
-	require.ErrorIs(t, engine.Rollback(1), ErrTWAPRollbackUnavailable)
-	require.NoError(t, engine.Rollback(2))
+	require.ErrorIs(t, engine.Rollback(50), ErrTWAPRollbackUnavailable)
+	require.Equal(t, 3, engine.Len())
+	require.NoError(t, engine.Rollback(100))
 	require.Equal(t, 1, engine.Len())
 
 	require.NoError(t, engine.Observe(
-		3,
+		101,
 		now.Add(5*time.Second),
 		big.NewRat(30, 1),
 	))
