@@ -291,9 +291,14 @@ func (a *OracleAPI) HandleGetPoolVolume(
 	volume, found, available, err := a.getPoolVolume(poolID)
 	switch {
 	case err != nil:
+		logging.GetLogger().Error(
+			"failed to compute pool volume",
+			"error", err,
+			"poolId", poolID,
+		)
 		a.writeJSON(w, http.StatusInternalServerError, apiErrorResponse{
 			Code:  "volume_error",
-			Error: err.Error(),
+			Error: "failed to compute pool volume",
 		})
 	case !found:
 		a.writeJSON(w, http.StatusNotFound, apiErrorResponse{

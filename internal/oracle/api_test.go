@@ -357,6 +357,16 @@ func TestHandleGetPoolVolumeTrackerError(t *testing.T) {
 		t.Fatalf("expected status 500, got %d", rr.Code)
 	}
 	assertAPIErrorCode(t, rr, "volume_error")
+	var response apiErrorResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if response.Error != "failed to compute pool volume" {
+		t.Fatalf("unexpected client-facing error %q", response.Error)
+	}
+	if strings.Contains(response.Error, "out of order") {
+		t.Fatalf("internal tracker error leaked to client: %q", response.Error)
+	}
 }
 
 func TestHandleListPrices(t *testing.T) {
