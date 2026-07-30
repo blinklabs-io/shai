@@ -15,6 +15,7 @@
 package oracle
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -120,9 +121,14 @@ func (o *Oracle) Start() error {
 		return err
 	}
 
-	// Load persisted pool states
+	// Load persisted pool and activity states.
 	if err := o.loadPersistedStates(); err != nil {
-		logger.Warn("failed to load persisted pool states", "error", err)
+		closeErr := o.storage.Close()
+		o.storage = nil
+		return errors.Join(
+			fmt.Errorf("failed to load persisted oracle states: %w", err),
+			closeErr,
+		)
 	}
 
 	// Register event handler with indexer
@@ -338,33 +344,49 @@ func (o *Oracle) handleTransaction(
 			prevPrice = prev.PriceXY()
 			prevState = prev
 		}
+		var transition *SwapTransition
 		if o.activity != nil {
-			if _, err := o.activity.Observe(prevState, state); err != nil {
-				logger.Warn(
-					"failed to record pool activity",
-					"error", err,
-					"poolId", state.PoolId,
-					"slot", state.Slot,
+			swap, recorded, err := o.activity.ObserveTransition(
+				prevState,
+				state,
+			)
+			if err != nil {
+				o.poolsMu.Unlock()
+				return fmt.Errorf(
+					"failed to record activity for pool %s: %w",
+					state.PoolId,
+					err,
 				)
+			}
+			if recorded {
+				transition = &swap
 			}
 		}
 		o.pools[state.PoolId] = state
 		o.poolsMu.Unlock()
 
-		// Notify subscribers of price update
-		o.notifySubscribers(state, prevPrice)
-
-		// Update mempool manager's confirmed state for this pool
-		o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
-
-		// Persist to storage
-		if err := o.storage.SavePoolState(state); err != nil {
-			logger.Error(
-				"failed to persist pool state",
-				"error", err,
-				"poolId", state.PoolId,
+		// Persist the pool and its inferred activity atomically.
+		var persistErr error
+		if o.activity == nil {
+			persistErr = o.storage.SavePoolState(state)
+		} else {
+			persistErr = o.storage.SavePoolStateAndActivity(
+				state,
+				transition,
+				o.activity.WindowSlots(),
 			)
 		}
+		if persistErr != nil {
+			return fmt.Errorf(
+				"failed to persist pool %s: %w",
+				state.PoolId,
+				persistErr,
+			)
+		}
+
+		// Publish the confirmed state only after its durable write succeeds.
+		o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
+		o.notifySubscribers(state, prevPrice)
 
 		logger.Debug(
 			"pool state updated",
@@ -557,8 +579,12 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 	o.cdpsMu.Unlock()
 
+	var errs []error
 	if o.activity != nil {
 		o.activity.Rollback(evt.SlotNumber)
+		if err := o.storage.RollbackActivity(evt.SlotNumber); err != nil {
+			errs = append(errs, err)
+		}
 	}
 
 	// Invalidate mempool tracking for rolled-back pools. Otherwise the reorged
@@ -569,7 +595,6 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 
 	// Delete from persistent storage
-	var errs []error
 	for _, state := range toDelete {
 		if err := o.storage.DeletePoolState(state); err != nil {
 			logger.Error(
@@ -578,7 +603,10 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 				"poolId", state.PoolId,
 				"slot", state.Slot,
 			)
-			errs = append(errs, err)
+			errs = append(
+				errs,
+				fmt.Errorf("delete rolled-back pool %s: %w", state.PoolId, err),
+			)
 		} else {
 			logger.Info(
 				"invalidated pool state due to rollback",
@@ -600,7 +628,10 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 				"cdpId", state.CDPId,
 				"slot", state.Slot,
 			)
-			errs = append(errs, err)
+			errs = append(
+				errs,
+				fmt.Errorf("delete rolled-back CDP %s: %w", state.CDPId, err),
+			)
 		} else {
 			logger.Info(
 				"invalidated CDP state due to rollback",
@@ -613,8 +644,8 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 
 	if len(errs) > 0 {
 		return fmt.Errorf(
-			"failed to delete %d oracle states during rollback",
-			len(errs),
+			"failed to persist oracle rollback: %w",
+			errors.Join(errs...),
 		)
 	}
 
@@ -636,6 +667,23 @@ func (o *Oracle) loadPersistedStates() error {
 	cdpStates, err := o.storage.LoadAllCDPStates()
 	if err != nil {
 		return err
+	}
+	activityState, err := o.storage.LoadActivityState()
+	if err != nil {
+		return err
+	}
+	if o.activity == nil {
+		o.activity, err = NewActivityTracker(
+			defaultPoolActivityWindowSlots,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	if activityState.WindowSlots != 0 {
+		if err := o.activity.Restore(activityState); err != nil {
+			return fmt.Errorf("failed to restore pool activity: %w", err)
+		}
 	}
 
 	o.poolsMu.Lock()
@@ -668,6 +716,7 @@ func (o *Oracle) loadPersistedStates() error {
 		"loaded persisted oracle states",
 		"pools", len(states),
 		"cdps", len(cdpStates),
+		"swaps", len(activityState.Swaps),
 	)
 
 	return nil
