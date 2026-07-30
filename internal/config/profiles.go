@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/blinklabs-io/shai/dex"
+	"github.com/blinklabs-io/shai/price/djed"
 )
 
 // poolAddrs builds the monitored-address list for a protocol from the canonical
@@ -26,6 +27,7 @@ const (
 	ProfileTypeOracle
 	ProfileTypeSynthetics
 	ProfileTypeLending
+	ProfileTypeDjed
 )
 
 type Profile struct {
@@ -78,6 +80,11 @@ type LendingProfileConfig struct {
 	MarketAddresses []ProfileConfigAddress  // Market contract addresses to monitor
 	OracleAddresses []ProfileConfigAddress  // Oracle feed addresses
 	InputRefs       []ProfileConfigInputRef // Reference inputs if needed
+}
+
+// DjedProfileConfig identifies the local Open Djed deployment.
+type DjedProfileConfig struct {
+	OracleAddress string
 }
 
 func GetProfiles() []Profile {
@@ -192,6 +199,15 @@ var Profiles = map[string]map[string]Profile{
 		},
 	},
 	"mainnet": {
+		"djed": {
+			Name:          "djed",
+			Type:          ProfileTypeDjed,
+			InterceptSlot: 193878040,
+			InterceptHash: "33d57490677631e36dfd1ad1cb35821f29823ea84012313de3fcce07e4195331",
+			Config: DjedProfileConfig{
+				OracleAddress: djed.MainnetOracleAddress,
+			},
+		},
 		"minswap-v1": {
 			Name:          "minswap-v1",
 			Type:          ProfileTypeOracle,

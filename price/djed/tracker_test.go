@@ -249,6 +249,41 @@ func TestTrackerRejectsUnauthenticatedOutput(t *testing.T) {
 	)
 }
 
+func TestTrackerSnapshotRoundTripRestoresSpentOutput(t *testing.T) {
+	now := time.Unix(1_784_842_625, 0).UTC()
+	tracker := NewTracker()
+	first := currentMainnetUTxO(t)
+	first.Slot = 100
+	_, err := tracker.Apply(
+		mustDecodeHex(t, currentMainnetDatum),
+		first,
+		now,
+	)
+	require.NoError(t, err)
+	tracker.ConsumeAt(OutputRef{
+		TxHash:  first.TxHash,
+		TxIndex: first.TxIndex,
+	}, 101)
+
+	restored, err := NewTrackerFromState(tracker.Snapshot())
+	require.NoError(t, err)
+	_, err = restored.Current(now)
+	require.ErrorIs(t, err, ErrNoCurrentObservation)
+	restored.Rollback(100)
+	observation, err := restored.Current(now)
+	require.NoError(t, err)
+	require.Equal(t, first.TxHash, observation.TxHash)
+}
+
+func TestTrackerRestoreRejectsInvalidState(t *testing.T) {
+	_, err := NewTrackerFromState(TrackerState{
+		Observations: []TrackedObservation{{
+			Observation: Observation{Pair: "ADA/EUR"},
+		}},
+	})
+	require.ErrorIs(t, err, ErrInvalidTrackerState)
+}
+
 func currentError(tracker *Tracker, now time.Time) error {
 	_, err := tracker.Current(now)
 	return err
