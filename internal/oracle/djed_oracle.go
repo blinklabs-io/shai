@@ -200,7 +200,9 @@ func (o *DjedOracle) handleRollback(evt event.RollbackEvent) error {
 	if err != nil {
 		return fmt.Errorf("stage Djed tracker: %w", err)
 	}
-	staged.Rollback(evt.SlotNumber)
+	if !staged.Rollback(evt.SlotNumber) {
+		return nil
+	}
 	if err := o.storage.SaveDjedState(
 		o.network,
 		staged.Snapshot(),

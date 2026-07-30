@@ -172,19 +172,23 @@ func (t *Tracker) Prune(beforeSlot uint64) int {
 // Rollback removes observations produced after the rollback point and restores
 // observations whose spends occurred after it. State in the point's block is
 // retained.
-func (t *Tracker) Rollback(slot uint64) {
+func (t *Tracker) Rollback(slot uint64) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	changed := false
 	for ref, tracked := range t.observations {
 		if tracked.observation.Slot > slot {
 			delete(t.observations, ref)
+			changed = true
 			continue
 		}
 		if tracked.spentAt != nil && *tracked.spentAt > slot {
 			tracked.spentAt = nil
 			t.observations[ref] = tracked
+			changed = true
 		}
 	}
+	return changed
 }
 
 // Current returns the newest authenticated, unspent observation and checks its

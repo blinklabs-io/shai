@@ -40,6 +40,7 @@ type testDjedStorage struct {
 	state   djed.TrackerState
 	present bool
 	saveErr error
+	saves   int
 }
 
 func (s *testDjedStorage) SaveDjedState(
@@ -51,6 +52,7 @@ func (s *testDjedStorage) SaveDjedState(
 	}
 	s.state = state
 	s.present = true
+	s.saves++
 	return nil
 }
 
@@ -115,6 +117,11 @@ func TestDjedOracleTracksSpendRollbackAndRestart(t *testing.T) {
 	current, err = oracle.Current(now)
 	require.NoError(t, err)
 	require.Equal(t, txHash, current.TxHash)
+	saves := stateStorage.saves
+	require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+		Payload: event.RollbackEvent{SlotNumber: 100},
+	}))
+	require.Equal(t, saves, stateStorage.saves)
 
 	restarted := NewDjedOracle(
 		indexer.New(),
