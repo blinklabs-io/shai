@@ -181,6 +181,10 @@ func normalizeHostPort(hostPort, scheme string) string {
 func (a *OracleAPI) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/pools", a.HandleListPools)
 	mux.HandleFunc("GET /api/v1/pools/{poolId}", a.HandleGetPool)
+	mux.HandleFunc(
+		"GET /api/v1/pools/{poolId}/volume",
+		a.HandleGetPoolVolume,
+	)
 	mux.HandleFunc("GET /api/v1/cdps", a.HandleListCDPs)
 	mux.HandleFunc("GET /api/v1/cdps/{cdpId}", a.HandleGetCDP)
 	mux.HandleFunc("GET /api/v1/prices", a.HandleListPrices)
@@ -262,6 +266,48 @@ func (a *OracleAPI) HandleGetPool(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pool)
+}
+
+type apiErrorResponse struct {
+	Code  string `json:"code"`
+	Error string `json:"error"`
+}
+
+// HandleGetPoolVolume returns confirmed swap-shaped reserve turnover over the
+// oracle's configured rolling slot window.
+func (a *OracleAPI) HandleGetPoolVolume(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	poolID := r.PathValue("poolId")
+	if poolID == "" {
+		a.writeJSON(w, http.StatusBadRequest, apiErrorResponse{
+			Code:  "pool_id_required",
+			Error: "pool ID required",
+		})
+		return
+	}
+
+	volume, found, available, err := a.getPoolVolume(poolID)
+	switch {
+	case err != nil:
+		a.writeJSON(w, http.StatusInternalServerError, apiErrorResponse{
+			Code:  "volume_error",
+			Error: err.Error(),
+		})
+	case !found:
+		a.writeJSON(w, http.StatusNotFound, apiErrorResponse{
+			Code:  "pool_not_found",
+			Error: "pool not found",
+		})
+	case !available:
+		a.writeJSON(w, http.StatusServiceUnavailable, apiErrorResponse{
+			Code:  "volume_unavailable",
+			Error: "confirmed pool volume is unavailable",
+		})
+	default:
+		a.writeJSON(w, http.StatusOK, volume)
+	}
 }
 
 // HandleListCDPs returns all tracked CDPs.
@@ -534,6 +580,45 @@ func (a *OracleAPI) getPoolState(poolId string) (*PoolState, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (a *OracleAPI) getPoolVolume(
+	poolID string,
+) (PoolVolume, bool, bool, error) {
+	for _, o := range a.oracles {
+		state, found := o.GetPoolState(poolID)
+		if !found || state == nil {
+			continue
+		}
+
+		// Activity is advanced by all confirmed pool transitions handled by an
+		// oracle, so evaluate at that oracle's newest locally tracked slot.
+		atSlot := state.Slot
+		for _, pool := range o.GetAllPools() {
+			if pool != nil && !pool.FromMempool && pool.Slot > atSlot {
+				atSlot = pool.Slot
+			}
+		}
+		volume, available, err := o.GetPoolVolume(poolID, atSlot)
+		return volume, true, available, err
+	}
+	return PoolVolume{}, false, false, nil
+}
+
+func (a *OracleAPI) writeJSON(
+	w http.ResponseWriter,
+	status int,
+	value interface{},
+) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		logging.GetLogger().Error(
+			"failed to encode oracle API response",
+			"error", err,
+			"status", status,
+		)
+	}
 }
 
 func (a *OracleAPI) getCDPState(cdpId string) (*CDPState, bool) {
