@@ -24,8 +24,11 @@ func TestMainnetCSwapProfileIsWired(t *testing.T) {
 	if profile.InterceptSlot == 0 {
 		t.Fatal("cswap intercept slot must be non-zero")
 	}
-	if len(profile.InterceptHash) != 64 {
-		t.Fatalf("unexpected intercept hash length: got %d want 64", len(profile.InterceptHash))
+	if profile.InterceptSlot != 149650740 {
+		t.Fatalf("unexpected intercept slot: got %d", profile.InterceptSlot)
+	}
+	if profile.InterceptHash != "76e1965f49d2ed87150045666c4a9abec1b9439338b87eb50331797b8f37205b" {
+		t.Fatalf("unexpected intercept hash: got %q", profile.InterceptHash)
 	}
 
 	oracleCfg, ok := profile.Config.(OracleProfileConfig)
