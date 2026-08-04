@@ -168,6 +168,207 @@ func TestHandleGetPoolNotFound(t *testing.T) {
 	}
 }
 
+func TestHandleGetPoolVolume(t *testing.T) {
+	activity, err := NewActivityTracker(100)
+	if err != nil {
+		t.Fatalf("failed to create activity tracker: %v", err)
+	}
+	token, err := common.NewAssetClass("aa", "bb")
+	if err != nil {
+		t.Fatalf("failed to create test asset: %v", err)
+	}
+	previous := &PoolState{
+		PoolId:   "pool-volume",
+		Network:  "mainnet",
+		Protocol: "minswap-v2",
+		Slot:     90,
+		AssetX: common.AssetAmount{
+			Class:  common.Lovelace(),
+			Amount: 1_000,
+		},
+		AssetY: common.AssetAmount{
+			Class:  token,
+			Amount: 2_000,
+		},
+	}
+	current := clonePoolState(previous)
+	current.Slot = 100
+	current.BlockHash = "block-100"
+	current.TxHash = "tx-100"
+	current.AssetX.Amount = 1_100
+	current.AssetY.Amount = 1_800
+	recorded, err := activity.Observe(previous, current)
+	if err != nil {
+		t.Fatalf("failed to record activity: %v", err)
+	}
+	if !recorded {
+		t.Fatal("expected swap-shaped activity to be recorded")
+	}
+	api := NewOracleAPI(&Oracle{
+		pools: map[string]*PoolState{
+			current.PoolId: current,
+			"newer-pool": {
+				PoolId:    "newer-pool",
+				Network:   "mainnet",
+				Protocol:  "splash-v1",
+				Slot:      105,
+				AssetX:    common.AssetAmount{Class: common.Lovelace()},
+				AssetY:    common.AssetAmount{Class: token},
+				Timestamp: time.Now(),
+			},
+		},
+		stopChan: make(chan struct{}),
+		activity: activity,
+	})
+	mux := http.NewServeMux()
+	api.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/pools/pool-volume/volume",
+		nil,
+	)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rr.Code, rr.Body)
+	}
+	if got := rr.Header().Get("Content-Type"); got != "application/json" {
+		t.Fatalf("unexpected content type %q", got)
+	}
+	var response PoolVolume
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if response.PoolID != "pool-volume" ||
+		response.VolumeX != 100 ||
+		response.VolumeY != 200 ||
+		response.SwapCount != 1 {
+		t.Fatalf("unexpected volume response: %+v", response)
+	}
+	if response.WindowSlots != 100 || response.WindowEnd != 105 {
+		t.Fatalf("unexpected rolling window: %+v", response)
+	}
+	if response.FirstSwapSlot != 100 || response.LastSwapSlot != 100 {
+		t.Fatalf("unexpected swap provenance: %+v", response)
+	}
+}
+
+func TestHandleGetPoolVolumeUnavailable(t *testing.T) {
+	oracle := newTestOracleWithPools()
+	activity, err := NewActivityTracker(100)
+	if err != nil {
+		t.Fatalf("failed to create activity tracker: %v", err)
+	}
+	oracle.activity = activity
+	api := NewOracleAPI(oracle)
+	mux := http.NewServeMux()
+	api.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/pools/pool-1/volume",
+		nil,
+	)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected status 503, got %d", rr.Code)
+	}
+	assertAPIErrorCode(t, rr, "volume_unavailable")
+}
+
+func TestHandleGetPoolVolumeNotFound(t *testing.T) {
+	api := NewOracleAPI(newTestOracleWithPools())
+	mux := http.NewServeMux()
+	api.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/pools/missing/volume",
+		nil,
+	)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected status 404, got %d", rr.Code)
+	}
+	assertAPIErrorCode(t, rr, "pool_not_found")
+}
+
+func TestHandleGetPoolVolumeRequiresPoolID(t *testing.T) {
+	api := NewOracleAPI(newTestOracleWithPools())
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pools/volume", nil)
+	rr := httptest.NewRecorder()
+
+	api.HandleGetPoolVolume(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d", rr.Code)
+	}
+	assertAPIErrorCode(t, rr, "pool_id_required")
+}
+
+func TestHandleGetPoolVolumeTrackerError(t *testing.T) {
+	activity, err := NewActivityTracker(100)
+	if err != nil {
+		t.Fatalf("failed to create activity tracker: %v", err)
+	}
+	newer := &PoolState{
+		PoolId:   "unpublished-pool",
+		Network:  "mainnet",
+		Protocol: "test",
+		Slot:     200,
+		AssetX: common.AssetAmount{
+			Class:  common.Lovelace(),
+			Amount: 200,
+		},
+		AssetY: common.AssetAmount{
+			Class:  common.Lovelace(),
+			Amount: 100,
+		},
+	}
+	if _, err := activity.Observe(nil, newer); err != nil {
+		t.Fatalf("failed to advance activity tracker: %v", err)
+	}
+	api := NewOracleAPI(&Oracle{
+		pools: map[string]*PoolState{
+			"pool-1": {
+				PoolId:   "pool-1",
+				Network:  "mainnet",
+				Protocol: "test",
+				Slot:     100,
+			},
+		},
+		stopChan: make(chan struct{}),
+		activity: activity,
+	})
+	mux := http.NewServeMux()
+	api.RegisterHandlers(mux)
+
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/api/v1/pools/pool-1/volume",
+		nil,
+	)
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusInternalServerError {
+		t.Fatalf("expected status 500, got %d", rr.Code)
+	}
+	assertAPIErrorCode(t, rr, "volume_error")
+	var response apiErrorResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if response.Error != "failed to compute pool volume" {
+		t.Fatalf("unexpected client-facing error %q", response.Error)
+	}
+	if strings.Contains(response.Error, "out of order") {
+		t.Fatalf("internal tracker error leaked to client: %q", response.Error)
+	}
+}
+
 func TestHandleListPrices(t *testing.T) {
 	api := NewOracleAPI(newTestOracleWithPools())
 	mux := http.NewServeMux()
@@ -411,6 +612,24 @@ func newTestOracleWithPools() *Oracle {
 			},
 		},
 		stopChan: make(chan struct{}),
+	}
+}
+
+func assertAPIErrorCode(
+	t *testing.T,
+	recorder *httptest.ResponseRecorder,
+	expected string,
+) {
+	t.Helper()
+	var response apiErrorResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	if response.Code != expected {
+		t.Fatalf("expected error code %q, got %q", expected, response.Code)
+	}
+	if response.Error == "" {
+		t.Fatal("expected non-empty error message")
 	}
 }
 
