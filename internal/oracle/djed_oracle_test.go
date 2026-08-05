@@ -163,7 +163,103 @@ func TestDjedOracleReturnsPersistenceErrorsWithoutChangingMemory(t *testing.T) {
 	require.ErrorIs(t, err, djed.ErrNoCurrentObservation)
 }
 
+func TestDjedOracleIgnoresMalformedChainOutputs(t *testing.T) {
+	stateStorage := &testDjedStorage{}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	require.NoError(t, oracle.Start())
+	now := time.Unix(1_784_842_625, 0).UTC()
+	txHashes := []string{
+		strings.Repeat("01", 32),
+		strings.Repeat("02", 32),
+	}
+	for i, output := range []ledger.TransactionOutput{
+		testDjedOutputWithDatum(t, nil),
+		testDjedOutputWithDatum(t, []byte{0x01}),
+	} {
+		require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+			Timestamp: now,
+			Context: event.TransactionContext{
+				TransactionHash: txHashes[i],
+				SlotNumber:      uint64(100 + i),
+			},
+			Payload: event.TransactionEvent{
+				Outputs: []ledger.TransactionOutput{output},
+			},
+		}))
+	}
+	require.Equal(t, 0, stateStorage.saves)
+	_, err := oracle.Current(now)
+	require.ErrorIs(t, err, djed.ErrNoCurrentObservation)
+}
+
+func TestDjedOraclePrunesSpentHistoryBeyondStabilityWindow(t *testing.T) {
+	stateStorage := &testDjedStorage{}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	require.NoError(t, oracle.Start())
+	now := time.Unix(1_784_842_625, 0).UTC()
+	firstHash := strings.Repeat("ab", 32)
+	require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+		Timestamp: now,
+		Context: event.TransactionContext{
+			TransactionHash: firstHash,
+			SlotNumber:      100,
+		},
+		Payload: event.TransactionEvent{
+			Outputs: []ledger.TransactionOutput{testDjedOutput(t)},
+		},
+	}))
+	require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+		Timestamp: now,
+		Context: event.TransactionContext{
+			TransactionHash: strings.Repeat("cd", 32),
+			SlotNumber:      101,
+		},
+		Payload: event.TransactionEvent{
+			Inputs: []ledger.TransactionInput{
+				shelley.NewShelleyTransactionInput(firstHash, 0),
+			},
+		},
+	}))
+	secondHash := strings.Repeat("ef", 32)
+	require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+		Timestamp: now,
+		Context: event.TransactionContext{
+			TransactionHash: secondHash,
+			SlotNumber:      djedRollbackRetentionSlots + 102,
+		},
+		Payload: event.TransactionEvent{
+			Outputs: []ledger.TransactionOutput{testDjedOutput(t)},
+		},
+	}))
+	require.Len(t, stateStorage.state.Observations, 1)
+	require.Equal(
+		t,
+		secondHash,
+		stateStorage.state.Observations[0].Observation.TxHash,
+	)
+}
+
 func testDjedOutput(t *testing.T) ledger.TransactionOutput {
+	t.Helper()
+	datum, err := hex.DecodeString(djedDatumFixture)
+	require.NoError(t, err)
+	return testDjedOutputWithDatum(t, datum)
+}
+
+func testDjedOutputWithDatum(
+	t *testing.T,
+	datum []byte,
+) ledger.TransactionOutput {
 	t.Helper()
 	address, err := lcommon.NewAddress(djed.MainnetOracleAddress)
 	require.NoError(t, err)
@@ -180,22 +276,27 @@ func testDjedOutput(t *testing.T) ledger.TransactionOutput {
 			},
 		},
 	)
-	datum, err := hex.DecodeString(djedDatumFixture)
-	require.NoError(t, err)
-	outputCbor, err := cbor.Encode(&map[uint64]any{
+	outputFields := map[uint64]any{
 		0: address,
 		1: mary.MaryTransactionOutputValue{
 			Amount: 1_810_200,
 			Assets: &assets,
 		},
-		2: []any{
+	}
+	if datum != nil {
+		outputFields[2] = []any{
 			uint64(1),
 			cbor.Tag{Number: 24, Content: datum},
-		},
-	})
+		}
+	}
+	outputCbor, err := cbor.Encode(&outputFields)
 	require.NoError(t, err)
 	output, err := ledger.NewTransactionOutputFromCbor(outputCbor)
 	require.NoError(t, err)
-	require.NotNil(t, output.Datum())
+	if datum == nil {
+		require.Nil(t, output.Datum())
+	} else {
+		require.NotNil(t, output.Datum())
+	}
 	return output
 }

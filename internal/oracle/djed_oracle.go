@@ -25,9 +25,14 @@ import (
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/internal/indexer"
+	"github.com/blinklabs-io/shai/internal/logging"
 	"github.com/blinklabs-io/shai/internal/storage"
 	"github.com/blinklabs-io/shai/price/djed"
 )
+
+// The Cardano mainnet stability window is 3k/f = 129,600 slots. Retaining
+// spent observations across that window keeps all rollback-relevant history.
+const djedRollbackRetentionSlots uint64 = 129_600
 
 // DjedStateStorage persists rollback-aware Djed tracker snapshots.
 type DjedStateStorage interface {
@@ -126,20 +131,22 @@ func (o *DjedOracle) handleTransaction(
 	o.mu.Lock()
 	defer o.mu.Unlock()
 
-	staged, err := djed.NewTrackerFromState(o.tracker.Snapshot())
-	if err != nil {
-		return fmt.Errorf("stage Djed tracker: %w", err)
-	}
-	changed := false
+	inputRefs := make([]djed.OutputRef, 0)
 	for _, input := range transactionInputs(txEvt) {
-		if staged.ConsumeAt(djed.OutputRef{
+		ref := djed.OutputRef{
 			TxHash:  input.Id().String(),
 			TxIndex: input.Index(),
-		}, ctx.SlotNumber) {
-			changed = true
+		}
+		if o.tracker.Contains(ref) {
+			inputRefs = append(inputRefs, ref)
 		}
 	}
-	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
+
+	logger := logging.GetLogger()
+	utxos := producedUTXOs(txEvt, ctx.TransactionHash)
+	outputIndexes := make([]int, 0)
+	outputData := make([][]byte, 0)
+	for i, utxo := range utxos {
 		output := utxo.Output
 		if output.Address().String() != o.address {
 			continue
@@ -151,15 +158,41 @@ func (o *DjedOracle) handleTransaction(
 		if !hasNFT {
 			continue
 		}
-		if output.Datum() == nil {
-			return fmt.Errorf("djed oracle output has no inline datum")
+		datum := output.Datum()
+		if datum == nil {
+			logger.Warn(
+				"ignoring Djed oracle output without inline datum",
+				"txHash", ctx.TransactionHash,
+				"txIndex", utxo.Id.Index(),
+			)
+			continue
 		}
-		oracleNFT, err := djedNFT()
-		if err != nil {
-			return err
+		outputIndexes = append(outputIndexes, i)
+		outputData = append(outputData, datum.Cbor())
+	}
+	if len(inputRefs) == 0 && len(outputIndexes) == 0 {
+		return nil
+	}
+
+	staged, err := djed.NewTrackerFromState(o.tracker.Snapshot())
+	if err != nil {
+		return fmt.Errorf("stage Djed tracker: %w", err)
+	}
+	changed := false
+	for _, ref := range inputRefs {
+		if staged.ConsumeAt(ref, ctx.SlotNumber) {
+			changed = true
 		}
+	}
+	oracleNFT, err := djedNFT()
+	if err != nil {
+		return err
+	}
+	for candidateIndex, outputIndex := range outputIndexes {
+		utxo := utxos[outputIndex]
+		output := utxo.Output
 		_, err = staged.Apply(
-			output.Datum().Cbor(),
+			outputData[candidateIndex],
 			djed.OracleUTxO{
 				Address: output.Address().String(),
 				Assets: []common.AssetAmount{{
@@ -175,12 +208,21 @@ func (o *DjedOracle) handleTransaction(
 			observedAt,
 		)
 		if err != nil {
-			return fmt.Errorf("apply Djed oracle output: %w", err)
+			logger.Warn(
+				"ignoring invalid Djed oracle output",
+				"error", err,
+				"txHash", ctx.TransactionHash,
+				"txIndex", utxo.Id.Index(),
+			)
+			continue
 		}
 		changed = true
 	}
 	if !changed {
 		return nil
+	}
+	if ctx.SlotNumber > djedRollbackRetentionSlots {
+		staged.Prune(ctx.SlotNumber - djedRollbackRetentionSlots)
 	}
 	if err := o.storage.SaveDjedState(
 		o.network,

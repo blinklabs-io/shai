@@ -223,12 +223,14 @@ func TestTrackerPrunesOnlyImmutableSpentHistory(t *testing.T) {
 	)
 	require.NoError(t, err)
 	ref := OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex}
+	require.True(t, tracker.Contains(ref))
 	tracker.ConsumeAt(ref, 20)
 
 	require.Equal(t, 0, tracker.Prune(20))
 	require.Len(t, tracker.observations, 1)
 	require.Equal(t, 1, tracker.Prune(21))
 	require.Empty(t, tracker.observations)
+	require.False(t, tracker.Contains(ref))
 	require.Equal(t, 0, tracker.Prune(21))
 }
 

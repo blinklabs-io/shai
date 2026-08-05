@@ -153,6 +153,14 @@ func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) bool {
 	return true
 }
 
+// Contains reports whether the output reference is retained by the tracker.
+func (t *Tracker) Contains(ref OutputRef) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	_, ok := t.observations[ref]
+	return ok
+}
+
 // Prune removes spent entries older than beforeSlot. Callers should advance
 // beforeSlot only beyond their immutable rollback horizon. Entries spent at the
 // boundary are retained.
