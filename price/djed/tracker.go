@@ -16,6 +16,8 @@ package djed
 
 import (
 	"errors"
+	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -28,6 +30,10 @@ var ErrConflictingObservation = errors.New(
 	"djed: output reference has conflicting oracle observations",
 )
 
+var ErrInvalidTrackerState = errors.New(
+	"djed: invalid persisted tracker state",
+)
+
 // OutputRef identifies an on-chain transaction output.
 type OutputRef struct {
 	TxHash  string
@@ -37,6 +43,18 @@ type OutputRef struct {
 type trackedObservation struct {
 	observation Observation
 	spentAt     *uint64
+}
+
+// TrackedObservation is the persistence-safe state for one authenticated
+// oracle output.
+type TrackedObservation struct {
+	Observation Observation `json:"observation"`
+	SpentAt     *uint64     `json:"spentAtSlot,omitempty"`
+}
+
+// TrackerState is a complete snapshot of retained rollback history.
+type TrackerState struct {
+	Observations []TrackedObservation `json:"observations"`
 }
 
 // Tracker maintains Djed observations from a caller's local chain-sync stream.
@@ -51,6 +69,43 @@ func NewTracker() *Tracker {
 	return &Tracker{
 		observations: make(map[OutputRef]trackedObservation),
 	}
+}
+
+// NewTrackerFromState restores a previously persisted tracker snapshot.
+func NewTrackerFromState(state TrackerState) (*Tracker, error) {
+	tracker := NewTracker()
+	for _, persisted := range state.Observations {
+		observation := persisted.Observation
+		if err := validatePersistedObservation(observation); err != nil {
+			return nil, err
+		}
+		if persisted.SpentAt != nil && *persisted.SpentAt < observation.Slot {
+			return nil, fmt.Errorf(
+				"%w: spend predates observation",
+				ErrInvalidTrackerState,
+			)
+		}
+		ref := OutputRef{
+			TxHash:  observation.TxHash,
+			TxIndex: observation.TxIndex,
+		}
+		if _, exists := tracker.observations[ref]; exists {
+			return nil, fmt.Errorf(
+				"%w: duplicate output reference",
+				ErrInvalidTrackerState,
+			)
+		}
+		var spentAt *uint64
+		if persisted.SpentAt != nil {
+			value := *persisted.SpentAt
+			spentAt = &value
+		}
+		tracker.observations[ref] = trackedObservation{
+			observation: observation,
+			spentAt:     spentAt,
+		}
+	}
+	return tracker, nil
 }
 
 // Apply validates and records a produced Djed oracle UTxO.
@@ -78,19 +133,32 @@ func (t *Tracker) Apply(
 	return observation, nil
 }
 
-// ConsumeAt marks an oracle UTxO spent at the supplied chain slot.
-func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) {
+// ConsumeAt marks an oracle UTxO spent at the supplied chain slot and reports
+// whether retained state changed.
+func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	tracked, ok := t.observations[ref]
 	if !ok {
 		// A tracker started mid-chain may see a spend whose output predates
 		// its local history. There is no state to update in that case.
-		return
+		return false
+	}
+	if tracked.spentAt != nil && *tracked.spentAt == slot {
+		return false
 	}
 	spentAt := slot
 	tracked.spentAt = &spentAt
 	t.observations[ref] = tracked
+	return true
+}
+
+// Contains reports whether the output reference is retained by the tracker.
+func (t *Tracker) Contains(ref OutputRef) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	_, ok := t.observations[ref]
+	return ok
 }
 
 // Prune removes spent entries older than beforeSlot. Callers should advance
@@ -112,19 +180,23 @@ func (t *Tracker) Prune(beforeSlot uint64) int {
 // Rollback removes observations produced after the rollback point and restores
 // observations whose spends occurred after it. State in the point's block is
 // retained.
-func (t *Tracker) Rollback(slot uint64) {
+func (t *Tracker) Rollback(slot uint64) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	changed := false
 	for ref, tracked := range t.observations {
 		if tracked.observation.Slot > slot {
 			delete(t.observations, ref)
+			changed = true
 			continue
 		}
 		if tracked.spentAt != nil && *tracked.spentAt > slot {
 			tracked.spentAt = nil
 			t.observations[ref] = tracked
+			changed = true
 		}
 	}
+	return changed
 }
 
 // Current returns the newest authenticated, unspent observation and checks its
@@ -163,6 +235,49 @@ func (t *Tracker) Current(now time.Time) (Observation, error) {
 		return Observation{}, ErrNoCurrentObservation
 	}
 	return Observation{}, newestInvalidErr
+}
+
+// Snapshot returns a deep persistence-safe copy of retained tracker state.
+func (t *Tracker) Snapshot() TrackerState {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
+	state := TrackerState{
+		Observations: make(
+			[]TrackedObservation,
+			0,
+			len(t.observations),
+		),
+	}
+	for _, tracked := range t.observations {
+		var spentAt *uint64
+		if tracked.spentAt != nil {
+			value := *tracked.spentAt
+			spentAt = &value
+		}
+		state.Observations = append(state.Observations, TrackedObservation{
+			Observation: tracked.observation,
+			SpentAt:     spentAt,
+		})
+	}
+	sort.Slice(state.Observations, func(i, j int) bool {
+		left := state.Observations[i].Observation
+		right := state.Observations[j].Observation
+		return observationAfter(right, left)
+	})
+	return state
+}
+
+func validatePersistedObservation(observation Observation) error {
+	if observation.Pair != "ADA/USD" ||
+		observation.Source != "djed" ||
+		observation.PriceNumerator == 0 ||
+		observation.PriceDenominator == 0 ||
+		observation.TxHash == "" ||
+		observation.ValidFrom.After(observation.ValidUntil) {
+		return ErrInvalidTrackerState
+	}
+	return nil
 }
 
 func observationAfter(candidate, current Observation) bool {

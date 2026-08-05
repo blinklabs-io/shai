@@ -223,12 +223,14 @@ func TestTrackerPrunesOnlyImmutableSpentHistory(t *testing.T) {
 	)
 	require.NoError(t, err)
 	ref := OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex}
+	require.True(t, tracker.Contains(ref))
 	tracker.ConsumeAt(ref, 20)
 
 	require.Equal(t, 0, tracker.Prune(20))
 	require.Len(t, tracker.observations, 1)
 	require.Equal(t, 1, tracker.Prune(21))
 	require.Empty(t, tracker.observations)
+	require.False(t, tracker.Contains(ref))
 	require.Equal(t, 0, tracker.Prune(21))
 }
 
@@ -247,6 +249,41 @@ func TestTrackerRejectsUnauthenticatedOutput(t *testing.T) {
 		currentError(tracker, time.Now()),
 		ErrNoCurrentObservation,
 	)
+}
+
+func TestTrackerSnapshotRoundTripRestoresSpentOutput(t *testing.T) {
+	now := time.Unix(1_784_842_625, 0).UTC()
+	tracker := NewTracker()
+	first := currentMainnetUTxO(t)
+	first.Slot = 100
+	_, err := tracker.Apply(
+		mustDecodeHex(t, currentMainnetDatum),
+		first,
+		now,
+	)
+	require.NoError(t, err)
+	tracker.ConsumeAt(OutputRef{
+		TxHash:  first.TxHash,
+		TxIndex: first.TxIndex,
+	}, 101)
+
+	restored, err := NewTrackerFromState(tracker.Snapshot())
+	require.NoError(t, err)
+	_, err = restored.Current(now)
+	require.ErrorIs(t, err, ErrNoCurrentObservation)
+	restored.Rollback(100)
+	observation, err := restored.Current(now)
+	require.NoError(t, err)
+	require.Equal(t, first.TxHash, observation.TxHash)
+}
+
+func TestTrackerRestoreRejectsInvalidState(t *testing.T) {
+	_, err := NewTrackerFromState(TrackerState{
+		Observations: []TrackedObservation{{
+			Observation: Observation{Pair: "ADA/EUR"},
+		}},
+	})
+	require.ErrorIs(t, err, ErrInvalidTrackerState)
 }
 
 func currentError(tracker *Tracker, now time.Time) error {
