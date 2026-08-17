@@ -15,16 +15,20 @@
 package spectrum
 
 import (
-	"context"
+	"encoding/hex"
 	"math"
 	"testing"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/shai/internal/config"
 )
 
 func TestSwapTxChainContextFixedMaxTxFee(t *testing.T) {
-	chainContext := newSwapTxChainContext()
+	chainContext, err := newSwapTxChainContext()
+	if err != nil {
+		t.Fatalf("unexpected chain context error: %s", err)
+	}
 
 	maxFee, err := chainContext.MaxTxFee()
 	if err != nil {
@@ -35,7 +39,6 @@ func TestSwapTxChainContextFixedMaxTxFee(t *testing.T) {
 	}
 
 	requiredCollateral, err := requiredCollateralLovelace(
-		context.Background(),
 		chainContext,
 		swapTxFee,
 	)
@@ -52,34 +55,54 @@ func TestSwapTxChainContextFixedMaxTxFee(t *testing.T) {
 	}
 }
 
-func TestSwapTxChainContextReferenceFallback(t *testing.T) {
-	chainContext := newSwapTxChainContext()
+func TestSwapTxChainContextLoadsReferenceScript(t *testing.T) {
+	const txID = "fc9e99fd12a13a137725da61e57a410e36747d513b965993d92c32c67df9259a"
+	chainContext, err := newSwapTxChainContext(config.ProfileConfigInputRef{
+		TxId:      txID,
+		OutputIdx: 2,
+	})
+	if err != nil {
+		t.Fatalf("unexpected chain context error: %s", err)
+	}
+	txHashBytes, err := hex.DecodeString(txID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var txHash common.Blake2b256
-	txHash[0] = 0xab
-
-	utxo, err := chainContext.UtxoByRef(txHash, 3)
+	copy(txHash[:], txHashBytes)
+	utxo, err := chainContext.UtxoByRef(txHash, 2)
 	if err != nil {
 		t.Fatalf("unexpected reference lookup error: %s", err)
 	}
-	if utxo.Id.Id() != txHash || utxo.Id.Index() != 3 {
-		t.Fatalf(
-			"unexpected fallback UTxO id: got %s#%d",
-			utxo.Id.Id().String(),
-			utxo.Id.Index(),
-		)
+	script := utxo.Output.ScriptRef()
+	if script == nil {
+		t.Fatal("expected reference script")
 	}
-	if utxo.Output == nil {
-		t.Fatal("expected fallback UTxO output")
+	if got, want := len(script.RawScriptBytes()), 1276; got != want {
+		t.Fatalf("expected reference script length %d, got %d", want, got)
 	}
-	if script := utxo.Output.ScriptRef(); script != nil {
-		t.Fatalf("expected fallback UTxO without script ref, got %T", script)
+	const expectedScriptHash = "2618e94cdb06792f05ae9b1ec78b0231f4b7f4215b1b4cf52e6342de"
+	if got := script.Hash().String(); got != expectedScriptHash {
+		t.Fatalf("expected reference script hash %s, got %s", expectedScriptHash, got)
+	}
+}
+
+func TestSwapTxChainContextUnknownReferenceFailsClosed(t *testing.T) {
+	_, err := newSwapTxChainContext(config.ProfileConfigInputRef{
+		TxId:      "abababababababababababababababababababababababababababababababab",
+		OutputIdx: 3,
+	})
+	if err == nil {
+		t.Fatal("expected unknown reference input to fail closed")
 	}
 }
 
 func TestSelectCollateralUtxoRequiresMinimumAndUsesSmallest(t *testing.T) {
-	chainContext := newSwapTxChainContext()
+	chainContext, err := newSwapTxChainContext()
+	if err != nil {
+		t.Fatalf("unexpected chain context error: %s", err)
+	}
 	requiredCollateral, err := requiredCollateralLovelace(
-		context.Background(),
 		chainContext,
 		swapTxFee,
 	)

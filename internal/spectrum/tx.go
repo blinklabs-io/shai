@@ -1,12 +1,12 @@
 package spectrum
 
 import (
-	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/Salvionied/apollo/v2"
@@ -28,38 +28,64 @@ type swapTxChainContext struct {
 	*fixed.FixedChainContext
 }
 
-func newSwapTxChainContext() *swapTxChainContext {
-	return &swapTxChainContext{
+func newSwapTxChainContext(
+	refs ...config.ProfileConfigInputRef,
+) (*swapTxChainContext, error) {
+	ctx := &swapTxChainContext{
 		FixedChainContext: fixed.NewEmptyFixedChainContext(),
 	}
+	for _, ref := range refs {
+		txHashBytes, err := hex.DecodeString(ref.TxId)
+		if err != nil || len(txHashBytes) != 32 {
+			return nil, fmt.Errorf("invalid reference input transaction ID %q", ref.TxId)
+		}
+		txHash := common.Blake2b256{}
+		copy(txHash[:], txHashBytes)
+		referenceKey := fmt.Sprintf(
+			"%s.%d",
+			strings.ToLower(ref.TxId),
+			ref.OutputIdx,
+		)
+		scriptHex, ok := knownReferenceScriptHex[referenceKey]
+		if !ok {
+			return nil, fmt.Errorf(
+				"reference input %s#%d is not available for fee calculation",
+				ref.TxId,
+				ref.OutputIdx,
+			)
+		}
+		var scriptRef *common.ScriptRef
+		if scriptHex != "" {
+			scriptBytes, err := hex.DecodeString(scriptHex)
+			if err != nil {
+				return nil, fmt.Errorf(
+					"invalid reference script for %s#%d: %w",
+					ref.TxId,
+					ref.OutputIdx,
+					err,
+				)
+			}
+			scriptRef = &common.ScriptRef{
+				Type:   common.ScriptRefTypePlutusV2,
+				Script: common.PlutusV2Script(scriptBytes),
+			}
+		}
+		ctx.AddUtxoByRef(common.Utxo{
+			Id: ledger.ShelleyTransactionInput{
+				TxId:        txHash,
+				OutputIndex: uint32(ref.OutputIdx),
+			},
+			Output: &ledger.BabbageTransactionOutput{
+				OutputAmount:   ledger.MaryTransactionOutputValue{},
+				TxOutScriptRef: scriptRef,
+			},
+		})
+	}
+	return ctx, nil
 }
 
 func (c *swapTxChainContext) MaxTxFee() (uint64, error) {
 	return swapTxFee, nil
-}
-
-// UtxoByRef lets Apollo's reference-script fee lookup proceed while preserving
-// the existing fixed-fee transaction shape. The configured reference inputs are
-// still added to the body; absent local UTxO data only contributes zero extra
-// reference-script fee here.
-func (c *swapTxChainContext) UtxoByRef(
-	txHash common.Blake2b256,
-	index uint32,
-) (*common.Utxo, error) {
-	if utxo, err := c.FixedChainContext.UtxoByRef(
-		txHash,
-		index,
-	); err == nil {
-		return utxo, nil
-	}
-	input := ledger.ShelleyTransactionInput{
-		TxId:        txHash,
-		OutputIndex: index,
-	}
-	output := ledger.BabbageTransactionOutput{
-		OutputAmount: ledger.MaryTransactionOutputValue{},
-	}
-	return &common.Utxo{Id: input, Output: &output}, nil
 }
 
 /*
@@ -338,7 +364,13 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 	//cfg := config.GetConfig()
 	//logger := logging.GetLogger()
 	bursa := wallet.GetWallet()
-	chainContext := newSwapTxChainContext()
+	chainContext, err := newSwapTxChainContext(
+		opts.poolInputRef,
+		s.config.SwapInputRef,
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	// Decode pool UTxO
 	poolUtxo, err := decodeUtxo(opts.poolUtxoBytes)
@@ -366,7 +398,6 @@ func (s *Spectrum) createSwapTx(opts createSwapTxOpts) ([]byte, error) {
 		utxos = append(utxos, utxo)
 	}
 	requiredCollateral, err := requiredCollateralLovelace(
-		context.Background(),
 		chainContext,
 		swapTxFee,
 	)
@@ -737,7 +768,6 @@ func sortedInputIndex(
 }
 
 func requiredCollateralLovelace(
-	ctx context.Context,
 	chainContext *swapTxChainContext,
 	fee uint64,
 ) (uint64, error) {
