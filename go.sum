@@ -2,6 +2,8 @@ filippo.io/edwards25519 v1.2.0 h1:crnVqOiS4jqYleHd9vaKZ+HKtHfllngJIiOpNpoJsjo=
 filippo.io/edwards25519 v1.2.0/go.mod h1:xzAOLCNug/yB62zG1bQ8uziwrIqIuxhctzJT18Q77mc=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
+github.com/Salvionied/apollo/v2 v2.0.0 h1:YUKsWkVgbNCT74iNPyXssQlLHFG+vQRFToNZgH2KF6c=
+github.com/Salvionied/apollo/v2 v2.0.0/go.mod h1:Cz6yBeKreXGDZT/H6QFTCOuROzb7euYoSlUd1OynhUw=
 github.com/SundaeSwap-finance/kugo v1.3.1 h1:JVZl7oApVnFjG6HOb3O+xsjjzDf17g1ADlJnD4myhmI=
 github.com/SundaeSwap-finance/kugo v1.3.1/go.mod h1:LDX6gxzbAzYS1POhkXK04MQAfNRGZyGgBZNGNbCXB2Q=
 github.com/SundaeSwap-finance/ogmigo/v6 v6.2.1 h1:SzPURmU4tqay5KyfKZ4QDygaXjGH1SCeOX5oWL+V6nI=
@@ -15,8 +17,6 @@ github.com/bits-and-blooms/bitset v1.24.4 h1:95H15Og1clikBrKr/DuzMXkQzECs1M6hhoG
 github.com/bits-and-blooms/bitset v1.24.4/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/blinklabs-io/adder v0.43.1 h1:KX47D17LHPWCd8wslINlnPhU4E//osrBqvjm6c5Lrfc=
 github.com/blinklabs-io/adder v0.43.1/go.mod h1:kso2baKfO6ciqAT+D6syT+McCk8XrbdjFzjnkwxEtTw=
-github.com/blinklabs-io/apollo/v2 v2.0.0-20260625155554-2c0d64b7d8e9 h1:XFQMZ9FcJC8RCZvjWlpNo6UeEv7o86aMEzeZ0F/hPTE=
-github.com/blinklabs-io/apollo/v2 v2.0.0-20260625155554-2c0d64b7d8e9/go.mod h1:2V+ozsEcpAYykzUlTBBdMW7+aQTVJSbizRjXli3D92s=
 github.com/blinklabs-io/bursa v0.16.0 h1:EyiEJIvRo5u2nxYQAILUNaCpubUuBrCgnWxIHI1YnoU=
 github.com/blinklabs-io/bursa v0.16.0/go.mod h1:QushjySLaOipI158YageIEIRksjCxGpAwtM1WbYx4Qo=
 github.com/blinklabs-io/dingo v0.68.0 h1:wBqr3Sjii7o3BATUpjAN45i9eOn62jHDjipKEx05Jww=

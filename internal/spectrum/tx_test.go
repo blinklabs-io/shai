@@ -26,7 +26,7 @@ import (
 func TestSwapTxChainContextFixedMaxTxFee(t *testing.T) {
 	chainContext := newSwapTxChainContext()
 
-	maxFee, err := chainContext.MaxTxFee(context.Background())
+	maxFee, err := chainContext.MaxTxFee()
 	if err != nil {
 		t.Fatalf("unexpected max fee error: %s", err)
 	}
@@ -57,7 +57,7 @@ func TestSwapTxChainContextReferenceFallback(t *testing.T) {
 	var txHash common.Blake2b256
 	txHash[0] = 0xab
 
-	utxo, err := chainContext.UtxoByRef(context.Background(), txHash, 3)
+	utxo, err := chainContext.UtxoByRef(txHash, 3)
 	if err != nil {
 		t.Fatalf("unexpected reference lookup error: %s", err)
 	}

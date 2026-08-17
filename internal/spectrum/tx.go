@@ -9,8 +9,8 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/blinklabs-io/apollo/v2"
-	"github.com/blinklabs-io/apollo/v2/backend/fixed"
+	"github.com/Salvionied/apollo/v2"
+	"github.com/Salvionied/apollo/v2/backend/fixed"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
@@ -34,13 +34,7 @@ func newSwapTxChainContext() *swapTxChainContext {
 	}
 }
 
-func (c *swapTxChainContext) MaxTxFee(ctx context.Context) (uint64, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return 0, err
-	}
+func (c *swapTxChainContext) MaxTxFee() (uint64, error) {
 	return swapTxFee, nil
 }
 
@@ -49,18 +43,10 @@ func (c *swapTxChainContext) MaxTxFee(ctx context.Context) (uint64, error) {
 // still added to the body; absent local UTxO data only contributes zero extra
 // reference-script fee here.
 func (c *swapTxChainContext) UtxoByRef(
-	ctx context.Context,
 	txHash common.Blake2b256,
 	index uint32,
 ) (*common.Utxo, error) {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
 	if utxo, err := c.FixedChainContext.UtxoByRef(
-		ctx,
 		txHash,
 		index,
 	); err == nil {
@@ -755,7 +741,7 @@ func requiredCollateralLovelace(
 	chainContext *swapTxChainContext,
 	fee uint64,
 ) (uint64, error) {
-	pp, err := chainContext.ProtocolParams(ctx)
+	pp, err := chainContext.ProtocolParams()
 	if err != nil {
 		return 0, fmt.Errorf(
 			"failed to load protocol params for collateral sizing: %w",

@@ -3,8 +3,8 @@ module github.com/blinklabs-io/shai
 go 1.26.0
 
 require (
+	github.com/Salvionied/apollo/v2 v2.0.0
 	github.com/blinklabs-io/adder v0.43.1
-	github.com/blinklabs-io/apollo/v2 v2.0.0-20260625155554-2c0d64b7d8e9
 	github.com/blinklabs-io/bursa v0.16.0
 	github.com/blinklabs-io/dingo v0.68.0
 	github.com/blinklabs-io/gouroboros v0.192.2
