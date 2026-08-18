@@ -110,10 +110,11 @@ func (o *DjedOracle) HandleChainsyncEvent(evt event.Event) error {
 	case event.TransactionEvent:
 		ctx, ok := evt.Context.(event.TransactionContext)
 		if !ok {
-			return fmt.Errorf(
-				"djed oracle: unexpected transaction context %T",
-				evt.Context,
+			logging.GetLogger().Warn(
+				"djed oracle: ignoring transaction with unexpected context",
+				"contextType", fmt.Sprintf("%T", evt.Context),
 			)
+			return nil
 		}
 		return o.handleTransaction(evt.Timestamp, ctx, payload)
 	case event.RollbackEvent:
@@ -153,7 +154,13 @@ func (o *DjedOracle) handleTransaction(
 		}
 		hasNFT, err := hasDjedNFT(output.Assets())
 		if err != nil {
-			return err
+			logger.Warn(
+				"ignoring Djed oracle output with invalid asset data",
+				"error", err,
+				"txHash", ctx.TransactionHash,
+				"txIndex", utxo.Id.Index(),
+			)
+			continue
 		}
 		if !hasNFT {
 			continue
@@ -242,7 +249,12 @@ func (o *DjedOracle) handleRollback(evt event.RollbackEvent) error {
 	if err != nil {
 		return fmt.Errorf("stage Djed tracker: %w", err)
 	}
-	if !staged.Rollback(evt.SlotNumber) {
+	changed := staged.Rollback(evt.SlotNumber)
+	pruned := 0
+	if evt.SlotNumber > djedRollbackRetentionSlots {
+		pruned = staged.Prune(evt.SlotNumber - djedRollbackRetentionSlots)
+	}
+	if !changed && pruned == 0 {
 		return nil
 	}
 	if err := o.storage.SaveDjedState(
