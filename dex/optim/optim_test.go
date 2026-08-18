@@ -42,7 +42,11 @@ func constructor(t *testing.T, tag uint, fields ...any) []byte {
 func TestAddressRejectsUnsupportedConstructor(t *testing.T) {
 	var addr Address
 	err := addr.UnmarshalCBOR(constructor(t, 1))
-	require.Error(t, err, "unsupported address constructor must not decode to a zero Address")
+	require.Error(
+		t,
+		err,
+		"unsupported address constructor must not decode to a zero Address",
+	)
 	assert.Contains(t, err.Error(), "unsupported address constructor")
 }
 
@@ -61,8 +65,14 @@ func TestRationalRejectsUnsupportedConstructor(t *testing.T) {
 // 0/0 as "not an OADA datum".
 func TestOADADatumRejectsUnsupportedConstructor(t *testing.T) {
 	var d OADADatum
-	err := d.UnmarshalCBOR(constructor(t, 3, uint64(1), uint64(2), uint64(3), uint64(4)))
-	require.Error(t, err, "unsupported OADA constructor must not decode to zeros")
+	err := d.UnmarshalCBOR(
+		constructor(t, 3, uint64(1), uint64(2), uint64(3), uint64(4)),
+	)
+	require.Error(
+		t,
+		err,
+		"unsupported OADA constructor must not decode to zeros",
+	)
 	assert.Contains(t, err.Error(), "unsupported OADA datum constructor")
 }
 
@@ -84,7 +94,11 @@ func TestParseOADADatumReturnsInitialZeroState(t *testing.T) {
 	)
 	state, err := NewParser().ParseOADADatum(datum, "txhash", 0, 42, time.Time{})
 	require.NoError(t, err)
-	require.NotNil(t, state, "an initial 0/0 OADA state must be reported, not dropped")
+	require.NotNil(
+		t,
+		state,
+		"an initial 0/0 OADA state must be reported, not dropped",
+	)
 	assert.Equal(t, uint64(0), state.TotalStaked)
 	assert.Equal(t, uint64(0), state.TotalOADA)
 	assert.Equal(t, uint64(500), state.LastUpdateEpoch)
@@ -97,7 +111,10 @@ func bondDatumCBOR(t *testing.T, status uint64) []byte {
 		[]byte{0x01, 0x02, 0x03},
 	})
 	stake := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-	addr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{&payment, &stake})
+	addr := cbor.NewConstructorEncoder(
+		0,
+		cbor.IndefLengthList{&payment, &stake},
+	)
 	return constructor(
 		t,
 		0,
@@ -147,7 +164,11 @@ func TestBondCanClaimExcludesClaimedBonds(t *testing.T) {
 func TestBondDatumRejectsUnsupportedConstructor(t *testing.T) {
 	var d BondDatum
 	err := d.UnmarshalCBOR(constructor(t, 5))
-	require.Error(t, err, "unsupported bond constructor must not decode to zeros")
+	require.Error(
+		t,
+		err,
+		"unsupported bond constructor must not decode to zeros",
+	)
 	assert.Contains(t, err.Error(), "unsupported bond datum constructor")
 }
 
