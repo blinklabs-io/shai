@@ -84,9 +84,11 @@ func (d *BondDatum) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	// Bond datum uses constructor 0 (#6.121)
-	if tmpConstr.Tag() != 0 {
-		return nil // Not a bond datum
+	// Bond datum uses constructor 0 (#6.121). Returning nil for anything else
+	// would leave a zero-valued BondDatum that reads as an active bond with no
+	// principal, rather than reporting that the datum was not decodable.
+	if tag := tmpConstr.Tag(); tag != 0 {
+		return fmt.Errorf("unsupported bond datum constructor %d", tag)
 	}
 
 	var fields struct {
@@ -159,8 +161,11 @@ func (a *Address) UnmarshalCBOR(cborData []byte) error {
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
 	}
-	if tmpConstr.Tag() != 0 {
-		return nil
+	// Returning nil for an unexpected tag would leave a zero-valued Address
+	// that reads as a real one: nested in BondDatum it produces a bond whose
+	// lender credential is empty rather than a decode failure.
+	if tag := tmpConstr.Tag(); tag != 0 {
+		return fmt.Errorf("unsupported address constructor %d", tag)
 	}
 	return cbor.DecodeGeneric(tmpConstr.Fields(), a)
 }
@@ -374,8 +379,8 @@ func (d *OADADatum) UnmarshalCBOR(cborData []byte) error {
 		return err
 	}
 
-	if tmpConstr.Tag() != 0 {
-		return nil
+	if tag := tmpConstr.Tag(); tag != 0 {
+		return fmt.Errorf("unsupported OADA datum constructor %d", tag)
 	}
 
 	var fields struct {
@@ -415,6 +420,12 @@ func (r *Rational) UnmarshalCBOR(cborData []byte) error {
 	var tmpConstr cbor.ConstructorDecoder
 	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
 		return err
+	}
+	// Accepting any constructor with two decodable fields lets an unrelated
+	// datum shape parse as an exchange rate, which ParseOADADatum then uses
+	// directly.
+	if tag := tmpConstr.Tag(); tag != 0 {
+		return fmt.Errorf("unsupported rational constructor %d", tag)
 	}
 	return cbor.DecodeGeneric(tmpConstr.Fields(), r)
 }

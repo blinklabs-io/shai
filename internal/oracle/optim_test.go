@@ -508,7 +508,9 @@ func TestOptimParserParseBondDatum(t *testing.T) {
 	if state == nil {
 		t.Fatal("expected non-nil state")
 	}
-	if state.BondId != "optim_bond_000102030405060708090a0b0c0d0e0f" {
+	// The full NFT, not a 16-byte prefix: BondState.Key() treats this ID as
+	// unique, so truncating it collides bonds whose NFTs share a prefix.
+	if state.BondId != "optim_bond_000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f" {
 		t.Errorf("unexpected bond ID: %s", state.BondId)
 	}
 	if state.Principal != 5000000000 {

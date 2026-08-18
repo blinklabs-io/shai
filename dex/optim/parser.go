@@ -172,16 +172,18 @@ func (p *Parser) ParseBondDatum(
 		EndEpoch:     bondDatum.EndEpoch,
 		StakePool:    hex.EncodeToString(bondDatum.StakePool),
 		IsMatured:    bondDatum.IsMatured(),
-		CanClaim:     bondDatum.IsMatured() || bondDatum.IsClaimed(),
-		Lender:       lender,
-		LenderIsKey:  lenderIsKey,
-		BorrowerNFT:  hex.EncodeToString(bondDatum.BorrowerNFT),
-		Rewards:      bondDatum.AccruedRewards,
-		Status:       bondDatum.Status,
-		Slot:         slot,
-		TxHash:       txHash,
-		TxIndex:      txIndex,
-		Timestamp:    timestamp,
+		// A claimed bond is already settled; only a matured, unclaimed one
+		// can be claimed. Status is exclusive, so IsMatured() alone is enough.
+		CanClaim:    bondDatum.IsMatured(),
+		Lender:      lender,
+		LenderIsKey: lenderIsKey,
+		BorrowerNFT: hex.EncodeToString(bondDatum.BorrowerNFT),
+		Rewards:     bondDatum.AccruedRewards,
+		Status:      bondDatum.Status,
+		Slot:        slot,
+		TxHash:      txHash,
+		TxIndex:     txIndex,
+		Timestamp:   timestamp,
 	}
 
 	return state, nil
@@ -200,10 +202,9 @@ func (p *Parser) ParseOADADatum(
 		return nil, fmt.Errorf("failed to decode OADA datum: %w", err)
 	}
 
-	// Check if we have valid data
-	if oadaDatum.TotalStaked == 0 && oadaDatum.TotalOADA == 0 {
-		return nil, nil // Not an OADA datum or empty
-	}
+	// No zero-totals sentinel here: OADADatum.UnmarshalCBOR now rejects an
+	// unexpected constructor, so a successful decode is an OADA datum. Treating
+	// 0/0 as "not OADA" hid a genuine initial state until the first stake.
 
 	state := &OADAState{
 		TotalStaked:     oadaDatum.TotalStaked,
@@ -221,11 +222,10 @@ func (p *Parser) ParseOADADatum(
 
 // GenerateBondId generates a unique bond ID from the bond NFT
 func GenerateBondId(bondNFT []byte) string {
-	nftHex := hex.EncodeToString(bondNFT)
-	if len(nftHex) > 32 {
-		nftHex = nftHex[:32]
-	}
-	return fmt.Sprintf("optim_bond_%s", nftHex)
+	// The full NFT, not a prefix: BondState.Key() treats this ID as unique, so
+	// truncating it makes two bonds whose NFTs share a prefix collide into one
+	// state entry.
+	return fmt.Sprintf("optim_bond_%s", hex.EncodeToString(bondNFT))
 }
 
 // GetAddresses returns known Optim Finance contract addresses
