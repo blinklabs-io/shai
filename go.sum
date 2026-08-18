@@ -19,8 +19,8 @@ github.com/blinklabs-io/adder v0.43.1 h1:KX47D17LHPWCd8wslINlnPhU4E//osrBqvjm6c5
 github.com/blinklabs-io/adder v0.43.1/go.mod h1:kso2baKfO6ciqAT+D6syT+McCk8XrbdjFzjnkwxEtTw=
 github.com/blinklabs-io/bursa v0.16.0 h1:EyiEJIvRo5u2nxYQAILUNaCpubUuBrCgnWxIHI1YnoU=
 github.com/blinklabs-io/bursa v0.16.0/go.mod h1:QushjySLaOipI158YageIEIRksjCxGpAwtM1WbYx4Qo=
-github.com/blinklabs-io/dingo v0.68.0 h1:wBqr3Sjii7o3BATUpjAN45i9eOn62jHDjipKEx05Jww=
-github.com/blinklabs-io/dingo v0.68.0/go.mod h1:mccpEtnTEeDCbFCeMPUXQNXW6lvvnL/bDnQRMQtSemA=
+github.com/blinklabs-io/dingo v0.69.0 h1:ZcFQ2aGW80WDuF8E6EseSyoKsrzL2fQFC5ROCyaYu14=
+github.com/blinklabs-io/dingo v0.69.0/go.mod h1:WOj0VugFU5Yxyj8HNzrbfl3UBdlBKs92WrsNvhBg9ho=
 github.com/blinklabs-io/go-bip39 v0.2.0 h1:rHYih+JzqaFVuP+UfvByKTAdJPeYtlvZu49yUGrZUk8=
 github.com/blinklabs-io/go-bip39 v0.2.0/go.mod h1:9Bp7a+XDc/KTPOqNnS7T/v1vH2lDXpmjM0GArwvOQL4=
 github.com/blinklabs-io/gouroboros v0.192.2 h1:NYpMoYpx20cOk3ezOPnkXF1rdGj8eG9aNIcsZHoHO3g=
