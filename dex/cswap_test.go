@@ -15,6 +15,7 @@
 package dex
 
 import (
+	"encoding/hex"
 	"math/big"
 	"testing"
 	"time"
@@ -127,6 +128,130 @@ func TestCSwapParserParsePoolDatum(t *testing.T) {
 	}
 	if got := state.PriceXY(); got != (250_000_000.0 / 75_000_000.0) {
 		t.Fatalf("unexpected priceXY %f", got)
+	}
+}
+
+func TestCSwapParserCurrentMainnetStablecoinPools(t *testing.T) {
+	tests := []struct {
+		name          string
+		datumHex      string
+		lovelace      uint64
+		stablePolicy  string
+		stableName    string
+		stableReserve uint64
+		txHash        string
+		slot          uint64
+		blockTime     int64
+		wantFeeNum    uint64
+	}{
+		{
+			name:          "ADA-USDCx",
+			datumHex:      "d8799f1acfd6bdec054040581c1f3aec8bfe7ea4fe14c5f121e2a92e301afe414147860d557cac7e34455553444378581c37834c1d8615d6e5d2ec1c631f00d6f352ffd1ef16541204b971766151432d4c503a204144412078205553444378ff",
+			lovelace:      8_547_275_688,
+			stablePolicy:  "1f3aec8bfe7ea4fe14c5f121e2a92e301afe414147860d557cac7e34",
+			stableName:    "5553444378",
+			stableReserve: 1_439_463_431,
+			txHash:        "a24fd5df3faebb06ba0aa815890d5c7e3907c27f428c906b792d81321254a8d1",
+			slot:          193_253_908,
+			blockTime:     1_784_820_199,
+			wantFeeNum:    9_995,
+		},
+		{
+			name:          "ADA-USDM",
+			datumHex:      "d8799f1a6a3f71dc18554040581cc48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad480014df105553444d581c16c66059d8ed65d35a64b229e34bfcd01899de45379a35c3aa74c7a556432d4c503a204144412078200014efbfbd105553444dff",
+			lovelace:      4_579_285_253,
+			stablePolicy:  "c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad",
+			stableName:    "0014df105553444d",
+			stableReserve: 774_654_393,
+			txHash:        "1237c072b8d283e3ccc3b9956502825f11533973b5402ed1ef1df459ffca8bfc",
+			slot:          193_255_027,
+			blockTime:     1_784_821_318,
+			wantFeeNum:    9_915,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			datum, err := hex.DecodeString(test.datumHex)
+			if err != nil {
+				t.Fatalf("decode datum fixture: %v", err)
+			}
+			policy, err := hex.DecodeString(test.stablePolicy)
+			if err != nil {
+				t.Fatalf("decode policy fixture: %v", err)
+			}
+			name, err := hex.DecodeString(test.stableName)
+			if err != nil {
+				t.Fatalf("decode name fixture: %v", err)
+			}
+			utxoValue := newBabbageOutputValue(
+				t,
+				test.lovelace,
+				[]assetAmount{{
+					policy: policy,
+					name:   name,
+					amount: test.stableReserve,
+				}},
+			)
+
+			state, err := NewCSwapParser().ParsePoolDatum(
+				datum,
+				utxoValue,
+				test.txHash,
+				1,
+				test.slot,
+				time.Unix(test.blockTime, 0).UTC(),
+			)
+			if err != nil {
+				t.Fatalf("parse current mainnet fixture: %v", err)
+			}
+			if !state.AssetX.IsLovelace() {
+				t.Fatal("expected quote asset to be lovelace")
+			}
+			if state.AssetX.Amount != test.lovelace {
+				t.Fatalf(
+					"expected %d lovelace, got %d",
+					test.lovelace,
+					state.AssetX.Amount,
+				)
+			}
+			if state.AssetY.Class.PolicyIdHex() != test.stablePolicy ||
+				state.AssetY.Class.NameHex() != test.stableName {
+				t.Fatalf(
+					"unexpected stablecoin asset %s",
+					state.AssetY.Class.Fingerprint(),
+				)
+			}
+			if state.AssetY.Amount != test.stableReserve {
+				t.Fatalf(
+					"expected stable reserve %d, got %d",
+					test.stableReserve,
+					state.AssetY.Amount,
+				)
+			}
+			if state.FeeNum != test.wantFeeNum ||
+				state.FeeDenom != cswappkg.FeeDenom {
+				t.Fatalf(
+					"unexpected fee %d/%d",
+					state.FeeNum,
+					state.FeeDenom,
+				)
+			}
+			if state.TxHash != test.txHash || state.Slot != test.slot {
+				t.Fatalf(
+					"unexpected chain reference %s@%d",
+					state.TxHash,
+					state.Slot,
+				)
+			}
+			if state.Timestamp.Unix() != test.blockTime {
+				t.Fatalf(
+					"expected block time %d, got %d",
+					test.blockTime,
+					state.Timestamp.Unix(),
+				)
+			}
+		})
 	}
 }
 

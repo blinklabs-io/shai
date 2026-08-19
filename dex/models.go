@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/big"
 	"time"
 
@@ -96,10 +97,16 @@ func (p *PoolState) PriceYX() float64 {
 	return float64(p.AssetX.Amount) / float64(p.AssetY.Amount)
 }
 
-// TVL returns the total value locked in the pool (sum of both assets)
-// Note: This is a raw sum, not normalized to any common unit
+// TVL returns the total value locked in the pool (sum of both assets).
+// Note: This is a raw sum, not normalized to any common unit. If the sum would
+// overflow uint64 it is capped at math.MaxUint64 rather than wrapping around to
+// a small, misleading value.
 func (p *PoolState) TVL() uint64 {
-	return p.AssetX.Amount + p.AssetY.Amount
+	sum := p.AssetX.Amount + p.AssetY.Amount
+	if sum < p.AssetX.Amount {
+		return math.MaxUint64
+	}
+	return sum
 }
 
 // EffectiveFee returns the pool's trading fee as a decimal
