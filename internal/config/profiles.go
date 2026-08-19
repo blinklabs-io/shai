@@ -25,6 +25,7 @@ const (
 	ProfileTypeSpectrum
 	ProfileTypeOracle
 	ProfileTypeSynthetics
+	ProfileTypeLending
 	ProfileTypeBonds
 )
 
@@ -70,6 +71,14 @@ type OracleProfileConfig struct {
 type SyntheticsProfileConfig struct {
 	Protocol     string                 // Protocol name (e.g., "indigo")
 	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+}
+
+// LendingProfileConfig contains configuration for lending protocols.
+type LendingProfileConfig struct {
+	Protocol        string                  // Protocol name (e.g., "liqwid")
+	MarketAddresses []ProfileConfigAddress  // Market contract addresses to monitor
+	OracleAddresses []ProfileConfigAddress  // Oracle feed addresses
+	InputRefs       []ProfileConfigInputRef // Reference inputs if needed
 }
 
 // BondsProfileConfig contains configuration for liquidity bonds protocols
@@ -292,7 +301,7 @@ var Profiles = map[string]map[string]Profile{
 			Type: ProfileTypeOracle,
 			// CSWAP DEX pool script launch (mainnet)
 			InterceptSlot: 149650740,
-			InterceptHash: "6027a8e3af4cd1cd2b3de0a1b583882573953c200c0ccf120119a04d1def5b49",
+			InterceptHash: "76e1965f49d2ed87150045666c4a9abec1b9439338b87eb50331797b8f37205b",
 			Config: OracleProfileConfig{
 				Protocol:      "cswap",
 				PoolAddresses: poolAddrs("cswap"),
@@ -365,6 +374,35 @@ var Profiles = map[string]map[string]Profile{
 				BondNFTPolicy: "53fb41609e208f1cd3cae467c0b9abfc69f1a552bf9a90d51665a4d6",
 				// OADA token policy ID (mainnet)
 				OADATokenPolicy: "f6099832f9563e4cf59602b3351c3c5a8a7dda2d44575ef69b82cf8d",
+			},
+		},
+		"liqwid": {
+			Name:          "liqwid",
+			Type:          ProfileTypeLending,
+			InterceptSlot: 82999969, // ~Jan 24 2023 (epoch 389)
+			InterceptHash: "67c0cfdb05dc04f9a0887f862b477b6c921d77bd357ea71aba1512742d7cfc90",
+			Config: LendingProfileConfig{
+				Protocol: "liqwid",
+				MarketAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1w8dprfgfdxnlwu3948579jrwg0ferf5a63ln8xj0mqcdzegayxmqq",
+					},
+					{
+						Address: "addr1w9wjz8tjt87gldh2usu8t5mfe4nkmlngp30a387h8s94fyg5uup5n",
+					},
+					{
+						Address: "addr1wyw3ap36lnepstpjadwg8cg73llvmju4y94kmfld23lkzjggq4hyj",
+					},
+					{
+						Address: "addr1wxrxa3ucywn3lqpkzlyucak0a7aavkudh49fqt06yc05sws4l4zs2",
+					},
+				},
+				OracleAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1wyd8cezjr0gcf8nfxuc9trd4hs7ec520jmkwkqzywx6l5jg0al0ya",
+					},
+				},
+				InputRefs: []ProfileConfigInputRef{},
 			},
 		},
 		"spectrum": {

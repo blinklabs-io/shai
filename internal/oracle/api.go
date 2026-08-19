@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/shai/internal/logging"
+	shaiprice "github.com/blinklabs-io/shai/price"
 	"github.com/gorilla/websocket"
 )
 
@@ -77,6 +78,11 @@ type OracleAPI struct {
 	wsMu          sync.RWMutex
 	stopChan      chan struct{}
 	broadcastOnce sync.Once
+}
+
+// APIHandlerRegistrar registers API handlers on an HTTP mux.
+type APIHandlerRegistrar interface {
+	RegisterHandlers(*http.ServeMux)
 }
 
 // NewOracleAPI creates a new OracleAPI instance
@@ -175,19 +181,31 @@ func normalizeHostPort(hostPort, scheme string) string {
 func (a *OracleAPI) RegisterHandlers(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/pools", a.HandleListPools)
 	mux.HandleFunc("GET /api/v1/pools/{poolId}", a.HandleGetPool)
+	mux.HandleFunc(
+		"GET /api/v1/pools/{poolId}/volume",
+		a.HandleGetPoolVolume,
+	)
 	mux.HandleFunc("GET /api/v1/cdps", a.HandleListCDPs)
 	mux.HandleFunc("GET /api/v1/cdps/{cdpId}", a.HandleGetCDP)
 	mux.HandleFunc("GET /api/v1/prices", a.HandleListPrices)
+	mux.HandleFunc("GET /api/v1/prices/ada-usd", a.HandleADAUSDPrice)
 	mux.HandleFunc("/ws/prices", a.HandlePriceStream)
 	a.startBroadcastPriceUpdates()
 }
 
-// StartServer starts the HTTP server
-func (a *OracleAPI) StartServer(addr string) error {
+// StartAPIServer starts an HTTP server with all supplied API handlers.
+func StartAPIServer(
+	addr string,
+	registrars ...APIHandlerRegistrar,
+) error {
 	logger := logging.GetLogger()
 
 	mux := http.NewServeMux()
-	a.RegisterHandlers(mux)
+	for _, registrar := range registrars {
+		if registrar != nil {
+			registrar.RegisterHandlers(mux)
+		}
+	}
 
 	logger.Info("starting oracle API server", "addr", addr)
 	// WriteTimeout is intentionally omitted: setting it on a server that
@@ -202,6 +220,11 @@ func (a *OracleAPI) StartServer(addr string) error {
 		IdleTimeout:       120 * time.Second,
 	}
 	return server.ListenAndServe()
+}
+
+// StartServer starts the HTTP server
+func (a *OracleAPI) StartServer(addr string) error {
+	return StartAPIServer(addr, a)
 }
 
 // HandleListPools returns all tracked pools
@@ -243,6 +266,53 @@ func (a *OracleAPI) HandleGetPool(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(pool)
+}
+
+type apiErrorResponse struct {
+	Code  string `json:"code"`
+	Error string `json:"error"`
+}
+
+// HandleGetPoolVolume returns confirmed swap-shaped reserve turnover over the
+// oracle's configured rolling slot window.
+func (a *OracleAPI) HandleGetPoolVolume(
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	poolID := r.PathValue("poolId")
+	if poolID == "" {
+		a.writeJSON(w, http.StatusBadRequest, apiErrorResponse{
+			Code:  "pool_id_required",
+			Error: "pool ID required",
+		})
+		return
+	}
+
+	volume, found, available, err := a.getPoolVolume(poolID)
+	switch {
+	case err != nil:
+		logging.GetLogger().Error(
+			"failed to compute pool volume",
+			"error", err,
+			"poolId", poolID,
+		)
+		a.writeJSON(w, http.StatusInternalServerError, apiErrorResponse{
+			Code:  "volume_error",
+			Error: "failed to compute pool volume",
+		})
+	case !found:
+		a.writeJSON(w, http.StatusNotFound, apiErrorResponse{
+			Code:  "pool_not_found",
+			Error: "pool not found",
+		})
+	case !available:
+		a.writeJSON(w, http.StatusServiceUnavailable, apiErrorResponse{
+			Code:  "volume_unavailable",
+			Error: "confirmed pool volume is unavailable",
+		})
+	default:
+		a.writeJSON(w, http.StatusOK, volume)
+	}
 }
 
 // HandleListCDPs returns all tracked CDPs.
@@ -319,6 +389,28 @@ func (a *OracleAPI) HandleListPrices(w http.ResponseWriter, r *http.Request) {
 		"prices": prices,
 		"count":  len(prices),
 	})
+}
+
+// HandleADAUSDPrice returns an ADA/USD estimate derived only from qualified
+// locally tracked ADA/stablecoin DEX pools.
+func (a *OracleAPI) HandleADAUSDPrice(
+	w http.ResponseWriter,
+	_ *http.Request,
+) {
+	result, err := shaiprice.AggregateADAUSD(
+		a.getAllPools(),
+		shaiprice.DefaultConfig(),
+	)
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":  err.Error(),
+			"result": result,
+		})
+		return
+	}
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 // HandlePriceStream handles WebSocket connections for price streaming
@@ -493,6 +585,45 @@ func (a *OracleAPI) getPoolState(poolId string) (*PoolState, bool) {
 		}
 	}
 	return nil, false
+}
+
+func (a *OracleAPI) getPoolVolume(
+	poolID string,
+) (PoolVolume, bool, bool, error) {
+	for _, o := range a.oracles {
+		state, found := o.GetPoolState(poolID)
+		if !found || state == nil {
+			continue
+		}
+
+		// Activity is advanced by all confirmed pool transitions handled by an
+		// oracle, so evaluate at that oracle's newest locally tracked slot.
+		atSlot := state.Slot
+		for _, pool := range o.GetAllPools() {
+			if pool != nil && !pool.FromMempool && pool.Slot > atSlot {
+				atSlot = pool.Slot
+			}
+		}
+		volume, available, err := o.GetPoolVolume(poolID, atSlot)
+		return volume, true, available, err
+	}
+	return PoolVolume{}, false, false, nil
+}
+
+func (a *OracleAPI) writeJSON(
+	w http.ResponseWriter,
+	status int,
+	value interface{},
+) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		logging.GetLogger().Error(
+			"failed to encode oracle API response",
+			"error", err,
+			"status", status,
+		)
+	}
 }
 
 func (a *OracleAPI) getCDPState(cdpId string) (*CDPState, bool) {
