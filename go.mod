@@ -6,7 +6,7 @@ require (
 	github.com/Salvionied/apollo/v2 v2.0.0
 	github.com/blinklabs-io/adder v0.43.1
 	github.com/blinklabs-io/bursa v0.16.0
-	github.com/blinklabs-io/dingo v0.68.0
+	github.com/blinklabs-io/dingo v0.69.0
 	github.com/blinklabs-io/gouroboros v0.192.2
 	github.com/blinklabs-io/ouroboros-mock v0.15.0
 	github.com/dgraph-io/badger/v4 v4.9.6
