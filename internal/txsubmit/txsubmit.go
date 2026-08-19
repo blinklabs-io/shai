@@ -21,14 +21,15 @@ var globalTxSubmit *TxSubmit
 
 func Start(n *node.Node) error {
 	cfg := config.GetConfig()
-	globalTxSubmit = &TxSubmit{
+	txSubmit := &TxSubmit{
 		transactionChan: make(chan []byte, maxOutboundTransactions),
 		node:            n,
 	}
+	var err error
 	if len(cfg.Topology.Hosts) > 0 {
-		return globalTxSubmit.startNtn()
+		err = txSubmit.startNtn()
 	} else if cfg.Submit.Url != "" {
-		return globalTxSubmit.startApi(cfg.Submit.Url)
+		err = txSubmit.startApi(cfg.Submit.Url)
 		/*
 			} else if cfg.Submit.SocketPath != "" {
 				return submitTxNtC(txRawBytes)
@@ -46,8 +47,17 @@ func Start(n *node.Node) error {
 				Port:    network.BootstrapPeers[0].Port,
 			},
 		}
-		return globalTxSubmit.startNtn()
+		err = txSubmit.startNtn()
 	}
+	if err != nil {
+		return err
+	}
+	globalTxSubmit = txSubmit
+	return nil
+}
+
+func IsStarted() bool {
+	return globalTxSubmit != nil && globalTxSubmit.transactionChan != nil
 }
 
 func SubmitTx(txRawBytes []byte) {

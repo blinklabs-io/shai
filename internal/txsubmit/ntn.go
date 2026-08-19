@@ -14,7 +14,7 @@ func (t *TxSubmit) startNtn() error {
 			if !ok {
 				return
 			}
-			if err := globalTxSubmit.node.AddOutboundTransaction(txBytes); err != nil {
+			if err := t.node.AddOutboundTransaction(txBytes); err != nil {
 				logger.Error(
 					fmt.Sprintf(
 						"failed to add transaction to outbound mempool: %s",
