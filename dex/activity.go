@@ -70,6 +70,16 @@ type PoolVolume struct {
 	LastSwapSlot  uint64            `json:"lastSwapSlot,omitempty"`
 }
 
+// Key returns the canonical identity shared with PoolState.
+func (v PoolVolume) Key() string {
+	pool := PoolState{
+		PoolId:   v.PoolID,
+		Network:  v.Network,
+		Protocol: v.Protocol,
+	}
+	return pool.Key()
+}
+
 // ActivityTracker retains confirmed swap-shaped pool transitions over a
 // bounded slot window. Slot windows make historical chain sync deterministic
 // and avoid mistaking sync wall-clock time for trading time.
