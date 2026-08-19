@@ -134,7 +134,8 @@ func (t *Tracker) Apply(
 }
 
 // ConsumeAt marks an oracle UTxO spent at the supplied chain slot and reports
-// whether retained state changed.
+// whether retained state changed. A recorded spend slot only ever advances;
+// Rollback is the sole path that moves a spend backwards.
 func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -144,7 +145,10 @@ func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) bool {
 		// its local history. There is no state to update in that case.
 		return false
 	}
-	if tracked.spentAt != nil && *tracked.spentAt == slot {
+	if tracked.spentAt != nil && slot <= *tracked.spentAt {
+		// A duplicate or out-of-order delivery carrying an earlier slot would
+		// make the entry prunable, and un-spendable by rollbacks, before its
+		// true rollback horizon. Only Rollback may move a spend backwards.
 		return false
 	}
 	spentAt := slot

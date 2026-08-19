@@ -290,3 +290,97 @@ func currentError(tracker *Tracker, now time.Time) error {
 	_, err := tracker.Current(now)
 	return err
 }
+
+func TestTrackerConsumeAtOnlyAdvancesSpendSlot(t *testing.T) {
+	const observationSlot uint64 = 10
+	tests := []struct {
+		name        string
+		firstSpend  *uint64
+		rollbackTo  *uint64
+		unknownRef  bool
+		slot        uint64
+		wantChanged bool
+		wantSpentAt *uint64
+	}{
+		{
+			name:       "unknown output reference is ignored",
+			unknownRef: true,
+			slot:       20,
+		},
+		{
+			name:        "first spend is recorded",
+			slot:        20,
+			wantChanged: true,
+			wantSpentAt: slotPtr(20),
+		},
+		{
+			name:        "duplicate delivery at the same slot is ignored",
+			firstSpend:  slotPtr(20),
+			slot:        20,
+			wantSpentAt: slotPtr(20),
+		},
+		{
+			name:        "earlier slot does not move the spend backwards",
+			firstSpend:  slotPtr(20),
+			slot:        15,
+			wantSpentAt: slotPtr(20),
+		},
+		{
+			name:        "later slot advances the spend",
+			firstSpend:  slotPtr(20),
+			slot:        25,
+			wantChanged: true,
+			wantSpentAt: slotPtr(25),
+		},
+		{
+			name:        "respend after rollback records the new slot",
+			firstSpend:  slotPtr(25),
+			rollbackTo:  slotPtr(observationSlot),
+			slot:        22,
+			wantChanged: true,
+			wantSpentAt: slotPtr(22),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			now := time.Unix(1_784_842_625, 0).UTC()
+			tracker := NewTracker()
+			utxo := currentMainnetUTxO(t)
+			utxo.Slot = observationSlot
+			_, err := tracker.Apply(
+				mustDecodeHex(t, currentMainnetDatum),
+				utxo,
+				now,
+			)
+			require.NoError(t, err)
+			ref := OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex}
+			if test.firstSpend != nil {
+				require.True(t, tracker.ConsumeAt(ref, *test.firstSpend))
+			}
+			if test.rollbackTo != nil {
+				require.True(t, tracker.Rollback(*test.rollbackTo))
+			}
+			target := ref
+			if test.unknownRef {
+				target = OutputRef{TxHash: "unknown", TxIndex: 7}
+			}
+			require.Equal(
+				t,
+				test.wantChanged,
+				tracker.ConsumeAt(target, test.slot),
+			)
+			tracked, ok := tracker.observations[ref]
+			require.True(t, ok)
+			if test.wantSpentAt == nil {
+				require.Nil(t, tracked.spentAt)
+				return
+			}
+			require.NotNil(t, tracked.spentAt)
+			require.Equal(t, *test.wantSpentAt, *tracked.spentAt)
+		})
+	}
+}
+
+func slotPtr(slot uint64) *uint64 {
+	return &slot
+}
