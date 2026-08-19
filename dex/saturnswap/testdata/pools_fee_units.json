@@ -1,0 +1,23 @@
+{
+  "data": {
+    "pools": {
+      "nodes": [
+        {
+          "id": "7cd1c8e6-5d57-4de1-a0cf-f1397a7fd188",
+          "name": "ADA x MyUSD",
+          "ticker": "ADA_MyUSD",
+          "lp_fee_percent": 0.5,
+          "protocol_fee_percent": 30
+        },
+        {
+          "id": "89515d52-9826-438c-a961-95d47ef62034",
+          "name": "ADA x Nuvola",
+          "ticker": "ADA_NVL",
+          "lp_fee_percent": 1,
+          "protocol_fee_percent": 30
+        }
+      ],
+      "totalCount": 2112
+    }
+  }
+}
