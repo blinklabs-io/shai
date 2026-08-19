@@ -306,7 +306,13 @@ func TestOracleStorageActivityRejectsZeroWindowMetadata(t *testing.T) {
 }
 
 // openSmallBatchActivityStorage opens storage whose Badger transaction limits
-// are small enough that a few hundred queued deletions reach ErrTxnTooBig.
+// are small enough for the seeded history to reach ErrTxnTooBig. Badger derives
+// both limits from the memtable size: maxBatchSize is 15% of it and
+// maxBatchCount is that divided by the skiplist node size. A 1 MiB memtable
+// therefore allows 157286 bytes and 1638 entries per transaction instead of the
+// 9.6 MiB and 104857 entries of the 64 MiB default, and 2000 activity keys of
+// 115 bytes exceed both. The value threshold has to come down with the memtable
+// because Badger refuses to open when it exceeds maxBatchSize.
 func openSmallBatchActivityStorage(t *testing.T) *OracleStorage {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "oracle")
