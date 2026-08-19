@@ -49,27 +49,40 @@ func (t *ActivityTracker) ObserveTransition(
 	if current.Slot < t.latestSlot {
 		return SwapTransition{}, false, ErrOutOfOrderActivity
 	}
-	t.latestSlot = current.Slot
-	t.prune(current.Slot)
 
+	// Every rejection is checked before the tracker is mutated. A caller that
+	// gets an error abandons the state, so advancing the latest slot or pruning
+	// first would move the window for a state that was never accepted.
 	transition, ok, err := InferSwapTransition(previous, current)
-	if err != nil || !ok {
+	if err != nil {
 		return SwapTransition{}, false, err
 	}
 	key := current.Key()
-	swaps := t.swaps[key]
-	for _, existing := range swaps {
-		if existing.Slot != transition.Slot {
-			continue
-		}
-		if sameSwapIdentity(existing, transition) {
+	var duplicate bool
+	if ok {
+		for _, existing := range t.swaps[key] {
+			if existing.Slot != transition.Slot ||
+				!sameSwapIdentity(existing, transition) {
+				continue
+			}
 			if !equalSwapTransition(existing, transition) {
 				return SwapTransition{}, false, ErrInvalidActivityState
 			}
-			return cloneSwapTransition(transition), false, nil
+			duplicate = true
+			break
 		}
 	}
-	t.swaps[key] = append(swaps, cloneSwapTransition(transition))
+
+	t.latestSlot = current.Slot
+	t.prune(current.Slot)
+	if !ok {
+		return SwapTransition{}, false, nil
+	}
+	if duplicate {
+		return cloneSwapTransition(transition), false, nil
+	}
+	// The retained slice is re-read because pruning may have replaced it.
+	t.swaps[key] = append(t.swaps[key], cloneSwapTransition(transition))
 	return cloneSwapTransition(transition), true, nil
 }
 

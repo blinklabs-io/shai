@@ -301,6 +301,87 @@ func TestOracleActivityRedeliveredSwapIsNotDoubleCounted(t *testing.T) {
 
 }
 
+// TestOracleRollbackRemovesPersistedActivityWithoutTracker covers a rollback on
+// an oracle that has no in-memory activity tracker. The durable rollback must
+// still run, or the reorged swaps stay on disk and a restart counts their
+// volume again.
+func TestOracleRollbackRemovesPersistedActivityWithoutTracker(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "oracle")
+	parser := testPoolParser{
+		reserves: map[uint64][2]uint64{
+			90:  {900, 2200},
+			100: {1000, 2000},
+			110: {1100, 1800},
+		},
+	}
+	o, storage := newTestPoolOracle(t, parser, dir)
+	for _, slot := range []uint64{90, 100, 110} {
+		require.NoError(t, o.handleTransaction(
+			testPoolEvent(slot),
+			testPoolTxEvent(t, slot),
+		))
+	}
+	persisted, err := storage.LoadActivityState()
+	require.NoError(t, err)
+	require.Len(t, persisted.Swaps, 2)
+
+	o.activity = nil
+	require.NoError(t, o.handleRollback(
+		event.RollbackEvent{SlotNumber: 100, BlockHash: "block-100"},
+	))
+
+	persisted, err = storage.LoadActivityState()
+	require.NoError(t, err)
+	require.Len(t, persisted.Swaps, 1)
+	require.Equal(t, uint64(100), persisted.Swaps[0].Slot)
+	require.Equal(t, uint64(100), persisted.LatestSlot)
+}
+
+// TestOracleRollbackKeepsMemoryWhenDurableRollbackFails covers a failing
+// durable rollback. Memory must not drop the reorged swaps while they survive
+// on disk: the handler error stops the process, and a restart that restored the
+// tracker from disk would then disagree with a tracker that had already dropped
+// them.
+func TestOracleRollbackKeepsMemoryWhenDurableRollbackFails(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "oracle")
+	parser := testPoolParser{
+		reserves: map[uint64][2]uint64{
+			90:  {900, 2200},
+			100: {1000, 2000},
+			110: {1100, 1800},
+		},
+	}
+	o, storage := newTestPoolOracle(t, parser, dir)
+	for _, slot := range []uint64{90, 100, 110} {
+		require.NoError(t, o.handleTransaction(
+			testPoolEvent(slot),
+			testPoolTxEvent(t, slot),
+		))
+	}
+
+	o.storage = closedOracleStorage(t)
+	err := o.handleRollback(
+		event.RollbackEvent{SlotNumber: 100, BlockHash: "block-100"},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "rollback pool activity")
+	o.storage = storage
+
+	// Disk still holds both swaps, and so does memory.
+	persisted, err := storage.LoadActivityState()
+	require.NoError(t, err)
+	require.Len(t, persisted.Swaps, 2)
+	volume, ok, err := o.activity.Volume(
+		config.GetConfig().Network,
+		parser.Protocol(),
+		"pool1",
+		110,
+	)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(2), volume.SwapCount)
+}
+
 func newTestPoolOracle(
 	t *testing.T,
 	parser testPoolParser,

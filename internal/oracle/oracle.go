@@ -582,12 +582,28 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 	o.cdpsMu.Unlock()
 
+	// The durable rollback runs first, and runs whether or not this oracle
+	// tracks activity in memory. Dropping the reorged swaps from memory while
+	// they survive on disk would let a restart restore and count them again,
+	// and persisted swaps have to be removed even when no tracker is attached.
 	var errs []error
-	if o.activity != nil {
-		o.activity.Rollback(firstInvalidSlot)
+	activityRolledBack := true
+	if o.storage != nil {
 		if err := o.storage.RollbackActivity(firstInvalidSlot); err != nil {
-			errs = append(errs, err)
+			logger.Error(
+				"failed to roll back persisted pool activity",
+				"error", err,
+				"firstInvalidSlot", firstInvalidSlot,
+			)
+			errs = append(
+				errs,
+				fmt.Errorf("rollback pool activity: %w", err),
+			)
+			activityRolledBack = false
 		}
+	}
+	if o.activity != nil && activityRolledBack {
+		o.activity.Rollback(firstInvalidSlot)
 	}
 
 	// Invalidate mempool tracking for rolled-back pools. Otherwise the reorged

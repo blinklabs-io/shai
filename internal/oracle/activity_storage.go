@@ -28,6 +28,11 @@ import (
 const (
 	activityKeyPrefix = "oracle_activity_swap_"
 	activityMetaKey   = "oracle_activity_meta"
+
+	// activityDeleteEntryOverhead is what Badger adds to the key length when
+	// it estimates the size of one queued delete: two meta bytes and ten bytes
+	// for the version appended to the key.
+	activityDeleteEntryOverhead = 12
 )
 
 type activityMetadata struct {
@@ -117,9 +122,8 @@ func (s *OracleStorage) SavePoolStateAndActivity(
 		if meta.LatestSlot > windowSlots {
 			cutoff = meta.LatestSlot - windowSlots
 		}
-		return deleteActivityKeys(txn, func(slot uint64) bool {
-			return slot < cutoff
-		})
+		maxCount, maxSize := s.activityDeleteBudget()
+		return pruneActivityKeys(txn, cutoff, maxCount, maxSize)
 	})
 	if err != nil {
 		return fmt.Errorf("failed to save pool state and activity: %w", err)
@@ -152,6 +156,11 @@ func (s *OracleStorage) LoadActivityState() (ActivityState, error) {
 			var meta activityMetadata
 			if err := json.Unmarshal(value, &meta); err != nil {
 				return err
+			}
+			if meta.WindowSlots == 0 {
+				return errors.New(
+					"pool activity metadata has a zero window",
+				)
 			}
 			state.WindowSlots = meta.WindowSlots
 			state.LatestSlot = meta.LatestSlot
@@ -192,42 +201,99 @@ func (s *OracleStorage) LoadActivityState() (ActivityState, error) {
 }
 
 // RollbackActivity removes swaps at or after the rollback slot and rewinds the
-// persisted latest slot while preserving earlier confirmed history.
+// persisted latest slot while preserving earlier confirmed history. Deletions
+// are committed in bounded batches from the newest slot down, and every batch
+// rewinds the persisted latest slot in the same transaction, so an interrupted
+// rollback never leaves a rolled-back swap at or below the recorded tip where a
+// restart would count its volume again.
 func (s *OracleStorage) RollbackActivity(slot uint64) error {
-	err := s.db.Update(func(txn *badger.Txn) error {
-		if err := deleteActivityKeys(txn, func(activitySlot uint64) bool {
-			return activitySlot >= slot
-		}); err != nil {
-			return err
+	maxCount, maxSize := s.activityDeleteBudget()
+	for {
+		exhausted, err := s.rollbackActivityBatch(slot, maxCount, maxSize)
+		if err != nil {
+			return fmt.Errorf("failed to rollback pool activity: %w", err)
 		}
-
-		item, err := txn.Get([]byte(activityMetaKey))
-		if errors.Is(err, badger.ErrKeyNotFound) {
+		if exhausted {
 			return nil
 		}
+	}
+}
+
+// rollbackActivityBatch removes one bounded batch of rolled-back swaps, newest
+// slot first, and rewinds the persisted latest slot to just below the lowest
+// slot the batch removed. Both happen in one transaction, so every committed
+// state keeps the invariant that no retained swap sits above the recorded
+// latest slot. It reports whether the rollback is complete.
+func (s *OracleStorage) rollbackActivityBatch(
+	slot uint64,
+	maxCount,
+	maxSize int64,
+) (bool, error) {
+	var exhausted bool
+	err := s.db.Update(func(txn *badger.Txn) error {
+		keys, lowest, done, err := rolledBackActivityKeys(
+			txn,
+			slot,
+			maxCount,
+			maxSize,
+		)
 		if err != nil {
 			return err
 		}
-		var meta activityMetadata
-		if err := item.Value(func(value []byte) error {
-			return json.Unmarshal(value, &meta)
-		}); err != nil {
+		exhausted = done
+		firstInvalid := lowest
+		if done {
+			firstInvalid = slot
+		}
+		if err := rewindActivityMeta(txn, firstInvalid); err != nil {
 			return err
 		}
-		meta.LatestSlot = 0
-		if slot > 0 {
-			meta.LatestSlot = slot - 1
+		for _, key := range keys {
+			if err := txn.Delete(key); err != nil {
+				return err
+			}
 		}
-		data, err := json.Marshal(meta)
-		if err != nil {
-			return err
-		}
-		return txn.Set([]byte(activityMetaKey), data)
+		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("failed to rollback pool activity: %w", err)
+		return false, err
 	}
-	return nil
+	return exhausted, nil
+}
+
+// rewindActivityMeta lowers the persisted latest slot to the slot before
+// firstInvalid. The latest slot records observed confirmed activity, so it is
+// never advanced here: a rollback point can sit ahead of it whenever the
+// chain-sync cursor moved through blocks that carried no pool update, and
+// claiming those slots were observed would prune retained history and reject
+// volume queries for slots that are still inside the window.
+func rewindActivityMeta(txn *badger.Txn, firstInvalid uint64) error {
+	item, err := txn.Get([]byte(activityMetaKey))
+	if errors.Is(err, badger.ErrKeyNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var meta activityMetadata
+	if err := item.Value(func(value []byte) error {
+		return json.Unmarshal(value, &meta)
+	}); err != nil {
+		return err
+	}
+	var latest uint64
+	if firstInvalid > 0 {
+		latest = firstInvalid - 1
+	}
+	if latest >= meta.LatestSlot {
+		return nil
+	}
+	meta.LatestSlot = latest
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	return txn.Set([]byte(activityMetaKey), data)
 }
 
 func poolActivityKey(swap SwapTransition) string {
@@ -257,14 +323,40 @@ func activitySlotFromKey(key []byte) (uint64, error) {
 	return slot, nil
 }
 
-func deleteActivityKeys(
+// activityDeleteBudget reports how many entries and how many estimated bytes
+// of deletions one transaction may queue. Badger fails a transaction with
+// ErrTxnTooBig once its pending entries reach maxBatchCount or their estimated
+// size reaches maxBatchSize, which a long pruning gap or a deep rollback can
+// otherwise exceed in a single sweep. Half of each limit is used so the pool
+// state, swap, and metadata writes sharing the transaction still fit.
+func (s *OracleStorage) activityDeleteBudget() (int64, int64) {
+	return s.db.MaxBatchCount() / 2, s.db.MaxBatchSize() / 2
+}
+
+// pruneActivityKeys removes retained swaps below cutoff. Activity keys embed a
+// zero-padded slot, so iteration is ordered by slot and stops at the first key
+// inside the window instead of scanning the whole retained history on every
+// pool-state write. Deletions stay inside the transaction budget; anything left
+// over is pruned by later writes, which changes retention only, never the
+// volume reported for a window.
+func pruneActivityKeys(
 	txn *badger.Txn,
-	shouldDelete func(uint64) bool,
+	cutoff uint64,
+	maxCount,
+	maxSize int64,
 ) error {
+	if cutoff == 0 {
+		return nil
+	}
 	opts := badger.DefaultIteratorOptions
 	opts.Prefix = []byte(activityKeyPrefix)
+	opts.PrefetchValues = false
 	it := txn.NewIterator(opts)
-	var keys [][]byte
+	var (
+		keys  [][]byte
+		count int64
+		size  int64
+	)
 	for it.Rewind(); it.Valid(); it.Next() {
 		key := it.Item().KeyCopy(nil)
 		slot, err := activitySlotFromKey(key)
@@ -272,9 +364,16 @@ func deleteActivityKeys(
 			it.Close()
 			return err
 		}
-		if shouldDelete(slot) {
-			keys = append(keys, key)
+		if slot >= cutoff {
+			break
 		}
+		entry := int64(len(key)) + activityDeleteEntryOverhead
+		if count+1 > maxCount || size+entry > maxSize {
+			break
+		}
+		count++
+		size += entry
+		keys = append(keys, key)
 	}
 	it.Close()
 	for _, key := range keys {
@@ -283,4 +382,61 @@ func deleteActivityKeys(
 		}
 	}
 	return nil
+}
+
+// rolledBackActivityKeys collects the newest retained swap keys at or after
+// slot, within the transaction budget. Keys of one slot are always collected
+// together, so the lowest collected slot is removed completely and the caller
+// can rewind the persisted latest slot to just below it in the same
+// transaction. The returned flag reports that nothing at or after slot remains.
+func rolledBackActivityKeys(
+	txn *badger.Txn,
+	slot uint64,
+	maxCount,
+	maxSize int64,
+) ([][]byte, uint64, bool, error) {
+	opts := badger.DefaultIteratorOptions
+	opts.Prefix = []byte(activityKeyPrefix)
+	opts.PrefetchValues = false
+	opts.Reverse = true
+	it := txn.NewIterator(opts)
+	defer it.Close()
+	var (
+		keys  [][]byte
+		count int64
+		size  int64
+	)
+	lowest := slot
+	// Reverse iteration has to be seeded past the last activity key, because
+	// Rewind seeks to the key preceding the prefix range.
+	for it.Seek(activityKeyReverseSeek()); it.Valid(); it.Next() {
+		key := it.Item().KeyCopy(nil)
+		keySlot, err := activitySlotFromKey(key)
+		if err != nil {
+			return nil, 0, false, err
+		}
+		if keySlot < slot {
+			return keys, lowest, true, nil
+		}
+		entry := int64(len(key)) + activityDeleteEntryOverhead
+		// The batch always takes at least the newest slot, whatever the
+		// budget, so the caller is guaranteed to make progress. It stops only
+		// on a slot boundary, so the lowest slot it removed is removed whole.
+		if len(keys) > 0 && keySlot != lowest &&
+			(count+1 > maxCount || size+entry > maxSize) {
+			return keys, lowest, false, nil
+		}
+		count++
+		size += entry
+		keys = append(keys, key)
+		lowest = keySlot
+	}
+	return keys, lowest, true, nil
+}
+
+// activityKeyReverseSeek returns a key that sorts above every activity key.
+// Everything after the prefix is printable ASCII, so a trailing 0xff byte is
+// above all of them and reverse iteration starts at the newest slot.
+func activityKeyReverseSeek() []byte {
+	return append([]byte(activityKeyPrefix), 0xff)
 }

@@ -111,3 +111,83 @@ func TestActivityTrackerSnapshotIsIndependent(t *testing.T) {
 	second := tracker.Snapshot()
 	require.Equal(t, byte(1), second.Swaps[0].AssetY.PolicyId[0])
 }
+
+// TestActivityTrackerRejectedTransitionKeepsWindow covers a transition the
+// tracker refuses. The caller abandons that state, so the tracker must not have
+// advanced its latest observed slot or pruned retained swaps first: a later
+// valid state would then be refused as out of order, and confirmed volume would
+// be gone.
+func TestActivityTrackerRejectedTransitionKeepsWindow(t *testing.T) {
+	assertWindowUnmoved := func(t *testing.T, tracker *ActivityTracker) {
+		t.Helper()
+		volume, ok, err := tracker.Volume("mainnet", "test", "pool", 10)
+		require.NoError(t, err)
+		require.True(t, ok)
+		require.Equal(t, uint64(1), volume.SwapCount)
+		require.Equal(t, uint64(100), volume.VolumeX)
+	}
+
+	t.Run("ObserveTransition", func(t *testing.T) {
+		tracker, err := NewActivityTracker(100)
+		require.NoError(t, err)
+		_, recorded, err := tracker.ObserveTransition(
+			activityPool(9, 1_000, 2_000),
+			activityPool(10, 1_100, 1_820),
+		)
+		require.NoError(t, err)
+		require.True(t, recorded)
+
+		// The pool identity changed between the two states, far past the
+		// retained swap's window.
+		renamed := activityPool(5_000, 900, 2_200)
+		renamed.PoolId = "other"
+		_, _, err = tracker.ObserveTransition(
+			activityPool(4_999, 1_100, 1_820),
+			renamed,
+		)
+		require.ErrorIs(t, err, ErrMismatchedPoolTransition)
+		assertWindowUnmoved(t, tracker)
+	})
+
+	t.Run("Observe", func(t *testing.T) {
+		tracker, err := NewActivityTracker(100)
+		require.NoError(t, err)
+		recorded, err := tracker.Observe(
+			activityPool(9, 1_000, 2_000),
+			activityPool(10, 1_100, 1_820),
+		)
+		require.NoError(t, err)
+		require.True(t, recorded)
+
+		renamed := activityPool(5_000, 900, 2_200)
+		renamed.PoolId = "other"
+		_, err = tracker.Observe(activityPool(4_999, 1_100, 1_820), renamed)
+		require.ErrorIs(t, err, ErrMismatchedPoolTransition)
+		assertWindowUnmoved(t, tracker)
+	})
+}
+
+// TestActivityTrackerRollbackKeepsLatestSlot covers a rollback point ahead of
+// the latest observed activity, which is what chain-sync sends whenever the
+// cursor moved through blocks that carried no pool update. Advancing the
+// tracker's latest slot to that point would prune retained swaps and refuse
+// volume queries for slots that are still inside the window.
+func TestActivityTrackerRollbackKeepsLatestSlot(t *testing.T) {
+	tracker, err := NewActivityTracker(100)
+	require.NoError(t, err)
+	_, recorded, err := tracker.ObserveTransition(
+		activityPool(9, 1_000, 2_000),
+		activityPool(10, 1_100, 1_820),
+	)
+	require.NoError(t, err)
+	require.True(t, recorded)
+
+	tracker.Rollback(5_000)
+
+	volume, ok, err := tracker.Volume("mainnet", "test", "pool", 10)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Equal(t, uint64(1), volume.SwapCount)
+	require.Equal(t, uint64(100), volume.VolumeX)
+	require.Equal(t, uint64(180), volume.VolumeY)
+}
