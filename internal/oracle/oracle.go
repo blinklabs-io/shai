@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -542,8 +543,9 @@ func producedUTXOs(
 	return utxos
 }
 
-// handleRollback processes a rollback event by invalidating pool states
-// that were recorded at or after the rollback slot
+// handleRollback processes a rollback event by invalidating pool states that
+// were recorded after the rollback slot. The rollback point is the new chain
+// tip, so its own block stays valid and is never redelivered.
 func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	logger := logging.GetLogger()
 	logger.Warn(
@@ -551,12 +553,13 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		"slot", evt.SlotNumber,
 		"blockHash", evt.BlockHash,
 	)
+	firstInvalidSlot := firstRolledBackSlot(evt.SlotNumber)
 
-	// Collect pool IDs to invalidate (states with Slot >= rollback slot)
+	// Collect pool IDs to invalidate (states after the rollback slot)
 	o.poolsMu.Lock()
 	var toDelete []*PoolState
 	for _, state := range o.pools {
-		if state.Slot >= evt.SlotNumber {
+		if state.Slot >= firstInvalidSlot {
 			toDelete = append(toDelete, state)
 		}
 	}
@@ -570,7 +573,7 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	o.cdpsMu.Lock()
 	var cdpsToDelete []*CDPState
 	for _, state := range o.cdps {
-		if state.Slot >= evt.SlotNumber {
+		if state.Slot >= firstInvalidSlot {
 			cdpsToDelete = append(cdpsToDelete, state)
 		}
 	}
@@ -581,8 +584,8 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 
 	var errs []error
 	if o.activity != nil {
-		o.activity.Rollback(evt.SlotNumber)
-		if err := o.storage.RollbackActivity(evt.SlotNumber); err != nil {
+		o.activity.Rollback(firstInvalidSlot)
+		if err := o.storage.RollbackActivity(firstInvalidSlot); err != nil {
 			errs = append(errs, err)
 		}
 	}
@@ -650,6 +653,17 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 
 	return nil
+}
+
+// firstRolledBackSlot returns the first slot invalidated by a chain-sync
+// rollback. A rollback point is the consumer's new chain tip: that block is
+// still on the chain and is not redelivered on the following roll-forward, so
+// discarding it would drop confirmed history permanently.
+func firstRolledBackSlot(slot uint64) uint64 {
+	if slot == math.MaxUint64 {
+		return slot
+	}
+	return slot + 1
 }
 
 // isPoolAddress checks if an address is a monitored pool address
