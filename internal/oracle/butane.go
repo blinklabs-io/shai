@@ -15,32 +15,19 @@
 package oracle
 
 import (
+	"fmt"
+	"math"
 	"time"
 
 	"github.com/blinklabs-io/shai/dex/butane"
 )
 
-// Re-export constants for backward compatibility
-const (
-	ButaneProtocolName = butane.ProtocolName
-	ButanePriceDenom   = butane.PriceDenom
-)
-
-// Re-export types for backward compatibility
-type (
-	ButaneMonoDatum     = butane.MonoDatum
-	ButaneCDP           = butane.CDP
-	ButaneCDPCredential = butane.CDPCredential
-	ButaneAssetClass    = butane.AssetClass
-	ButanePriceFeed     = butane.PriceFeed
-	ButaneCDPState      = butane.CDPState
-	ButanePriceState    = butane.PriceState
-)
-
-// ButaneParser wraps butane.Parser for backward compatibility
+// ButaneParser adapts Butane CDP datums to the shared oracle CDP model.
 type ButaneParser struct {
 	parser *butane.Parser
 }
+
+var _ CDPParser = (*ButaneParser)(nil)
 
 // NewButaneParser creates a parser for Butane protocol
 func NewButaneParser() *ButaneParser {
@@ -52,30 +39,46 @@ func (p *ButaneParser) Protocol() string {
 	return p.parser.Protocol()
 }
 
-// ParseMonoDatum parses a Butane MonoDatum and returns the CDP if present
-func (p *ButaneParser) ParseMonoDatum(
+// ParseCDPDatum parses a Butane CDP datum for the shared CDP lifecycle.
+func (p *ButaneParser) ParseCDPDatum(
 	datum []byte,
 	txHash string,
 	txIndex uint32,
 	slot uint64,
 	timestamp time.Time,
-) (*ButaneCDPState, error) {
-	return p.parser.ParseMonoDatum(datum, txHash, txIndex, slot, timestamp)
-}
-
-// ParseSyntheticsDatum parses a Butane synthetics datum.
-func (p *ButaneParser) ParseSyntheticsDatum(
-	datum []byte,
-	txHash string,
-	txIndex uint32,
-	slot uint64,
-	timestamp time.Time,
-) (SyntheticsState, error) {
-	state, err := p.ParseMonoDatum(datum, txHash, txIndex, slot, timestamp)
+) (*CDPState, error) {
+	state, err := p.parser.ParseMonoDatum(
+		datum,
+		txHash,
+		txIndex,
+		slot,
+		timestamp,
+	)
 	if err != nil || state == nil {
 		return nil, err
 	}
-	return state, nil
+	if state.MintedAmount > math.MaxInt64 {
+		return nil, fmt.Errorf(
+			"butane minted amount exceeds supported range: %d",
+			state.MintedAmount,
+		)
+	}
+	return &CDPState{
+		CDPId:        state.CDPId,
+		Owner:        state.Owner,
+		HasOwner:     state.Owner != "",
+		IAsset:       state.Synthetic.Fingerprint(),
+		MintedAmount: int64(state.MintedAmount),
+		Slot:         state.Slot,
+		TxHash:       state.TxHash,
+		TxIndex:      state.TxIndex,
+		Timestamp:    state.Timestamp,
+	}, nil
+}
+
+// CDPIdForOutput returns the Butane CDP state key for a UTxO.
+func (p *ButaneParser) CDPIdForOutput(txHash string, txIndex uint32) string {
+	return butane.GenerateCDPId(txHash, txIndex)
 }
 
 // ParsePoolDatum implements PoolParser interface for compatibility
@@ -90,14 +93,4 @@ func (p *ButaneParser) ParsePoolDatum(
 ) (*PoolState, error) {
 	// Butane doesn't have AMM pools, return nil
 	return nil, nil
-}
-
-// generateButaneCDPId wraps butane.GenerateCDPId for backward compatibility
-func generateButaneCDPId(txHash string, txIndex uint32) string {
-	return butane.GenerateCDPId(txHash, txIndex)
-}
-
-// GetButaneAddresses returns mainnet Butane contract addresses
-func GetButaneAddresses() []string {
-	return butane.GetAddresses()
 }

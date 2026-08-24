@@ -25,9 +25,8 @@ import (
 // Protocol constants
 const (
 	ProtocolName = "butane"
-
-	// Price feed denominator (standard precision)
-	PriceDenom = 1000000
+	// CDPContractAddress is the deployed mainnet synthetics.validate address.
+	CDPContractAddress = "addr1w9qx9rs39dztl3ugtq2s588f2jw25jluq95hvfqzqp84wxgytkmex"
 )
 
 // MonoDatum represents the main Butane datum wrapper
@@ -210,23 +209,4 @@ func (a AssetClass) ToCommonAssetClass() common.AssetClass {
 		PolicyId: a.PolicyId,
 		Name:     a.AssetName,
 	}
-}
-
-// PriceFeed represents oracle price data
-// Fields: collateralPrices, syntheticAsset, denominator, validityInterval
-type PriceFeed struct {
-	cbor.StructAsArray
-	CollateralPrices []uint64
-	SyntheticAsset   []byte
-	Denominator      uint64
-	ValidFrom        int64
-	ValidTo          int64
-}
-
-func (p *PriceFeed) UnmarshalCBOR(cborData []byte) error {
-	var tmpConstr cbor.ConstructorDecoder
-	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
-		return err
-	}
-	return cbor.DecodeGeneric(tmpConstr.Fields(), p)
 }

@@ -637,13 +637,22 @@ func (o *Oracle) loadPersistedStates() error {
 	if err != nil {
 		return err
 	}
+	protocol := ""
+	if o.parser != nil {
+		protocol = o.parser.Protocol()
+	}
 
 	o.poolsMu.Lock()
 	if o.pools == nil {
 		o.pools = make(map[string]*PoolState)
 	}
+	loadedPools := make([]*PoolState, 0, len(states))
 	for _, state := range states {
+		if protocol != "" && state.Protocol != protocol {
+			continue
+		}
 		o.pools[state.PoolId] = state
+		loadedPools = append(loadedPools, state)
 	}
 	o.poolsMu.Unlock()
 
@@ -651,23 +660,28 @@ func (o *Oracle) loadPersistedStates() error {
 	if o.cdps == nil {
 		o.cdps = make(map[string]*CDPState)
 	}
+	loadedCDPs := 0
 	for _, state := range cdpStates {
+		if !o.isSyntheticsProfile() || state.Protocol != protocol {
+			continue
+		}
 		o.cdps[state.CDPId] = state
+		loadedCDPs++
 	}
 	o.cdpsMu.Unlock()
 
 	if o.mempoolMgr == nil {
 		o.mempoolMgr = NewMempoolStateManager()
 	}
-	for _, state := range states {
+	for _, state := range loadedPools {
 		o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
 	}
 
 	logger := logging.GetLogger()
 	logger.Info(
 		"loaded persisted oracle states",
-		"pools", len(states),
-		"cdps", len(cdpStates),
+		"pools", len(loadedPools),
+		"cdps", loadedCDPs,
 	)
 
 	return nil

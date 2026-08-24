@@ -47,35 +47,6 @@ func (c *CDPState) SlotNumber() uint64 {
 	return c.Slot
 }
 
-// PriceState represents a price feed from the Butane oracle
-type PriceState struct {
-	Asset       common.AssetClass
-	Price       uint64
-	Denominator uint64
-	ValidFrom   time.Time
-	ValidTo     time.Time
-	Slot        uint64
-	TxHash      string
-	Timestamp   time.Time
-}
-
-// PriceFloat returns the price as a float64
-func (p *PriceState) PriceFloat() float64 {
-	if p.Denominator == 0 {
-		return 0
-	}
-	return float64(p.Price) / float64(p.Denominator)
-}
-
-// Key returns a unique key for this price
-func (p *PriceState) Key() string {
-	return fmt.Sprintf(
-		"butane:price:%s.%s",
-		hex.EncodeToString(p.Asset.PolicyId),
-		hex.EncodeToString(p.Asset.Name),
-	)
-}
-
 // Parser implements parsing for Butane protocol
 type Parser struct{}
 
@@ -138,13 +109,10 @@ func GenerateCDPId(txHash string, txIndex uint32) string {
 	return fmt.Sprintf("butane_cdp_%s#%d", txHash, txIndex)
 }
 
-// GetAddresses returns deployed mainnet Butane contract addresses.
+// GetCDPAddresses returns deployed mainnet Butane CDP addresses.
 // Source: butaneprotocol/butane-deployments butane-v1-deployed.json.
-func GetAddresses() []string {
+func GetCDPAddresses() []string {
 	return []string{
-		// synthetics.validate
-		"addr1w9qx9rs39dztl3ugtq2s588f2jw25jluq95hvfqzqp84wxgytkmex",
-		// price_feed.check_feed
-		"addr1w877ahw80e234u4t5x2yg3tuh6ky8204qfuvxf2smzsqn6q9htprs",
+		CDPContractAddress,
 	}
 }

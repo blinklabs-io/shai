@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/blinklabs-io/shai/dex/butane"
 )
 
 func TestMainnetCSwapProfileIsWired(t *testing.T) {
@@ -217,13 +219,20 @@ func TestMainnetButaneProfileIsWired(t *testing.T) {
 	if synthCfg.Protocol != "butane" {
 		t.Fatalf("unexpected protocol: got %q want %q", synthCfg.Protocol, "butane")
 	}
-	if len(synthCfg.CDPAddresses) == 0 {
-		t.Fatal("butane CDP addresses must not be empty")
+	if len(synthCfg.CDPAddresses) != 1 {
+		t.Fatalf(
+			"unexpected Butane CDP address count: got %d want 1",
+			len(synthCfg.CDPAddresses),
+		)
 	}
-	if len(synthCfg.OracleAddresses) == 0 {
-		t.Fatal("butane oracle addresses must not be empty")
+	if synthCfg.CDPAddresses[0].Address != butane.CDPContractAddress {
+		t.Fatalf(
+			"unexpected Butane CDP address: got %q want %q",
+			synthCfg.CDPAddresses[0].Address,
+			butane.CDPContractAddress,
+		)
 	}
-	for _, addr := range append(synthCfg.CDPAddresses, synthCfg.OracleAddresses...) {
+	for _, addr := range synthCfg.CDPAddresses {
 		if !strings.HasPrefix(addr.Address, "addr1") {
 			t.Fatalf("address has unexpected format: %q", addr.Address)
 		}

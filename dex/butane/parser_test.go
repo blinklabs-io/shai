@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package oracle
+package butane
 
 import (
 	"testing"
@@ -21,8 +21,8 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 )
 
-func TestNewButaneParser(t *testing.T) {
-	parser := NewButaneParser()
+func TestNewParser(t *testing.T) {
+	parser := NewParser()
 	if parser == nil {
 		t.Fatal("expected non-nil parser")
 	}
@@ -31,8 +31,8 @@ func TestNewButaneParser(t *testing.T) {
 	}
 }
 
-func TestButaneAssetClassToCommonAssetClass(t *testing.T) {
-	asset := ButaneAssetClass{
+func TestAssetClassToCommonAssetClass(t *testing.T) {
+	asset := AssetClass{
 		PolicyId:  []byte{0x01, 0x02, 0x03},
 		AssetName: []byte("bUSD"),
 	}
@@ -50,7 +50,7 @@ func TestGenerateButaneCDPId(t *testing.T) {
 	txHash := "abc123def456789012345678901234567890"
 	txIndex := uint32(2)
 
-	cdpId := generateButaneCDPId(txHash, txIndex)
+	cdpId := GenerateCDPId(txHash, txIndex)
 	expected := "butane_cdp_abc123def456789012345678901234567890#2"
 
 	if cdpId != expected {
@@ -59,7 +59,7 @@ func TestGenerateButaneCDPId(t *testing.T) {
 }
 
 func TestGenerateButaneCDPIdShortHash(t *testing.T) {
-	cdpId := generateButaneCDPId("abc123", 0)
+	cdpId := GenerateCDPId("abc123", 0)
 	expected := "butane_cdp_abc123#0"
 
 	if cdpId != expected {
@@ -67,7 +67,7 @@ func TestGenerateButaneCDPIdShortHash(t *testing.T) {
 	}
 }
 
-func TestButaneCDPCredentialUnmarshal(t *testing.T) {
+func TestCDPCredentialUnmarshal(t *testing.T) {
 	// Test AuthorizeWithPubKey (Constructor 0)
 	pubKeyHash := make([]byte, 28)
 	for i := range pubKeyHash {
@@ -83,7 +83,7 @@ func TestButaneCDPCredentialUnmarshal(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	var cred ButaneCDPCredential
+	var cred CDPCredential
 	if _, err := cbor.Decode(cborData, &cred); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestButaneCDPCredentialUnmarshal(t *testing.T) {
 	}
 }
 
-func TestButaneCDPCredentialPubKeyRejectsExtraFields(t *testing.T) {
+func TestCDPCredentialPubKeyRejectsExtraFields(t *testing.T) {
 	pubKeyHash := make([]byte, 28)
 	credConstr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		pubKeyHash,
@@ -108,13 +108,13 @@ func TestButaneCDPCredentialPubKeyRejectsExtraFields(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	var cred ButaneCDPCredential
+	var cred CDPCredential
 	if _, err := cbor.Decode(cborData, &cred); err == nil {
 		t.Fatal("expected extra AuthorizeWithPubKey field to fail")
 	}
 }
 
-func TestButaneCDPCredentialConstraintToken(t *testing.T) {
+func TestCDPCredentialConstraintToken(t *testing.T) {
 	asset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{0xab, 0xcd},
 		[]byte("owner"),
@@ -131,7 +131,7 @@ func TestButaneCDPCredentialConstraintToken(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	var cred ButaneCDPCredential
+	var cred CDPCredential
 	if _, err := cbor.Decode(cborData, &cred); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
@@ -143,7 +143,7 @@ func TestButaneCDPCredentialConstraintToken(t *testing.T) {
 	}
 }
 
-func TestButaneCDPCredentialConstraintUnsupported(t *testing.T) {
+func TestCDPCredentialConstraintUnsupported(t *testing.T) {
 	withdrawConstraint := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
 		[]byte{0x01},
 	})
@@ -156,13 +156,13 @@ func TestButaneCDPCredentialConstraintUnsupported(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	var cred ButaneCDPCredential
+	var cred CDPCredential
 	if _, err := cbor.Decode(cborData, &cred); err == nil {
 		t.Fatal("expected unsupported constraint to fail")
 	}
 }
 
-func TestButaneAssetClassRejectsInvalidConstructor(t *testing.T) {
+func TestAssetClassRejectsInvalidConstructor(t *testing.T) {
 	asset := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
 		[]byte{0xab, 0xcd, 0xef},
 		[]byte("bUSD"),
@@ -173,13 +173,13 @@ func TestButaneAssetClassRejectsInvalidConstructor(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	var decoded ButaneAssetClass
+	var decoded AssetClass
 	if _, err := cbor.Decode(cborData, &decoded); err == nil {
 		t.Fatal("expected invalid AssetClass constructor to fail")
 	}
 }
 
-func TestButaneMonoDatumCDP(t *testing.T) {
+func TestMonoDatumCDP(t *testing.T) {
 	// Build a CDP datum (Constructor 1)
 	// CDP fields: owner, synthetic, minted, startTime
 
@@ -208,7 +208,7 @@ func TestButaneMonoDatumCDP(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	var monoDatum ButaneMonoDatum
+	var monoDatum MonoDatum
 	if _, err := cbor.Decode(cborData, &monoDatum); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestButaneParserParseMonoDatum(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	parser := NewButaneParser()
+	parser := NewParser()
 	state, err := parser.ParseMonoDatum(
 		cborData,
 		"abc123def456789012345678901234567890",
@@ -305,7 +305,7 @@ func TestButaneParserNonCDPDatum(t *testing.T) {
 		t.Fatalf("failed to encode: %v", err)
 	}
 
-	parser := NewButaneParser()
+	parser := NewParser()
 	state, err := parser.ParseMonoDatum(
 		cborData,
 		"abc123",
@@ -323,34 +323,8 @@ func TestButaneParserNonCDPDatum(t *testing.T) {
 	}
 }
 
-func TestButaneParserParseSyntheticsDatumNonCDPReturnsNil(t *testing.T) {
-	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{0x01, 0x02, 0x03},
-	})
-
-	cborData, err := cbor.Encode(&datum)
-	if err != nil {
-		t.Fatalf("failed to encode: %v", err)
-	}
-
-	parser := NewButaneParser()
-	state, err := parser.ParseSyntheticsDatum(
-		cborData,
-		"abc123",
-		0,
-		12345,
-		time.Now(),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if state != nil {
-		t.Fatal("expected nil synthetics state for non-CDP datum")
-	}
-}
-
-func TestButaneCDPStateKey(t *testing.T) {
-	state := &ButaneCDPState{
+func TestCDPStateKey(t *testing.T) {
+	state := &CDPState{
 		CDPId: "butane_cdp_abc123#0",
 	}
 
@@ -360,53 +334,12 @@ func TestButaneCDPStateKey(t *testing.T) {
 	}
 }
 
-func TestButanePriceStateFloat(t *testing.T) {
-	price := &ButanePriceState{
-		Price:       1500000,
-		Denominator: 1000000,
+func TestGetCDPAddresses(t *testing.T) {
+	addrs := GetCDPAddresses()
+	if len(addrs) != 1 {
+		t.Fatalf("expected 1 Butane address, got %d", len(addrs))
 	}
-
-	expected := 1.5
-	if price.PriceFloat() != expected {
-		t.Errorf("expected price %f, got %f", expected, price.PriceFloat())
-	}
-
-	// Test zero denominator
-	price.Denominator = 0
-	if price.PriceFloat() != 0 {
-		t.Error("expected 0 for zero denominator")
-	}
-}
-
-func TestButaneParserPoolDatum(t *testing.T) {
-	// Butane is not an AMM, so ParsePoolDatum should return nil
-	parser := NewButaneParser()
-
-	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{})
-	cborData, _ := cbor.Encode(&datum)
-
-	state, err := parser.ParsePoolDatum(
-		cborData,
-		nil,
-		"abc123",
-		0,
-		12345,
-		time.Now(),
-	)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if state != nil {
-		t.Error("expected nil pool state for Butane")
-	}
-}
-
-func TestGetButaneAddresses(t *testing.T) {
-	addrs := GetButaneAddresses()
-	if len(addrs) != 2 {
-		t.Fatalf("expected 2 Butane addresses, got %d", len(addrs))
-	}
-	if addrs[0] == "" || addrs[1] == "" {
-		t.Fatal("expected non-empty Butane addresses")
+	if addrs[0] != CDPContractAddress {
+		t.Fatalf("unexpected Butane CDP address: %q", addrs[0])
 	}
 }
