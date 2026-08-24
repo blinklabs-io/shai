@@ -70,6 +70,16 @@ type PoolVolume struct {
 	LastSwapSlot  uint64            `json:"lastSwapSlot,omitempty"`
 }
 
+// Key returns the canonical identity shared with PoolState.
+func (v PoolVolume) Key() string {
+	pool := PoolState{
+		PoolId:   v.PoolID,
+		Network:  v.Network,
+		Protocol: v.Protocol,
+	}
+	return pool.Key()
+}
+
 // ActivityTracker retains confirmed swap-shaped pool transitions over a
 // bounded slot window. Slot windows make historical chain sync deterministic
 // and avoid mistaking sync wall-clock time for trading time.
@@ -156,12 +166,17 @@ func (t *ActivityTracker) Observe(
 	if current.Slot < t.latestSlot {
 		return false, ErrOutOfOrderActivity
 	}
+
+	// A rejected transition must not move the window: the caller abandons the
+	// state, so the tracker is only mutated once the transition is accepted.
+	transition, ok, err := InferSwapTransition(previous, current)
+	if err != nil {
+		return false, err
+	}
 	t.latestSlot = current.Slot
 	t.prune(current.Slot)
-
-	transition, ok, err := InferSwapTransition(previous, current)
-	if err != nil || !ok {
-		return false, err
+	if !ok {
+		return false, nil
 	}
 	key := current.Key()
 	t.swaps[key] = append(t.swaps[key], transition)
@@ -223,7 +238,11 @@ func (t *ActivityTracker) Volume(
 	return volume, true, nil
 }
 
-// Rollback removes activity at or after the rollback slot.
+// Rollback removes activity at or after the rollback slot. The latest observed
+// slot is only ever rewound: a rollback point can sit ahead of it whenever the
+// chain-sync cursor moved through blocks that carried no pool update, and
+// advancing it there would prune retained swaps and reject volume queries for
+// slots that are still inside the window.
 func (t *ActivityTracker) Rollback(slot uint64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -238,9 +257,12 @@ func (t *ActivityTracker) Rollback(slot uint64) {
 		}
 		t.swaps[key] = swaps[:keep]
 	}
-	t.latestSlot = 0
+	var latest uint64
 	if slot > 0 {
-		t.latestSlot = slot - 1
+		latest = slot - 1
+	}
+	if latest < t.latestSlot {
+		t.latestSlot = latest
 	}
 	t.prune(t.latestSlot)
 }
