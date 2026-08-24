@@ -286,7 +286,8 @@ func hasDjedNFT(
 		return false, fmt.Errorf("invalid Djed NFT policy length")
 	}
 	copy(policy[:], policyBytes)
-	return assets.Asset(policy, name).Uint64() == 1, nil
+	amount := assets.Asset(policy, name)
+	return amount != nil && amount.IsInt64() && amount.Int64() == 1, nil
 }
 
 func djedNFT() (common.AssetClass, error) {

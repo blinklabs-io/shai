@@ -197,6 +197,33 @@ func TestDjedOracleIgnoresMalformedChainOutputs(t *testing.T) {
 	require.ErrorIs(t, err, djed.ErrNoCurrentObservation)
 }
 
+func TestDjedOracleIgnoresOutputWithForeignAsset(t *testing.T) {
+	stateStorage := &testDjedStorage{}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	require.NoError(t, oracle.Start())
+	now := time.Unix(1_784_842_625, 0).UTC()
+	require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+		Timestamp: now,
+		Context: event.TransactionContext{
+			TransactionHash: strings.Repeat("03", 32),
+			SlotNumber:      100,
+		},
+		Payload: event.TransactionEvent{
+			Outputs: []ledger.TransactionOutput{
+				testDjedOutputWithForeignAsset(t),
+			},
+		},
+	}))
+	require.Equal(t, 0, stateStorage.saves)
+	_, err := oracle.Current(now)
+	require.ErrorIs(t, err, djed.ErrNoCurrentObservation)
+}
+
 func TestDjedOraclePrunesSpentHistoryBeyondStabilityWindow(t *testing.T) {
 	stateStorage := &testDjedStorage{}
 	oracle := NewDjedOracle(
@@ -254,6 +281,34 @@ func testDjedOutput(t *testing.T) ledger.TransactionOutput {
 	datum, err := hex.DecodeString(djedDatumFixture)
 	require.NoError(t, err)
 	return testDjedOutputWithDatum(t, datum)
+}
+
+func testDjedOutputWithForeignAsset(t *testing.T) ledger.TransactionOutput {
+	t.Helper()
+	address, err := lcommon.NewAddress(djed.MainnetOracleAddress)
+	require.NoError(t, err)
+	policyBytes, err := hex.DecodeString(strings.Repeat("11", 28))
+	require.NoError(t, err)
+	var policy lcommon.Blake2b224
+	copy(policy[:], policyBytes)
+	assets := lcommon.NewMultiAsset[lcommon.MultiAssetTypeOutput](
+		map[lcommon.Blake2b224]map[cbor.ByteString]lcommon.MultiAssetTypeOutput{
+			policy: {
+				cbor.NewByteString([]byte("SPAM")): big.NewInt(1),
+			},
+		},
+	)
+	outputCbor, err := cbor.Encode(&map[uint64]any{
+		0: address,
+		1: mary.MaryTransactionOutputValue{
+			Amount: 1_500_000,
+			Assets: &assets,
+		},
+	})
+	require.NoError(t, err)
+	output, err := ledger.NewTransactionOutputFromCbor(outputCbor)
+	require.NoError(t, err)
+	return output
 }
 
 func testDjedOutputWithDatum(
