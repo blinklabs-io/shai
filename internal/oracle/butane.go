@@ -15,8 +15,6 @@
 package oracle
 
 import (
-	"fmt"
-	"math"
 	"time"
 
 	"github.com/blinklabs-io/shai/dex/butane"
@@ -57,18 +55,12 @@ func (p *ButaneParser) ParseCDPDatum(
 	if err != nil || state == nil {
 		return nil, err
 	}
-	if state.MintedAmount > math.MaxInt64 {
-		return nil, fmt.Errorf(
-			"butane minted amount exceeds supported range: %d",
-			state.MintedAmount,
-		)
-	}
 	return &CDPState{
 		CDPId:        state.CDPId,
 		Owner:        state.Owner,
 		HasOwner:     state.Owner != "",
 		IAsset:       state.Synthetic.Fingerprint(),
-		MintedAmount: int64(state.MintedAmount),
+		MintedAmount: state.MintedAmount,
 		Slot:         state.Slot,
 		TxHash:       state.TxHash,
 		TxIndex:      state.TxIndex,

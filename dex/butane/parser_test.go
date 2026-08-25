@@ -15,10 +15,16 @@
 package butane
 
 import (
+	"encoding/hex"
 	"testing"
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+)
+
+const (
+	liveMainnetCDPDatum       = "d87a9fd8799f581c3258f32901c7ac8acfb0815ac78515d7e27f949e7ec71f23ee1aa7bc40ff454d494441531b00000003383ef9821b0000019c07cd50b0ff"
+	deployedSyntheticPolicyId = "00000000000410c2d9e01e8ec78ab1dc6bbc383fae76cbe2689beb02"
 )
 
 func TestNewParser(t *testing.T) {
@@ -76,6 +82,7 @@ func TestCDPCredentialUnmarshal(t *testing.T) {
 
 	credConstr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		pubKeyHash,
+		[]byte{},
 	})
 
 	cborData, err := cbor.Encode(&credConstr)
@@ -101,6 +108,7 @@ func TestCDPCredentialPubKeyRejectsExtraFields(t *testing.T) {
 	credConstr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		pubKeyHash,
 		[]byte{0x01},
+		[]byte{0x02},
 	})
 
 	cborData, err := cbor.Encode(&credConstr)
@@ -135,17 +143,22 @@ func TestCDPCredentialConstraintToken(t *testing.T) {
 	if _, err := cbor.Decode(cborData, &cred); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
-	if cred.TokenId == nil {
+	if cred.Constraint == nil || cred.Constraint.TokenId == nil {
 		t.Fatal("expected token ID")
 	}
-	if string(cred.TokenId.AssetName) != "owner" {
-		t.Fatalf("expected owner token name, got %q", cred.TokenId.AssetName)
+	if string(cred.Constraint.TokenId.AssetName) != "owner" {
+		t.Fatalf(
+			"expected owner token name, got %q",
+			cred.Constraint.TokenId.AssetName,
+		)
 	}
 }
 
-func TestCDPCredentialConstraintUnsupported(t *testing.T) {
+func TestCDPCredentialWithdrawalConstraint(t *testing.T) {
 	withdrawConstraint := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
-		[]byte{0x01},
+		cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+			[]byte{0x01},
+		}),
 	})
 	credConstr := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
 		withdrawConstraint,
@@ -157,8 +170,14 @@ func TestCDPCredentialConstraintUnsupported(t *testing.T) {
 	}
 
 	var cred CDPCredential
-	if _, err := cbor.Decode(cborData, &cred); err == nil {
-		t.Fatal("expected unsupported constraint to fail")
+	if _, err := cbor.Decode(cborData, &cred); err != nil {
+		t.Fatalf("failed to decode withdrawal constraint: %v", err)
+	}
+	if cred.Constraint == nil || cred.Constraint.Type != 1 {
+		t.Fatalf("unexpected withdrawal constraint: %#v", cred.Constraint)
+	}
+	if len(cred.Constraint.WithdrawalCredential) == 0 {
+		t.Fatal("expected encoded withdrawal credential")
 	}
 }
 
@@ -187,13 +206,11 @@ func TestMonoDatumCDP(t *testing.T) {
 	pubKeyHash := make([]byte, 28)
 	owner := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		pubKeyHash,
+		[]byte{},
 	})
 
 	// Synthetic asset (bUSD)
-	synthetic := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{0xab, 0xcd, 0xef}, // policy
-		[]byte("bUSD"),           // name
-	})
+	synthetic := []byte("bUSD")
 
 	// MonoDatum with CDP constructor (1)
 	datum := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
@@ -222,10 +239,10 @@ func TestMonoDatumCDP(t *testing.T) {
 	if monoDatum.CDP.Minted != 100000000 {
 		t.Errorf("expected minted 100000000, got %d", monoDatum.CDP.Minted)
 	}
-	if string(monoDatum.CDP.Synthetic.AssetName) != "bUSD" {
+	if string(monoDatum.CDP.SyntheticName) != "bUSD" {
 		t.Errorf(
 			"expected synthetic 'bUSD', got %s",
-			string(monoDatum.CDP.Synthetic.AssetName),
+			string(monoDatum.CDP.SyntheticName),
 		)
 	}
 }
@@ -238,12 +255,10 @@ func TestButaneParserParseMonoDatum(t *testing.T) {
 	}
 	owner := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		pubKeyHash,
+		[]byte{},
 	})
 
-	synthetic := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		[]byte{0x12, 0x34},
-		[]byte("bBTC"),
-	})
+	synthetic := []byte("bBTC")
 
 	startTimeMs := int64(1704067200123)
 	datum := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
@@ -294,6 +309,42 @@ func TestButaneParserParseMonoDatum(t *testing.T) {
 	}
 }
 
+func TestButaneParserParsesLiveMainnetCDPDatum(t *testing.T) {
+	datum, err := hex.DecodeString(liveMainnetCDPDatum)
+	if err != nil {
+		t.Fatalf("failed to decode live datum fixture: %v", err)
+	}
+
+	state, err := NewParser().ParseMonoDatum(
+		datum,
+		"89fe03b8fc7cc9e4fae4de3fc7ee3b3be7326d0092b51d1b43902cf8ea479a5e",
+		0,
+		196_882_173,
+		time.Unix(1_769_657_573, 0),
+	)
+	if err != nil {
+		t.Fatalf("failed to parse live mainnet CDP datum: %v", err)
+	}
+	if state == nil {
+		t.Fatal("expected live mainnet datum to produce a CDP state")
+	}
+	if state.Owner != "3258f32901c7ac8acfb0815ac78515d7e27f949e7ec71f23ee1aa7bc" {
+		t.Fatalf("unexpected owner hash: %q", state.Owner)
+	}
+	if string(state.Synthetic.PolicyId) != string(mustDecodeHex(t, deployedSyntheticPolicyId)) {
+		t.Fatalf("unexpected synthetic policy: %x", state.Synthetic.PolicyId)
+	}
+	if string(state.Synthetic.Name) != "MIDAS" {
+		t.Fatalf("unexpected synthetic name: %q", state.Synthetic.Name)
+	}
+	if state.MintedAmount != 13_828_553_090 {
+		t.Fatalf("unexpected minted amount: %d", state.MintedAmount)
+	}
+	if !state.StartTime.Equal(time.UnixMilli(1_769_657_422_000)) {
+		t.Fatalf("unexpected start time: %s", state.StartTime)
+	}
+}
+
 func TestButaneParserNonCDPDatum(t *testing.T) {
 	// Build a non-CDP datum (Constructor 0 = ParamsWrapper)
 	datum := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
@@ -334,12 +385,21 @@ func TestCDPStateKey(t *testing.T) {
 	}
 }
 
-func TestGetCDPAddresses(t *testing.T) {
-	addrs := GetCDPAddresses()
-	if len(addrs) != 1 {
-		t.Fatalf("expected 1 Butane address, got %d", len(addrs))
+func TestGetCDPPaymentCredentials(t *testing.T) {
+	credentials := GetCDPPaymentCredentials()
+	if len(credentials) != 1 {
+		t.Fatalf("expected 1 Butane payment credential, got %d", len(credentials))
 	}
-	if addrs[0] != CDPContractAddress {
-		t.Fatalf("unexpected Butane CDP address: %q", addrs[0])
+	if credentials[0] != CDPPaymentCredential {
+		t.Fatalf("unexpected Butane CDP payment credential: %q", credentials[0])
 	}
+}
+
+func mustDecodeHex(t *testing.T, value string) []byte {
+	t.Helper()
+	decoded, err := hex.DecodeString(value)
+	if err != nil {
+		t.Fatalf("failed to decode %q: %v", value, err)
+	}
+	return decoded
 }

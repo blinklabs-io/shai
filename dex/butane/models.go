@@ -25,8 +25,13 @@ import (
 // Protocol constants
 const (
 	ProtocolName = "butane"
-	// CDPContractAddress is the deployed mainnet synthetics.validate address.
-	CDPContractAddress = "addr1w9qx9rs39dztl3ugtq2s588f2jw25jluq95hvfqzqp84wxgytkmex"
+	// CDPPaymentCredential is the deployed mainnet pointers.spend script hash.
+	// Butane CDPs use this payment credential with a user-selected staking
+	// credential, so they cannot be identified by one complete address.
+	CDPPaymentCredential = "6a67658782f20360cc4cdf5a808ab9363bbeaeb2f8773d27a2b514eb"
+	// SyntheticPolicyId is the deployed pointers.mint policy under which
+	// Butane synthetic asset names are minted.
+	SyntheticPolicyId = "00000000000410c2d9e01e8ec78ab1dc6bbc383fae76cbe2689beb02"
 )
 
 // MonoDatum represents the main Butane datum wrapper
@@ -68,14 +73,14 @@ func (d *MonoDatum) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-// CDP represents a Collateralized Debt Position
-// Constructor 1 with fields: owner, synthetic, minted, startTime
+// CDP represents a Collateralized Debt Position.
+// Constructor 1 has owner, synthetic asset name, minted amount, and start time.
 type CDP struct {
 	cbor.StructAsArray
-	Owner     CDPCredential
-	Synthetic AssetClass
-	Minted    uint64
-	StartTime int64
+	Owner         CDPCredential
+	SyntheticName []byte
+	Minted        int64
+	StartTime     int64
 }
 
 // CDPCredential represents CDP owner authorization
@@ -83,9 +88,10 @@ type CDP struct {
 // Constructor 1: AuthorizeWithConstraint (token/script constraint)
 type CDPCredential struct {
 	cbor.StructAsArray
-	Type    int // 0 = PubKey, 1 = Constraint
-	PubKey  []byte
-	TokenId *AssetClass
+	Type            int // 0 = PubKey, 1 = Constraint
+	PubKey          []byte
+	VerificationKey []byte
+	Constraint      *CDPConstraint
 }
 
 func (c *CDPCredential) UnmarshalCBOR(cborData []byte) error {
@@ -101,13 +107,19 @@ func (c *CDPCredential) UnmarshalCBOR(cborData []byte) error {
 
 	switch c.Type {
 	case 0:
-		if len(fields) != 1 {
+		if len(fields) != 2 {
 			return fmt.Errorf(
-				"AuthorizeWithPubKey: expected 1 field, got %d",
+				"AuthorizeWithPubKey: expected 2 fields, got %d",
 				len(fields),
 			)
 		}
 		if _, err := cbor.Decode([]byte(fields[0]), &c.PubKey); err != nil {
+			return err
+		}
+		if _, err := cbor.Decode(
+			[]byte(fields[1]),
+			&c.VerificationKey,
+		); err != nil {
 			return err
 		}
 	case 1:
@@ -121,10 +133,7 @@ func (c *CDPCredential) UnmarshalCBOR(cborData []byte) error {
 		if _, err := cbor.Decode([]byte(fields[0]), &constraint); err != nil {
 			return err
 		}
-		if constraint.TokenId == nil {
-			return fmt.Errorf("AuthorizeWithConstraint: missing token constraint")
-		}
-		c.TokenId = constraint.TokenId
+		c.Constraint = &constraint
 	default:
 		return fmt.Errorf("unsupported CDPCredential type: %d", c.Type)
 	}
@@ -143,8 +152,9 @@ func constructorFields(cborData []byte) ([]cbor.RawMessage, error) {
 // CDPConstraint represents a constraint-based CDP owner authorization.
 type CDPConstraint struct {
 	cbor.StructAsArray
-	Type    int
-	TokenId *AssetClass
+	Type                 int
+	TokenId              *AssetClass
+	WithdrawalCredential cbor.RawMessage
 }
 
 func (c *CDPConstraint) UnmarshalCBOR(cborData []byte) error {
@@ -172,8 +182,15 @@ func (c *CDPConstraint) UnmarshalCBOR(cborData []byte) error {
 		}
 		c.TokenId = &asset
 	case 1:
-		return fmt.Errorf(
-			"AuthorizeWithConstraint MustWithdrawFrom is unsupported",
+		if len(fields) != 1 {
+			return fmt.Errorf(
+				"MustWithdrawFrom: expected 1 field, got %d",
+				len(fields),
+			)
+		}
+		c.WithdrawalCredential = append(
+			c.WithdrawalCredential[:0],
+			fields[0]...,
 		)
 	default:
 		return fmt.Errorf("unsupported CDP constraint type: %d", c.Type)

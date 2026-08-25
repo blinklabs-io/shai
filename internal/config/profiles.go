@@ -72,8 +72,9 @@ type OracleProfileConfig struct {
 
 // SyntheticsProfileConfig contains configuration for synthetics protocols.
 type SyntheticsProfileConfig struct {
-	Protocol     string                 // Protocol name (e.g., "butane")
-	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+	Protocol              string                 // Protocol name (e.g., "butane")
+	CDPAddresses          []ProfileConfigAddress // Exact CDP addresses to monitor
+	CDPPaymentCredentials []string               // CDP payment credentials to monitor
 }
 
 // LendingProfileConfig contains configuration for lending protocols.
@@ -322,8 +323,8 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 126083269,
 			InterceptHash: "64818ae4aab96778eae64cc140b13875f42b9b9f432e755f89dafaeadc1c8ee3",
 			Config: SyntheticsProfileConfig{
-				Protocol:     "butane",
-				CDPAddresses: profileAddrs(butane.GetCDPAddresses()),
+				Protocol:              "butane",
+				CDPPaymentCredentials: butane.GetCDPPaymentCredentials(),
 			},
 		},
 		"liqwid": {

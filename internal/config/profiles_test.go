@@ -219,23 +219,24 @@ func TestMainnetButaneProfileIsWired(t *testing.T) {
 	if synthCfg.Protocol != "butane" {
 		t.Fatalf("unexpected protocol: got %q want %q", synthCfg.Protocol, "butane")
 	}
-	if len(synthCfg.CDPAddresses) != 1 {
+	if len(synthCfg.CDPAddresses) != 0 {
 		t.Fatalf(
-			"unexpected Butane CDP address count: got %d want 1",
+			"unexpected Butane exact CDP address count: got %d want 0",
 			len(synthCfg.CDPAddresses),
 		)
 	}
-	if synthCfg.CDPAddresses[0].Address != butane.CDPContractAddress {
+	if len(synthCfg.CDPPaymentCredentials) != 1 {
 		t.Fatalf(
-			"unexpected Butane CDP address: got %q want %q",
-			synthCfg.CDPAddresses[0].Address,
-			butane.CDPContractAddress,
+			"unexpected Butane payment credential count: got %d want 1",
+			len(synthCfg.CDPPaymentCredentials),
 		)
 	}
-	for _, addr := range synthCfg.CDPAddresses {
-		if !strings.HasPrefix(addr.Address, "addr1") {
-			t.Fatalf("address has unexpected format: %q", addr.Address)
-		}
+	if synthCfg.CDPPaymentCredentials[0] != butane.CDPPaymentCredential {
+		t.Fatalf(
+			"unexpected Butane payment credential: got %q want %q",
+			synthCfg.CDPPaymentCredentials[0],
+			butane.CDPPaymentCredential,
+		)
 	}
 }
 

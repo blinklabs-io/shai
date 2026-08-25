@@ -28,7 +28,7 @@ type CDPState struct {
 	CDPId          string
 	Owner          string
 	Synthetic      common.AssetClass
-	MintedAmount   uint64
+	MintedAmount   int64
 	StartTime      time.Time
 	Slot           uint64
 	TxHash         string
@@ -90,9 +90,12 @@ func (p *Parser) ParseMonoDatum(
 	}
 
 	state := &CDPState{
-		CDPId:        cdpId,
-		Owner:        owner,
-		Synthetic:    cdp.Synthetic.ToCommonAssetClass(),
+		CDPId: cdpId,
+		Owner: owner,
+		Synthetic: common.AssetClass{
+			PolicyId: mustDecodeSyntheticPolicyId(),
+			Name:     cdp.SyntheticName,
+		},
 		MintedAmount: cdp.Minted,
 		StartTime:    time.UnixMilli(cdp.StartTime),
 		Slot:         slot,
@@ -109,10 +112,18 @@ func GenerateCDPId(txHash string, txIndex uint32) string {
 	return fmt.Sprintf("butane_cdp_%s#%d", txHash, txIndex)
 }
 
-// GetCDPAddresses returns deployed mainnet Butane CDP addresses.
+// GetCDPPaymentCredentials returns deployed Butane CDP payment credentials.
 // Source: butaneprotocol/butane-deployments butane-v1-deployed.json.
-func GetCDPAddresses() []string {
+func GetCDPPaymentCredentials() []string {
 	return []string{
-		CDPContractAddress,
+		CDPPaymentCredential,
 	}
+}
+
+func mustDecodeSyntheticPolicyId() []byte {
+	policyId, err := hex.DecodeString(SyntheticPolicyId)
+	if err != nil {
+		panic(fmt.Sprintf("invalid Butane synthetic policy ID: %v", err))
+	}
+	return policyId
 }
