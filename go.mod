@@ -3,7 +3,7 @@ module github.com/blinklabs-io/shai
 go 1.26.0
 
 require (
-	github.com/Salvionied/apollo/v2 v2.0.0
+	github.com/Salvionied/apollo/v2 v2.1.0
 	github.com/blinklabs-io/adder v0.43.1
 	github.com/blinklabs-io/bursa v0.16.1-0.20260817233527-1eb8b64db609
 	github.com/blinklabs-io/dingo v0.70.0
@@ -68,6 +68,6 @@ require (
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sync v0.22.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
