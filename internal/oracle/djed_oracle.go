@@ -197,6 +197,10 @@ func (o *DjedOracle) handleTransaction(
 	}
 	for candidateIndex, outputIndex := range outputIndexes {
 		utxo := utxos[outputIndex]
+		ref := djed.OutputRef{TxHash: ctx.TransactionHash, TxIndex: utxo.Id.Index()}
+		if staged.Contains(ref) {
+			continue
+		}
 		output := utxo.Output
 		_, err = staged.Apply(
 			outputData[candidateIndex],

@@ -145,6 +145,9 @@ func (t *Tracker) ConsumeAt(ref OutputRef, slot uint64) bool {
 		// its local history. There is no state to update in that case.
 		return false
 	}
+	if slot < tracked.observation.Slot {
+		return false
+	}
 	if tracked.spentAt != nil && slot <= *tracked.spentAt {
 		// A duplicate or out-of-order delivery carrying an earlier slot would
 		// make the entry prunable, and un-spendable by rollbacks, before its

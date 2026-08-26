@@ -314,6 +314,10 @@ func TestTrackerConsumeAtOnlyAdvancesSpendSlot(t *testing.T) {
 			wantSpentAt: slotPtr(20),
 		},
 		{
+			name: "spend before observation is ignored",
+			slot: 9,
+		},
+		{
 			name:        "duplicate delivery at the same slot is ignored",
 			firstSpend:  slotPtr(20),
 			slot:        20,
