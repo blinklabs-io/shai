@@ -75,11 +75,6 @@ func (o *OrderState) FillPercent() float64 {
 	return float64(filled) / float64(o.OriginalAmount) * 100
 }
 
-// RemainingValue returns the value of remaining offered assets at current price
-func (o *OrderState) RemainingValue() float64 {
-	return float64(o.OfferedAsset.Amount) * o.Price
-}
-
 // Parser implements order parsing for Genius Yield DEX
 type Parser struct{}
 
@@ -151,7 +146,7 @@ func (p *Parser) ParseOrderDatum(
 		TxHash:         txHash,
 		TxIndex:        txIndex,
 		Timestamp:      timestamp,
-		UpdatedAt:      time.Now(),
+		UpdatedAt:      timestamp,
 
 		// Preserve fee and datum fields for partial fill reconstruction
 		NFT:                  orderDatum.NFT,
@@ -227,7 +222,7 @@ func CalculateFillAmount(
 
 	// Cap at uint64 max and available amount
 	maxOffered := uint64(0)
-	if maxOfferedBig.Sign() >= 0 && maxOfferedBig.IsUint64() {
+	if maxOfferedBig.IsUint64() {
 		maxOffered = maxOfferedBig.Uint64()
 	} else if maxOfferedBig.Sign() > 0 {
 		maxOffered = ^uint64(0) // max uint64 if overflow
@@ -248,7 +243,7 @@ func CalculateFillAmount(
 	usedAskedBig = ceilDivPositiveBig(usedAskedBig, denom)
 
 	usedAsked := uint64(0)
-	if usedAskedBig.Sign() >= 0 && usedAskedBig.IsUint64() {
+	if usedAskedBig.IsUint64() {
 		usedAsked = usedAskedBig.Uint64()
 	}
 	if usedAsked > askedAssetAmount {

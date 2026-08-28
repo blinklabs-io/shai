@@ -347,10 +347,10 @@ var Profiles = map[string]map[string]Profile{
 			InterceptSlot: 107999998, // ~Nov 9 2023 (epoch 447)
 			InterceptHash: "9ade9e2cbbf075b7653df58c29ebb4d8910119b7ac452c9512ef2f211d25d2ff",
 			Config: OracleProfileConfig{
-			Protocol:      "geniusyield",
-			PoolAddresses: poolAddrs("geniusyield"),
-			InputRefs:     []ProfileConfigInputRef{},
-		},
+				Protocol:      "geniusyield",
+				PoolAddresses: poolAddrs("geniusyield"),
+				InputRefs:     []ProfileConfigInputRef{},
+			},
 		},
 		"spectrum": {
 			Name:          "spectrum",
