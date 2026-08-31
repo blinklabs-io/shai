@@ -97,6 +97,7 @@ func main() {
 	var oracles []*oracle.Oracle
 	var lendingOracles []*oracle.LendingOracle
 	var lendingStorage *oracle.LendingStorage
+	var djedOracle *oracle.DjedOracle
 
 	// Setup profiles
 	for _, profile := range config.GetProfiles() {
@@ -207,6 +208,42 @@ func main() {
 				os.Exit(1)
 			}
 			lendingOracles = append(lendingOracles, o)
+		case config.ProfileTypeDjed:
+			djedCfg, ok := profile.Config.(config.DjedProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid Djed profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			if djedCfg.OracleAddress == "" {
+				logger.Error(
+					"Djed oracle address is required",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			if djedOracle != nil {
+				logger.Error("multiple Djed profiles are not supported")
+				os.Exit(1)
+			}
+			djedOracle = oracle.NewDjedOracle(
+				idx,
+				cfg.Network,
+				djedCfg.OracleAddress,
+				storage.GetStorage(),
+			)
+			if err := djedOracle.Start(); err != nil {
+				logger.Error(
+					"failed to start Djed oracle",
+					"error",
+					err,
+				)
+				os.Exit(1)
+			}
 		case config.ProfileTypeNone:
 			logger.Error("profile type none given")
 			os.Exit(1)
