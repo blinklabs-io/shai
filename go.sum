@@ -19,8 +19,8 @@ github.com/blinklabs-io/adder v0.43.1 h1:KX47D17LHPWCd8wslINlnPhU4E//osrBqvjm6c5
 github.com/blinklabs-io/adder v0.43.1/go.mod h1:kso2baKfO6ciqAT+D6syT+McCk8XrbdjFzjnkwxEtTw=
 github.com/blinklabs-io/bursa v0.16.1-0.20260817233527-1eb8b64db609 h1:mRg3/s1Ydj9vqkIbh/mWL6SH3N45WA1S1WT3a1xFBY4=
 github.com/blinklabs-io/bursa v0.16.1-0.20260817233527-1eb8b64db609/go.mod h1:/SKC0QJhEV39p5K3RmUr8NAEHxmY3SGJi8ycXtXlNWQ=
-github.com/blinklabs-io/dingo v0.70.0 h1:9kPcpiGAZi/U8/y9et4thVTr4zWZmfg0B+fwnpCfgTw=
-github.com/blinklabs-io/dingo v0.70.0/go.mod h1:KGEh97/Lt2dMNa1xR/GLHMxrq9UytqznHIF2c/9KO6Q=
+github.com/blinklabs-io/dingo v0.70.1 h1:PFUy5n+XCQTWWHPJcyaceW+OfkKz2YAvCecMhsa4qC0=
+github.com/blinklabs-io/dingo v0.70.1/go.mod h1:4QavjI7N83xHRVAk9nbxUmdk1dIlAOFSKaitQ4ph4ss=
 github.com/blinklabs-io/go-bip39 v0.2.0 h1:rHYih+JzqaFVuP+UfvByKTAdJPeYtlvZu49yUGrZUk8=
 github.com/blinklabs-io/go-bip39 v0.2.0/go.mod h1:9Bp7a+XDc/KTPOqNnS7T/v1vH2lDXpmjM0GArwvOQL4=
 github.com/blinklabs-io/gouroboros v0.202.2 h1:rb21cE7YJwpbh/fEWxC5IpSig+zdDsuZUF/T5NrjGYw=
@@ -96,8 +96,8 @@ github.com/jrick/logrotate v1.0.0/go.mod h1:LNinyqDIJnpAur+b8yyulnQw/wDuN1+BYKlT
 github.com/kelseyhightower/envconfig v1.4.0 h1:Im6hONhd3pLkfDFsbRgu68RDNkGF1r3dvMUtDTo2cv8=
 github.com/kelseyhightower/envconfig v1.4.0/go.mod h1:cccZRl6mQpaq41TPp5QxidR+Sa3axMbJDNb//FQX6Gg=
 github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23/go.mod h1:J+Gs4SYgM6CZQHDETBtE9HaSEkGmuNXF86RwHhHUvq4=
-github.com/klauspost/compress v1.19.1 h1:VsB4HPswih7mmZ8WleSFQ75c/Ui1M4trX5oAsJnhSlk=
-github.com/klauspost/compress v1.19.1/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
+github.com/klauspost/compress v1.19.2 h1:hMRETovs/pu/dVWN7zIT1PGG8t509MwT6bO7XSi26R8=
+github.com/klauspost/compress v1.19.2/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/klauspost/cpuid/v2 v2.3.0 h1:S4CRMLnYUhGeDFDqkGriYKdfoFlDnMtqTiI/sFzhA9Y=
 github.com/klauspost/cpuid/v2 v2.3.0/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=

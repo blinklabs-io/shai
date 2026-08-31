@@ -6,7 +6,7 @@ require (
 	github.com/Salvionied/apollo/v2 v2.1.1
 	github.com/blinklabs-io/adder v0.43.1
 	github.com/blinklabs-io/bursa v0.16.1-0.20260817233527-1eb8b64db609
-	github.com/blinklabs-io/dingo v0.70.0
+	github.com/blinklabs-io/dingo v0.70.1
 	github.com/blinklabs-io/gouroboros v0.202.2
 	github.com/blinklabs-io/ouroboros-mock v0.16.1
 	github.com/dgraph-io/badger/v4 v4.9.6
@@ -51,7 +51,7 @@ require (
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/klauspost/compress v1.19.1 // indirect
+	github.com/klauspost/compress v1.19.2 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
