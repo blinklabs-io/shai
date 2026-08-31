@@ -332,6 +332,8 @@ func getOracleParser(protocol string) oracle.PoolParser {
 		return oracle.NewVyFiParser()
 	case "cswap":
 		return oracle.NewCSwapParser()
+	case "geniusyield":
+		return oracle.NewGeniusYieldParser()
 	default:
 		return nil
 	}
