@@ -102,10 +102,6 @@ func TestLendingOracleStoppedIgnoresChainsyncEvents(t *testing.T) {
 	}
 }
 
-// TestLendingOracleRollbackDeletesRolledBackStates covers the rollback
-// boundary: the rollback point is the consumer's new chain tip, so the state
-// recorded at that slot is still on the chain and is never redelivered by the
-// following roll-forward. Only later states are invalidated.
 func TestLendingOracleRollbackDeletesRolledBackStates(t *testing.T) {
 	storage := newTestLendingStorage(t)
 	states := []*LendingState{
@@ -151,8 +147,8 @@ func TestLendingOracleRollbackDeletesRolledBackStates(t *testing.T) {
 	if _, ok := o.GetState("mainnet:liqwid:before"); !ok {
 		t.Fatal("expected pre-rollback state to remain in memory")
 	}
-	if _, ok := o.GetState("mainnet:liqwid:at"); !ok {
-		t.Fatal("expected state at rollback slot to remain in memory")
+	if _, ok := o.GetState("mainnet:liqwid:at"); ok {
+		t.Fatal("expected state at rollback slot to be removed from memory")
 	}
 	if _, ok := o.GetState("mainnet:liqwid:after"); ok {
 		t.Fatal("expected state after rollback slot to be removed from memory")
@@ -162,24 +158,8 @@ func TestLendingOracleRollbackDeletesRolledBackStates(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to load persisted lending states: %v", err)
 	}
-	remaining := make(map[string]struct{}, len(persisted))
-	for _, state := range persisted {
-		remaining[state.StateId] = struct{}{}
-	}
-	if _, ok := remaining["before"]; !ok {
-		t.Fatalf("expected pre-rollback state in storage, got %#v", persisted)
-	}
-	if _, ok := remaining["at"]; !ok {
-		t.Fatalf(
-			"expected state at rollback slot in storage, got %#v",
-			persisted,
-		)
-	}
-	if _, ok := remaining["after"]; ok {
-		t.Fatalf(
-			"expected post-rollback state removed from storage, got %#v",
-			persisted,
-		)
+	if len(persisted) != 1 || persisted[0].StateId != "before" {
+		t.Fatalf("expected only pre-rollback state in storage, got %#v", persisted)
 	}
 }
 

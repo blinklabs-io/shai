@@ -15,10 +15,8 @@
 package oracle
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -122,14 +120,9 @@ func (o *Oracle) Start() error {
 		return err
 	}
 
-	// Load persisted pool and activity states.
+	// Load persisted pool states
 	if err := o.loadPersistedStates(); err != nil {
-		closeErr := o.storage.Close()
-		o.storage = nil
-		return errors.Join(
-			fmt.Errorf("failed to load persisted oracle states: %w", err),
-			closeErr,
-		)
+		logger.Warn("failed to load persisted pool states", "error", err)
 	}
 
 	// Register event handler with indexer
@@ -345,49 +338,33 @@ func (o *Oracle) handleTransaction(
 			prevPrice = prev.PriceXY()
 			prevState = prev
 		}
-		var transition *SwapTransition
 		if o.activity != nil {
-			swap, recorded, err := o.activity.ObserveTransition(
-				prevState,
-				state,
-			)
-			if err != nil {
-				o.poolsMu.Unlock()
-				return fmt.Errorf(
-					"failed to record activity for pool %s: %w",
-					state.PoolId,
-					err,
+			if _, err := o.activity.Observe(prevState, state); err != nil {
+				logger.Warn(
+					"failed to record pool activity",
+					"error", err,
+					"poolId", state.PoolId,
+					"slot", state.Slot,
 				)
-			}
-			if recorded {
-				transition = &swap
 			}
 		}
 		o.pools[state.PoolId] = state
 		o.poolsMu.Unlock()
 
-		// Persist the pool and its inferred activity atomically.
-		var persistErr error
-		if o.activity == nil {
-			persistErr = o.storage.SavePoolState(state)
-		} else {
-			persistErr = o.storage.SavePoolStateAndActivity(
-				state,
-				transition,
-				o.activity.WindowSlots(),
-			)
-		}
-		if persistErr != nil {
-			return fmt.Errorf(
-				"failed to persist pool %s: %w",
-				state.PoolId,
-				persistErr,
-			)
-		}
-
-		// Publish the confirmed state only after its durable write succeeds.
-		o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
+		// Notify subscribers of price update
 		o.notifySubscribers(state, prevPrice)
+
+		// Update mempool manager's confirmed state for this pool
+		o.mempoolMgr.UpdateConfirmedState(state.PoolId, state)
+
+		// Persist to storage
+		if err := o.storage.SavePoolState(state); err != nil {
+			logger.Error(
+				"failed to persist pool state",
+				"error", err,
+				"poolId", state.PoolId,
+			)
+		}
 
 		logger.Debug(
 			"pool state updated",
@@ -543,9 +520,8 @@ func producedUTXOs(
 	return utxos
 }
 
-// handleRollback processes a rollback event by invalidating pool states that
-// were recorded after the rollback slot. The rollback point is the new chain
-// tip, so its own block stays valid and is never redelivered.
+// handleRollback processes a rollback event by invalidating pool states
+// that were recorded at or after the rollback slot
 func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	logger := logging.GetLogger()
 	logger.Warn(
@@ -553,13 +529,12 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		"slot", evt.SlotNumber,
 		"blockHash", evt.BlockHash,
 	)
-	firstInvalidSlot := firstRolledBackSlot(evt.SlotNumber)
 
-	// Collect pool IDs to invalidate (states after the rollback slot)
+	// Collect pool IDs to invalidate (states with Slot >= rollback slot)
 	o.poolsMu.Lock()
 	var toDelete []*PoolState
 	for _, state := range o.pools {
-		if state.Slot >= firstInvalidSlot {
+		if state.Slot >= evt.SlotNumber {
 			toDelete = append(toDelete, state)
 		}
 	}
@@ -573,7 +548,7 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	o.cdpsMu.Lock()
 	var cdpsToDelete []*CDPState
 	for _, state := range o.cdps {
-		if state.Slot >= firstInvalidSlot {
+		if state.Slot >= evt.SlotNumber {
 			cdpsToDelete = append(cdpsToDelete, state)
 		}
 	}
@@ -582,28 +557,8 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 	o.cdpsMu.Unlock()
 
-	// The durable rollback runs first, and runs whether or not this oracle
-	// tracks activity in memory. Dropping the reorged swaps from memory while
-	// they survive on disk would let a restart restore and count them again,
-	// and persisted swaps have to be removed even when no tracker is attached.
-	var errs []error
-	activityRolledBack := true
-	if o.storage != nil {
-		if err := o.storage.RollbackActivity(firstInvalidSlot); err != nil {
-			logger.Error(
-				"failed to roll back persisted pool activity",
-				"error", err,
-				"firstInvalidSlot", firstInvalidSlot,
-			)
-			errs = append(
-				errs,
-				fmt.Errorf("rollback pool activity: %w", err),
-			)
-			activityRolledBack = false
-		}
-	}
-	if o.activity != nil && activityRolledBack {
-		o.activity.Rollback(firstInvalidSlot)
+	if o.activity != nil {
+		o.activity.Rollback(evt.SlotNumber)
 	}
 
 	// Invalidate mempool tracking for rolled-back pools. Otherwise the reorged
@@ -614,6 +569,7 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 
 	// Delete from persistent storage
+	var errs []error
 	for _, state := range toDelete {
 		if err := o.storage.DeletePoolState(state); err != nil {
 			logger.Error(
@@ -622,10 +578,7 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 				"poolId", state.PoolId,
 				"slot", state.Slot,
 			)
-			errs = append(
-				errs,
-				fmt.Errorf("delete rolled-back pool %s: %w", state.PoolId, err),
-			)
+			errs = append(errs, err)
 		} else {
 			logger.Info(
 				"invalidated pool state due to rollback",
@@ -647,10 +600,7 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 				"cdpId", state.CDPId,
 				"slot", state.Slot,
 			)
-			errs = append(
-				errs,
-				fmt.Errorf("delete rolled-back CDP %s: %w", state.CDPId, err),
-			)
+			errs = append(errs, err)
 		} else {
 			logger.Info(
 				"invalidated CDP state due to rollback",
@@ -663,23 +613,12 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 
 	if len(errs) > 0 {
 		return fmt.Errorf(
-			"failed to persist oracle rollback: %w",
-			errors.Join(errs...),
+			"failed to delete %d oracle states during rollback",
+			len(errs),
 		)
 	}
 
 	return nil
-}
-
-// firstRolledBackSlot returns the first slot invalidated by a chain-sync
-// rollback. A rollback point is the consumer's new chain tip: that block is
-// still on the chain and is not redelivered on the following roll-forward, so
-// discarding it would drop confirmed history permanently.
-func firstRolledBackSlot(slot uint64) uint64 {
-	if slot == math.MaxUint64 {
-		return slot
-	}
-	return slot + 1
 }
 
 // isPoolAddress checks if an address is a monitored pool address
@@ -697,23 +636,6 @@ func (o *Oracle) loadPersistedStates() error {
 	cdpStates, err := o.storage.LoadAllCDPStates()
 	if err != nil {
 		return err
-	}
-	activityState, err := o.storage.LoadActivityState()
-	if err != nil {
-		return err
-	}
-	if o.activity == nil {
-		o.activity, err = NewActivityTracker(
-			defaultPoolActivityWindowSlots,
-		)
-		if err != nil {
-			return err
-		}
-	}
-	if activityState.WindowSlots != 0 {
-		if err := o.activity.Restore(activityState); err != nil {
-			return fmt.Errorf("failed to restore pool activity: %w", err)
-		}
 	}
 
 	o.poolsMu.Lock()
@@ -746,7 +668,6 @@ func (o *Oracle) loadPersistedStates() error {
 		"loaded persisted oracle states",
 		"pools", len(states),
 		"cdps", len(cdpStates),
-		"swaps", len(activityState.Swaps),
 	)
 
 	return nil

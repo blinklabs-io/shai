@@ -33,12 +33,6 @@ type PoolParser = dex.PoolParser
 // PoolVolume is an alias for dex.PoolVolume.
 type PoolVolume = dex.PoolVolume
 
-// SwapTransition is an alias for dex.SwapTransition.
-type SwapTransition = dex.SwapTransition
-
-// ActivityState is an alias for dex.ActivityState.
-type ActivityState = dex.ActivityState
-
 // ActivityTracker is an alias for dex.ActivityTracker.
 type ActivityTracker = dex.ActivityTracker
 
@@ -63,4 +57,5 @@ var (
 	NewWingRidersV2Parser = dex.NewWingRidersV2Parser
 	NewVyFiParser         = dex.NewVyFiParser
 	NewCSwapParser        = dex.NewCSwapParser
+	NewGeniusYieldParser  = dex.NewGeniusYieldParser
 )

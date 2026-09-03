@@ -369,15 +369,10 @@ func (o *LendingOracle) handleRollback(evt event.RollbackEvent) error {
 		"blockHash", evt.BlockHash,
 	)
 
-	// The rollback point is the new chain tip: its block stays on the chain and
-	// is not redelivered by the following roll-forward, so only later states
-	// are invalidated.
-	firstInvalidSlot := firstRolledBackSlot(evt.SlotNumber)
-
 	o.statesMu.Lock()
 	var toDelete []*LendingState
 	for key, state := range o.states {
-		if state.Slot >= firstInvalidSlot {
+		if state.Slot >= evt.SlotNumber {
 			toDelete = append(toDelete, state)
 			delete(o.states, key)
 		}
