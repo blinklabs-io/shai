@@ -4,13 +4,17 @@ import (
 	"slices"
 
 	"github.com/blinklabs-io/shai/dex"
+	"github.com/blinklabs-io/shai/dex/butane"
 )
 
 // poolAddrs builds the monitored-address list for a protocol from the canonical
 // locator registry in the public dex package, so the service config and the
 // library share a single source of truth for pool script addresses.
 func poolAddrs(protocol string) []ProfileConfigAddress {
-	addrs := dex.PoolAddresses(protocol)
+	return profileAddrs(dex.PoolAddresses(protocol))
+}
+
+func profileAddrs(addrs []string) []ProfileConfigAddress {
 	out := make([]ProfileConfigAddress, 0, len(addrs))
 	for _, a := range addrs {
 		out = append(out, ProfileConfigAddress{Address: a})
@@ -68,8 +72,9 @@ type OracleProfileConfig struct {
 
 // SyntheticsProfileConfig contains configuration for synthetics protocols.
 type SyntheticsProfileConfig struct {
-	Protocol     string                 // Protocol name (e.g., "indigo")
-	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+	Protocol              string                 // Protocol name (e.g., "butane")
+	CDPAddresses          []ProfileConfigAddress // Exact CDP addresses to monitor
+	CDPPaymentCredentials []string               // CDP payment credentials to monitor
 }
 
 // LendingProfileConfig contains configuration for lending protocols.
@@ -310,6 +315,16 @@ var Profiles = map[string]map[string]Profile{
 						Address: "addr1w80ptp0qgmcklhmeweesqgeurtlma8fsxsr9dt8au30fzss0czhl9",
 					},
 				},
+			},
+		},
+		"butane": {
+			Name:          "butane",
+			Type:          ProfileTypeSynthetics,
+			InterceptSlot: 126083269,
+			InterceptHash: "64818ae4aab96778eae64cc140b13875f42b9b9f432e755f89dafaeadc1c8ee3",
+			Config: SyntheticsProfileConfig{
+				Protocol:              "butane",
+				CDPPaymentCredentials: butane.GetCDPPaymentCredentials(),
 			},
 		},
 		"liqwid": {

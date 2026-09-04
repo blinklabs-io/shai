@@ -111,6 +111,31 @@ func TestOracleIndigoCDPUpdateDeletesSpentState(t *testing.T) {
 	if response.CDPs[0].CDPId != newID {
 		t.Fatalf("expected API to return %s, got %s", newID, response.CDPs[0].CDPId)
 	}
+
+	restarted := New(nil, o.profile, NewIndigoParser())
+	restarted.storage = o.storage
+	if err := restarted.loadPersistedStates(); err != nil {
+		t.Fatalf("failed to load Indigo CDPs after restart: %v", err)
+	}
+	if err := restarted.handleRollback(event.RollbackEvent{
+		SlotNumber: oldState.Slot,
+		BlockHash:  "block-10",
+	}); err != nil {
+		t.Fatalf("failed to roll back Indigo CDP update: %v", err)
+	}
+	if _, ok := restarted.GetCDPState(oldID); !ok {
+		t.Fatalf("expected rollback to restore Indigo CDP %s", oldID)
+	}
+	if _, ok := restarted.GetCDPState(newID); ok {
+		t.Fatalf("expected rollback to remove Indigo CDP %s", newID)
+	}
+	if _, err := o.storage.LoadCDPState(
+		"mainnet",
+		IndigoProtocolName,
+		oldID,
+	); err != nil {
+		t.Fatalf("expected restored Indigo CDP in storage: %v", err)
+	}
 }
 
 func TestOracleIndigoCDPCloseDeletesSpentState(t *testing.T) {
