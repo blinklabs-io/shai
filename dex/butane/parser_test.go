@@ -325,6 +325,10 @@ func TestButaneParserRejectsNegativeMintedAmount(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to encode: %v", err)
 	}
+	var monoDatum MonoDatum
+	if _, err := cbor.Decode(cborData, &monoDatum); err == nil {
+		t.Fatal("expected negative minted amount to fail during model decoding")
+	}
 
 	_, err = NewParser().ParseMonoDatum(
 		cborData,

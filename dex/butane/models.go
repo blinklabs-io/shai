@@ -63,6 +63,9 @@ func (d *MonoDatum) UnmarshalCBOR(cborData []byte) error {
 		if err := cbor.DecodeGeneric(tmpConstr.Fields(), &cdp); err != nil {
 			return err
 		}
+		if cdp.Minted < 0 {
+			return fmt.Errorf("invalid negative minted amount: %d", cdp.Minted)
+		}
 		d.CDP = &cdp
 	default:
 		// Other constructors (e.g., ParamsWrapper) are valid but not parsed

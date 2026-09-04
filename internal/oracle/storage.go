@@ -572,15 +572,36 @@ func (s *OracleStorage) loadCDPStates(
 	network string,
 	protocol string,
 ) ([]*CDPState, error) {
-	all, err := s.LoadAllCDPStates()
+	logger := logging.GetLogger()
+	states := make([]*CDPState, 0)
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte(cdpStateKeyPrefix + network + ":" + protocol + ":")
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			if err := item.Value(func(value []byte) error {
+				var state CDPState
+				if err := json.Unmarshal(value, &state); err != nil {
+					logger.Warn(
+						"failed to unmarshal CDP state",
+						"key", string(item.Key()),
+						"error", err,
+					)
+					return nil
+				}
+				states = append(states, &state)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, fmt.Errorf("load CDP states after rollback: %w", err)
-	}
-	states := make([]*CDPState, 0, len(all))
-	for _, state := range all {
-		if state.Network == network && state.Protocol == protocol {
-			states = append(states, state)
-		}
 	}
 	return states, nil
 }
