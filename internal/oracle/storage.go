@@ -28,9 +28,10 @@ import (
 )
 
 const (
-	poolStateKeyPrefix    = "oracle_pool_"
-	cdpStateKeyPrefix     = "oracle_cdp_"
-	cdpUndoStateKeyPrefix = "oracle_undo_cdp_"
+	poolStateKeyPrefix         = "oracle_pool_"
+	cdpStateKeyPrefix          = "oracle_cdp_"
+	cdpUndoStateKeyPrefix      = "oracle_undo_cdp_"
+	cdpRollbackDeleteBatchSize = 100
 )
 
 // OracleStorage handles persistence of oracle data
@@ -413,35 +414,11 @@ func (s *OracleStorage) RollbackCDPStates(
 	s.cdpMu.Lock()
 	defer s.cdpMu.Unlock()
 
-	states := make(map[string]*CDPState)
 	var undoRecords []struct {
 		key    string
 		record cdpUndoRecord
 	}
 	err := s.db.View(func(txn *badger.Txn) error {
-		statePrefix := []byte(cdpStateKeyPrefix + network + ":" + protocol + ":")
-		stateOpts := badger.DefaultIteratorOptions
-		stateOpts.Prefix = statePrefix
-		stateIt := txn.NewIterator(stateOpts)
-		defer stateIt.Close()
-		for stateIt.Rewind(); stateIt.Valid(); stateIt.Next() {
-			item := stateIt.Item()
-			if err := item.Value(func(value []byte) error {
-				var state CDPState
-				if err := json.Unmarshal(value, &state); err != nil {
-					return fmt.Errorf(
-						"unmarshal CDP state %s: %w",
-						item.KeyCopy(nil),
-						err,
-					)
-				}
-				states[state.CDPId] = &state
-				return nil
-			}); err != nil {
-				return err
-			}
-		}
-
 		undoPrefix := []byte(cdpUndoStateKeyPrefix + network + ":" + protocol + ":")
 		undoOpts := badger.DefaultIteratorOptions
 		undoOpts.Prefix = undoPrefix
@@ -484,86 +461,128 @@ func (s *OracleStorage) RollbackCDPStates(
 		return undoRecords[i].record.TransactionHash >
 			undoRecords[j].record.TransactionHash
 	})
-	toDelete := make(map[string]struct{})
-	toWrite := make(map[string]*CDPState)
-	journaledProduced := make(map[string]struct{})
 	for _, entry := range undoRecords {
-		for _, cdpId := range entry.record.Produced {
-			journaledProduced[cdpId] = struct{}{}
+		if err := s.rollbackCDPUndoRecord(entry.key, entry.record); err != nil {
+			return nil, err
 		}
 	}
-	for _, entry := range undoRecords {
-		for _, cdpId := range entry.record.Produced {
-			delete(states, cdpId)
-			delete(toWrite, cdpId)
-			toDelete[cdpId] = struct{}{}
-		}
-		for _, state := range entry.record.Spent {
-			if state == nil {
-				return nil, fmt.Errorf("CDP undo record %s has nil spent state", entry.key)
-			}
-			states[state.CDPId] = state
-			toWrite[state.CDPId] = state
-			delete(toDelete, state.CDPId)
-		}
+	if err := s.deleteInvalidCDPStates(network, protocol, firstInvalidSlot); err != nil {
+		return nil, err
 	}
-	for cdpId := range journaledProduced {
-		if _, ok := states[cdpId]; ok {
-			return nil, fmt.Errorf(
-				"CDP rollback left journaled output %s: invalid undo order",
-				cdpId,
-			)
-		}
-	}
-	for cdpId, state := range states {
-		if state.Slot >= firstInvalidSlot {
-			delete(states, cdpId)
-			delete(toWrite, cdpId)
-			toDelete[cdpId] = struct{}{}
-		}
+	states, err := s.loadCDPStates(network, protocol)
+	if err != nil {
+		return nil, err
 	}
 
-	encodedStates := make(map[string][]byte, len(toWrite))
-	for cdpId, state := range toWrite {
-		data, err := json.Marshal(state)
-		if err != nil {
-			return nil, fmt.Errorf("marshal restored CDP %s: %w", cdpId, err)
-		}
-		encodedStates[cdpId] = data
-	}
-	err = s.db.Update(func(txn *badger.Txn) error {
-		for cdpId := range toDelete {
-			if err := txn.Delete([]byte(cdpStateKey(network, protocol, cdpId))); err != nil {
+	result := append([]*CDPState(nil), states...)
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].CDPId < result[j].CDPId
+	})
+	return result, nil
+}
+
+// rollbackCDPUndoRecord applies one journal entry atomically. Removing the
+// journal entry in the same transaction makes a retry resume at the next
+// entry if a later transaction fails, without requiring one transaction for a
+// deep rollback.
+func (s *OracleStorage) rollbackCDPUndoRecord(
+	key string,
+	record cdpUndoRecord,
+) error {
+	err := s.db.Update(func(txn *badger.Txn) error {
+		for _, cdpId := range record.Produced {
+			if err := txn.Delete([]byte(cdpStateKey(
+				record.Network,
+				record.Protocol,
+				cdpId,
+			))); err != nil {
 				return err
 			}
 		}
-		for cdpId, data := range encodedStates {
+		for _, state := range record.Spent {
+			if state == nil || state.CDPId == "" {
+				return fmt.Errorf("CDP undo record %s has invalid spent state", key)
+			}
+			data, err := json.Marshal(state)
+			if err != nil {
+				return fmt.Errorf("marshal restored CDP %s: %w", state.CDPId, err)
+			}
 			if err := txn.Set(
-				[]byte(cdpStateKey(network, protocol, cdpId)),
+				[]byte(cdpStateKey(record.Network, record.Protocol, state.CDPId)),
 				data,
 			); err != nil {
 				return err
 			}
 		}
-		for _, entry := range undoRecords {
-			if err := txn.Delete([]byte(entry.key)); err != nil {
-				return err
+		return txn.Delete([]byte(key))
+	})
+	if err != nil {
+		return fmt.Errorf("persist CDP rollback entry %s: %w", key, err)
+	}
+	return nil
+}
+
+func (s *OracleStorage) deleteInvalidCDPStates(
+	network string,
+	protocol string,
+	firstInvalidSlot uint64,
+) error {
+	keys := make([]string, 0, cdpRollbackDeleteBatchSize)
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte(cdpStateKeyPrefix + network + ":" + protocol + ":")
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			var state CDPState
+			if err := item.Value(func(value []byte) error {
+				return json.Unmarshal(value, &state)
+			}); err != nil {
+				return fmt.Errorf("unmarshal CDP state %s: %w", item.Key(), err)
+			}
+			if state.Slot >= firstInvalidSlot {
+				keys = append(keys, string(item.KeyCopy(nil)))
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		return nil, fmt.Errorf("persist CDP rollback: %w", err)
+		return fmt.Errorf("load invalid CDP states: %w", err)
 	}
+	for len(keys) > 0 {
+		batchSize := min(cdpRollbackDeleteBatchSize, len(keys))
+		batch := keys[:batchSize]
+		if err := s.db.Update(func(txn *badger.Txn) error {
+			for _, key := range batch {
+				if err := txn.Delete([]byte(key)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return fmt.Errorf("delete invalid CDP states: %w", err)
+		}
+		keys = keys[batchSize:]
+	}
+	return nil
+}
 
-	result := make([]*CDPState, 0, len(states))
-	for _, state := range states {
-		result = append(result, state)
+func (s *OracleStorage) loadCDPStates(
+	network string,
+	protocol string,
+) ([]*CDPState, error) {
+	all, err := s.LoadAllCDPStates()
+	if err != nil {
+		return nil, fmt.Errorf("load CDP states after rollback: %w", err)
 	}
-	sort.Slice(result, func(i, j int) bool {
-		return result[i].CDPId < result[j].CDPId
-	})
-	return result, nil
+	states := make([]*CDPState, 0, len(all))
+	for _, state := range all {
+		if state.Network == network && state.Protocol == protocol {
+			states = append(states, state)
+		}
+	}
+	return states, nil
 }
 
 // poolStateKey generates the storage key for a pool state

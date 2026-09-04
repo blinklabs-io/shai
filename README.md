@@ -143,13 +143,24 @@ Track pool prices across multiple DEXs:
 
 ```bash
 export NETWORK=mainnet
-export PROFILES=minswap-v1,minswap-v2,sundaeswap-v1,sundaeswap-v3,splash-v1,wingriders-v2,vyfi,cswap,butane
+export PROFILES=minswap-v1,minswap-v2,sundaeswap-v1,sundaeswap-v3,splash-v1,wingriders-v2,vyfi,cswap
 export INDEXER_TCP_ADDRESS=localhost:3001
 ./shai
 ```
 
 `cswap` is wired to the verified mainnet DEX pool contract address and can be enabled like the other oracle profiles.
 The bundled profile values were sourced from the public CRFA offchain registry plus CSWAP's live contract registry, and the intercept point was verified from the earliest on-chain `dex` contract transaction.
+
+### Example: Synthetics Oracle Mode
+
+Track Butane CDPs:
+
+```bash
+export NETWORK=mainnet
+export PROFILES=butane
+export INDEXER_TCP_ADDRESS=localhost:3001
+./shai
+```
 
 ### Example: Batcher Mode
 

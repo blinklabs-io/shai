@@ -648,6 +648,9 @@ func (o *Oracle) isPoolAddress(addr string) bool {
 	if _, ok := o.poolAddresses[addr]; ok {
 		return true
 	}
+	if len(o.cdpPaymentCredentials) == 0 {
+		return false
+	}
 	parsed, err := ledger_common.NewAddress(addr)
 	if err != nil {
 		return false

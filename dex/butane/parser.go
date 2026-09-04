@@ -79,6 +79,9 @@ func (p *Parser) ParseMonoDatum(
 	}
 
 	cdp := monoDatum.CDP
+	if cdp.Minted < 0 {
+		return nil, fmt.Errorf("invalid negative minted amount: %d", cdp.Minted)
+	}
 
 	// Generate CDP ID
 	cdpId := GenerateCDPId(txHash, txIndex)

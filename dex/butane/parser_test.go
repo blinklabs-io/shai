@@ -16,6 +16,7 @@ package butane
 
 import (
 	"encoding/hex"
+	"strings"
 	"testing"
 	"time"
 
@@ -306,6 +307,34 @@ func TestButaneParserParseMonoDatum(t *testing.T) {
 			time.UnixMilli(startTimeMs),
 			state.StartTime,
 		)
+	}
+}
+
+func TestButaneParserRejectsNegativeMintedAmount(t *testing.T) {
+	owner := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
+		make([]byte, 28),
+		[]byte{},
+	})
+	datum := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{
+		owner,
+		[]byte("bBTC"),
+		int64(-1),
+		int64(1_704_067_200_123),
+	})
+	cborData, err := cbor.Encode(&datum)
+	if err != nil {
+		t.Fatalf("failed to encode: %v", err)
+	}
+
+	_, err = NewParser().ParseMonoDatum(
+		cborData,
+		strings.Repeat("a", 64),
+		0,
+		1,
+		time.Unix(0, 0),
+	)
+	if err == nil {
+		t.Fatal("expected negative minted amount to fail")
 	}
 }
 
