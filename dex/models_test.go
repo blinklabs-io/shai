@@ -320,6 +320,7 @@ func TestPoolAddressesLocator(t *testing.T) {
 		NewWingRidersV2Parser(),
 		NewVyFiParser(),
 		NewCSwapParser(),
+		NewGeniusYieldParser(),
 	}
 	for _, p := range parsers {
 		proto := p.Protocol()
