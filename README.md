@@ -6,6 +6,7 @@ Shai is a Cardano Multi-DEX oracle and matcher bot. It monitors the blockchain f
 
 - DEX Oracle: Real-time pool state tracking from on-chain data
 - Multi-DEX Support: Minswap v1/v2, SundaeSwap v1/v3, Splash v1, WingRiders v2, VyFi, CSWAP
+- Synthetics Oracles: Indigo and Butane CDP tracking
 - Spectrum Batching: Matcher bot for Spectrum-compatible DEXs
 - Mempool Monitoring: Track pending transactions for faster matching
 - Cardano Node: Acts as both NtN (Node-to-Node) and NtC (Node-to-Client) peer
@@ -98,6 +99,23 @@ Oracle profiles (price tracking):
 - `vyfi` - VyFi pools
 - `cswap` - CSWAP pools
 
+Synthetics profiles (CDP tracking):
+- `indigo` - Indigo CDPs
+- `butane` - Butane V1 CDPs on mainnet
+
+The Butane profile follows the deployed `pointers.spend` payment credential,
+so it tracks CDPs across their owner-selected staking credentials. Its datum
+and script identifiers come from the
+[Butane V1 deployment blueprint](https://github.com/butaneprotocol/butane-deployments/blob/12504bb111b11ec5d51c4176aaa29fd7763c966d/butane-v1-deployed.json).
+
+Synthetics storage keeps one rollback journal record per confirmed transaction
+that creates or spends a tracked CDP. Each record contains the complete state
+of every spent CDP and the IDs of produced CDPs. These records are retained for
+the lifetime of the database because the chain-sync input exposes rollback
+points, but no immutable-chain horizon from which Shai could safely prune them.
+Storage growth is therefore linear in CDP transaction history; bounded pruning
+requires an authoritative immutable-point signal from the input.
+
 Spectrum batching profiles (matcher bot):
 - `spectrum` - Spectrum DEX on mainnet
 - `teddyswap` - TeddySwap on preview/mainnet
@@ -132,6 +150,17 @@ export INDEXER_TCP_ADDRESS=localhost:3001
 
 `cswap` is wired to the verified mainnet DEX pool contract address and can be enabled like the other oracle profiles.
 The bundled profile values were sourced from the public CRFA offchain registry plus CSWAP's live contract registry, and the intercept point was verified from the earliest on-chain `dex` contract transaction.
+
+### Example: Synthetics Oracle Mode
+
+Track Butane CDPs:
+
+```bash
+export NETWORK=mainnet
+export PROFILES=butane
+export INDEXER_TCP_ADDRESS=localhost:3001
+./shai
+```
 
 ### Example: Batcher Mode
 
