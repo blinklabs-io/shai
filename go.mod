@@ -19,6 +19,12 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
+require (
+	github.com/maestro-org/go-sdk v1.2.1 // indirect
+	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
+	golang.org/x/text v0.41.0 // indirect
+)
+
 //replace github.com/blinklabs-io/gouroboros => ../gouroboros
 
 //replace github.com/blinklabs-io/adder => ../adder
@@ -26,6 +32,7 @@ require (
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/Salvionied/apollo v1.5.0
 	github.com/SundaeSwap-finance/kugo v1.3.1 // indirect
 	github.com/SundaeSwap-finance/ogmigo/v6 v6.2.1 // indirect
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
