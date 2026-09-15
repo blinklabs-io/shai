@@ -27,6 +27,7 @@ import (
 	"github.com/Salvionied/apollo/serialization/TransactionInput"
 	"github.com/Salvionied/apollo/serialization/UTxO"
 
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/shai/common"
@@ -732,10 +733,14 @@ func buildContainedFeeDatum() cbor.ConstructorEncoder {
 // buildOwnerAddress constructs the owner address from order state
 func buildOwnerAddress(order *dexgy.OrderState) (serAddress.Address, error) {
 	cfg := config.GetConfig()
-	networkId := byte(1) // mainnet
-	if cfg.Network == "preview" || cfg.Network == "preprod" {
-		networkId = 0
+	network, ok := ouroboros.NetworkByName(cfg.Network)
+	if !ok {
+		return serAddress.Address{}, fmt.Errorf(
+			"unknown network name: %s",
+			cfg.Network,
+		)
 	}
+	networkId := network.Id
 
 	if len(order.OwnerAddr.PaymentCredential.Hash) > 0 {
 		return orderAddressToSerAddress(order.OwnerAddr, networkId)

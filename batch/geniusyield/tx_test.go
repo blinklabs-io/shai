@@ -1182,3 +1182,53 @@ func TestFeeConfigDefaults(t *testing.T) {
 		)
 	}
 }
+
+func TestBuildOwnerAddressNonPreviewTestnets(t *testing.T) {
+	cfg := config.GetConfig()
+	originalNetwork := cfg.Network
+	defer func() {
+		cfg.Network = originalNetwork
+	}()
+
+	order := &dexgy.OrderState{
+		Owner: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+	}
+
+	for _, network := range []string{"sanchonet", "devnet", "prime-testnet"} {
+		cfg.Network = network
+		addr, err := buildOwnerAddress(order)
+		if err != nil {
+			t.Fatalf("unexpected error for %s: %v", network, err)
+		}
+		if addr.Network != 0 {
+			t.Fatalf(
+				"expected testnet network 0 for %s, got %d",
+				network,
+				addr.Network,
+			)
+		}
+		if addr.HeaderByte != 0x60 {
+			t.Fatalf(
+				"expected testnet header 0x60 for %s, got 0x%x",
+				network,
+				addr.HeaderByte,
+			)
+		}
+	}
+}
+
+func TestBuildOwnerAddressUnknownNetwork(t *testing.T) {
+	cfg := config.GetConfig()
+	originalNetwork := cfg.Network
+	defer func() {
+		cfg.Network = originalNetwork
+	}()
+
+	cfg.Network = "not-a-network"
+	order := &dexgy.OrderState{
+		Owner: "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4",
+	}
+	if _, err := buildOwnerAddress(order); err == nil {
+		t.Fatal("expected error for unknown network name")
+	}
+}
