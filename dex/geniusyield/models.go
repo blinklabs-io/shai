@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package geniusyield provides datum types and parsing for Genius Yield
-// order-book DEX protocol.
 package geniusyield
 
 import (
@@ -27,12 +25,16 @@ import (
 const (
 	ProtocolName = "geniusyield"
 
-	// Mainnet order script hash
-	// Genius Yield order-book DEX contract
-	OrderScriptHash = "f95cab2d4cf78cc5ffa1c6f0bdb17a6f35df9a60e442d59e2d576e32"
+	// OrderScriptHash is the payment credential of the mainnet partial order
+	// script. Orders sit at base addresses that share this script hash and
+	// carry the maker's own staking credential, so the order UTxOs of this
+	// protocol cannot be enumerated as a fixed address set.
+	OrderScriptHash = "edfff663d37fc5f9753bc4222e0da2bfe08aa48db0837d2c329adeb3"
 
-	// Mainnet NFT policy ID for order identification
-	OrderNFTPolicy = "2e5f2c41e0a58f5a5a7b1f5c5e5f5e5f5e5f5e5f5e5f5e5f5e5f5e5f"
+	// OrderNFTPolicy is the mainnet minting policy of the NFT that identifies
+	// an order UTxO. It is the podNFT currency symbol recorded in the on-chain
+	// PartialOrderConfigDatum.
+	OrderNFTPolicy = "22f6999d4effc0ade05f6e1a70b702c65d6b3cdf0e301e4a8267f585"
 )
 
 // PartialOrderDatum represents the Genius Yield order datum structure
@@ -51,30 +53,32 @@ const (
 //	    , podEnd :: Maybe POSIXTime
 //	    , podPartialFills :: Integer
 //	    , podMakerLovelaceFlatFee :: Integer
-//	    , podMakerOfferedPercentFee :: Rational
-//	    , podMakerOfferedPercentFeeMax :: Integer
+//	    , podMakerOfferedPercentFee :: Integer
 //	    , podContainedFee :: ContainedFee
 //	    , podContainedPayment :: Integer
 //	    }
+//
+// The datum is a fifteen-field constructor-0 array. Field counts and
+// constructor tags are pinned by TestGeniusYieldParseMainnetOrderDatum, which
+// decodes a mainnet order datum.
 type PartialOrderDatum struct {
 	cbor.StructAsArray
 	cbor.DecodeStoreCbor
-	OwnerKey                  []byte        // PubKeyHash for cancellation
-	OwnerAddr                 Address       // Address for payments
-	OfferedAsset              Asset         // Asset being offered
-	OfferedOriginalAmount     uint64        // Original units offered
-	OfferedAmount             uint64        // Current units offered
-	AskedAsset                Asset         // Asset wanted as payment
-	Price                     Rational      // Price per unit (num/denom)
-	NFT                       []byte        // TokenName identifying this order
-	Start                     OptionalPOSIX // Optional start time
-	End                       OptionalPOSIX // Optional end time
-	PartialFills              uint64        // Number of partial fills
-	MakerLovelaceFlatFee      uint64        // Flat fee in lovelace
-	MakerOfferedPercentFee    Rational      // Percentage fee
-	MakerOfferedPercentFeeMax uint64        // Max percentage fee
-	ContainedFee              ContainedFee  // Fee tracking
-	ContainedPayment          uint64        // Payment tracking
+	OwnerKey               []byte        // PubKeyHash for cancellation
+	OwnerAddr              Address       // Address for payments
+	OfferedAsset           Asset         // Asset being offered
+	OfferedOriginalAmount  uint64        // Original units offered
+	OfferedAmount          uint64        // Current units offered
+	AskedAsset             Asset         // Asset wanted as payment
+	Price                  Rational      // Price per unit (num/denom)
+	NFT                    []byte        // TokenName identifying this order
+	Start                  OptionalPOSIX // Optional start time
+	End                    OptionalPOSIX // Optional end time
+	PartialFills           uint64        // Number of partial fills
+	MakerLovelaceFlatFee   uint64        // Flat fee in lovelace
+	MakerOfferedPercentFee uint64        // Offered-asset maker fee units
+	ContainedFee           ContainedFee  // Fee tracking
+	ContainedPayment       uint64        // Payment tracking
 }
 
 func (d *PartialOrderDatum) UnmarshalCBOR(cborData []byte) error {
@@ -161,9 +165,46 @@ func (c *Credential) UnmarshalCBOR(cborData []byte) error {
 	return nil
 }
 
-// OptionalCredential represents an optional staking credential
+// StakingCredential is the datum's StakingCredential: StakingHash of a
+// Credential (constructor 0) or StakingPtr (constructor 1). Only StakingHash
+// carries a credential, so Credential is nil when IsPointer is set.
+type StakingCredential struct {
+	IsPointer  bool
+	Credential *Credential
+}
+
+func (s *StakingCredential) UnmarshalCBOR(cborData []byte) error {
+	var tmpConstr cbor.ConstructorDecoder
+	if _, err := cbor.Decode(cborData, &tmpConstr); err != nil {
+		return err
+	}
+	switch tag := tmpConstr.Tag(); tag {
+	case 0:
+		var wrapper struct {
+			cbor.StructAsArray
+			Inner Credential
+		}
+		if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
+			return err
+		}
+		s.IsPointer = false
+		s.Credential = &wrapper.Inner
+		return nil
+	case 1:
+		s.IsPointer = true
+		s.Credential = nil
+		return nil
+	default:
+		return fmt.Errorf("unsupported staking credential constructor %d", tag)
+	}
+}
+
+// OptionalCredential represents the address's optional staking credential. The
+// datum holds a Maybe StakingCredential, so the present case wraps the payment
+// credential in a StakingHash rather than holding it directly.
 type OptionalCredential struct {
 	IsPresent  bool
+	IsPointer  bool
 	Credential *Credential
 }
 
@@ -176,21 +217,24 @@ func (o *OptionalCredential) UnmarshalCBOR(cborData []byte) error {
 	switch tag := tmpConstr.Tag(); tag {
 	case 0:
 	case 1:
+		// Reset to avoid stale data when struct is reused
 		o.IsPresent = false
-		o.Credential = nil // Reset to avoid stale data when struct is reused
+		o.IsPointer = false
+		o.Credential = nil
 		return nil
 	default:
 		return fmt.Errorf("unsupported optional credential constructor %d", tag)
 	}
 	var wrapper struct {
 		cbor.StructAsArray
-		Inner Credential
+		Inner StakingCredential
 	}
 	if err := cbor.DecodeGeneric(tmpConstr.Fields(), &wrapper); err != nil {
 		return err
 	}
 	o.IsPresent = true
-	o.Credential = &wrapper.Inner
+	o.IsPointer = wrapper.Inner.IsPointer
+	o.Credential = wrapper.Inner.Credential
 	return nil
 }
 

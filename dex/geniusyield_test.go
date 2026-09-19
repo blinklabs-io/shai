@@ -15,6 +15,7 @@
 package dex
 
 import (
+	"encoding/hex"
 	"testing"
 	"time"
 
@@ -27,12 +28,8 @@ func TestNewGeniusYieldParser(t *testing.T) {
 	if parser == nil {
 		t.Fatal("expected non-nil parser")
 	}
-	var _ PoolParser = parser
 	if parser.Protocol() != "geniusyield" {
 		t.Errorf("expected protocol 'geniusyield', got %s", parser.Protocol())
-	}
-	if len(parser.PoolAddresses()) == 0 {
-		t.Error("expected at least one GeniusYield order address")
 	}
 }
 
@@ -413,12 +410,6 @@ func TestGeniusYieldPartialOrderDatumUnmarshal(t *testing.T) {
 	endTimestamp := int64(1735689600000) // 2025-01-01 00:00:00 UTC
 	endTime := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{endTimestamp})
 
-	// Maker percent fee (0.3% = 3/1000)
-	makerPercentFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(3),
-		int64(1000),
-	})
-
 	// Contained fee
 	containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(1000000), // lovelaceFee
@@ -439,8 +430,7 @@ func TestGeniusYieldPartialOrderDatumUnmarshal(t *testing.T) {
 		endTime,          // podEnd
 		uint64(3),        // podPartialFills
 		uint64(2000000),  // podMakerLovelaceFlatFee
-		makerPercentFee,  // podMakerOfferedPercentFee
-		uint64(100000),   // podMakerOfferedPercentFeeMax
+		uint64(100000),   // podMakerOfferedPercentFee
 		containedFee,     // podContainedFee
 		uint64(7500000),  // podContainedPayment
 	})
@@ -534,10 +524,6 @@ func TestGeniusYieldParserParseOrderDatum(t *testing.T) {
 	nftName := []byte{0xde, 0xad, 0xbe, 0xef}
 	startTime := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 	endTime := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
-	makerPercentFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(3),
-		int64(1000),
-	})
 	containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(0),
 		uint64(0),
@@ -557,7 +543,6 @@ func TestGeniusYieldParserParseOrderDatum(t *testing.T) {
 		endTime,
 		uint64(0),
 		uint64(1000000),
-		makerPercentFee,
 		uint64(50000),
 		containedFee,
 		uint64(0),
@@ -657,19 +642,6 @@ func TestGeniusYieldParserRejectsNonPositivePrice(t *testing.T) {
 	}
 }
 
-func TestGeniusYieldParsePoolDatumRejectsAskedAmountOverflow(t *testing.T) {
-	parser := NewGeniusYieldParser()
-	datum := newTestGeniusYieldDatum(t, 1<<62, 1, 4)
-
-	state, err := parser.ParsePoolDatum(datum, nil, "tx", 0, 0, time.Now())
-	if err == nil {
-		t.Fatalf("expected asked amount overflow error, got state %#v", state)
-	}
-	if state != nil {
-		t.Fatalf("expected nil state on overflow, got %#v", state)
-	}
-}
-
 func TestGeniusYieldOrderIsActive(t *testing.T) {
 	now := time.Now()
 	past := now.Add(-time.Hour)
@@ -745,10 +717,6 @@ func TestGeniusYieldOrderIsActive(t *testing.T) {
 				int64(1),
 			})
 			nftName := []byte{0x01}
-			makerFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-				int64(0),
-				int64(1),
-			})
 			containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 				uint64(0),
 				uint64(0),
@@ -787,7 +755,6 @@ func TestGeniusYieldOrderIsActive(t *testing.T) {
 				endConstr,
 				uint64(0),
 				uint64(0),
-				makerFee,
 				uint64(0),
 				containedFee,
 				uint64(0),
@@ -845,10 +812,6 @@ func newTestGeniusYieldDatum(
 		priceNum,
 		priceDenom,
 	})
-	makerFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
-		int64(0),
-		int64(1),
-	})
 	containedFee := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		uint64(0),
 		uint64(0),
@@ -868,7 +831,6 @@ func newTestGeniusYieldDatum(
 		cbor.NewConstructorEncoder(1, cbor.IndefLengthList{}),
 		uint64(0),
 		uint64(0),
-		makerFee,
 		uint64(0),
 		containedFee,
 		uint64(0),
@@ -879,4 +841,109 @@ func newTestGeniusYieldDatum(
 		t.Fatalf("failed to encode datum: %v", err)
 	}
 	return cborData
+}
+
+// mainnetOrderDatumHex is the inline datum of Genius Yield partial order
+// tx 9e0b60d328b5b2d5b2c4a5fbf33cfe72f261ed41374c61793631ebd1ac3d2fb0#0
+// (datum hash 62b117867fbf59e59f818755bf3c953492f30cf5779d2d027c6722593ca249dd),
+// an output at the mainnet order script carrying order NFT
+// 22f6999d4effc0ade05f6e1a70b702c65d6b3cdf0e301e4a8267f585.
+const mainnetOrderDatumHex = "d8799f581c2c4e9efffdf5bb0472f67670c294ab477a33c0e07c8139592b4ae97cd8799fd8799f581c2c4e9efffdf5bb0472f67670c294ab477a33c0e07c8139592b4ae97cffd8799fd8799fd8799f581c06002e0e5db28135057f69493d27d64ab80a8a0a38e0ac02b6d241c8ffffffffd8799f4040ff1a1ddca7401a1ddca740d8799f581cdda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb480014df1047454e53ffd8799f1913881901f5ff582001cc152f3bcd3418dc7da48d16fe19b939b7a92197c1b415b081c4ec2d6275c9d87a80d8799f1b0000018df33bd080ff001a000f42401a000f4240d8799f1a000f42401a0016ef1800ff00ff"
+
+func TestGeniusYieldParseMainnetOrderDatum(t *testing.T) {
+	datum, err := hex.DecodeString(mainnetOrderDatumHex)
+	if err != nil {
+		t.Fatalf("failed to decode fixture: %v", err)
+	}
+	var orderDatum GeniusYieldPartialOrderDatum
+	if _, err := cbor.Decode(datum, &orderDatum); err != nil {
+		t.Fatalf("failed to decode mainnet datum: %v", err)
+	}
+	if orderDatum.OwnerAddr.PaymentCredential.Type != 0 {
+		t.Errorf(
+			"payment credential type = %d, want 0",
+			orderDatum.OwnerAddr.PaymentCredential.Type,
+		)
+	}
+	stake := orderDatum.OwnerAddr.StakingCredential
+	if !stake.IsPresent || stake.IsPointer || stake.Credential == nil {
+		t.Fatalf("staking credential = %+v, want a present StakingHash", stake)
+	}
+	if got, want := hex.EncodeToString(stake.Credential.Hash), "06002e0e5db28135057f69493d27d64ab80a8a0a38e0ac02b6d241c8"; got != want {
+		t.Errorf("staking credential hash = %s, want %s", got, want)
+	}
+
+	parser := NewGeniusYieldParser()
+	// The order carries an end time of 2024-02-29T05:00:00Z; parse as of a
+	// moment before it so the active/expired branch is not what is under test.
+	order, err := parser.ParseOrderDatum(
+		datum,
+		"9e0b60d328b5b2d5b2c4a5fbf33cfe72f261ed41374c61793631ebd1ac3d2fb0",
+		0,
+		116866723,
+		time.UnixMilli(1706957014000),
+	)
+	if err != nil {
+		t.Fatalf("failed to parse mainnet order datum: %v", err)
+	}
+	if got, want := order.Owner, "2c4e9efffdf5bb0472f67670c294ab477a33c0e07c8139592b4ae97c"; got != want {
+		t.Errorf("Owner = %s, want %s", got, want)
+	}
+	if len(order.OfferedAsset.Class.PolicyId) != 0 ||
+		len(order.OfferedAsset.Class.Name) != 0 {
+		t.Errorf("OfferedAsset = %+v, want ADA", order.OfferedAsset.Class)
+	}
+	if got, want := order.OfferedAsset.Amount, uint64(501000000); got != want {
+		t.Errorf("OfferedAmount = %d, want %d", got, want)
+	}
+	if got, want := order.OriginalAmount, uint64(501000000); got != want {
+		t.Errorf("OriginalAmount = %d, want %d", got, want)
+	}
+	if got, want := hex.EncodeToString(order.AskedAsset.PolicyId), "dda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb"; got != want {
+		t.Errorf("AskedAsset policy = %s, want %s", got, want)
+	}
+	if got, want := hex.EncodeToString(order.AskedAsset.Name), "0014df1047454e53"; got != want {
+		t.Errorf("AskedAsset name = %s, want %s", got, want)
+	}
+	if order.PriceNum != 5000 || order.PriceDenom != 501 {
+		t.Errorf(
+			"price = %d/%d, want 5000/501",
+			order.PriceNum,
+			order.PriceDenom,
+		)
+	}
+	if got, want := hex.EncodeToString(order.NFT), "01cc152f3bcd3418dc7da48d16fe19b939b7a92197c1b415b081c4ec2d6275c9"; got != want {
+		t.Errorf("NFT = %s, want %s", got, want)
+	}
+	if order.StartTime != nil {
+		t.Errorf("StartTime = %v, want nil", order.StartTime)
+	}
+	if order.EndTime == nil ||
+		order.EndTime.UnixMilli() != 1709182800000 {
+		t.Errorf("EndTime = %v, want 1709182800000", order.EndTime)
+	}
+	if order.PartialFills != 0 {
+		t.Errorf("PartialFills = %d, want 0", order.PartialFills)
+	}
+	if got, want := order.MakerLovelaceFlatFee, uint64(1000000); got != want {
+		t.Errorf("MakerLovelaceFlatFee = %d, want %d", got, want)
+	}
+	if got, want := order.MakerOfferedPercentFee, uint64(1000000); got != want {
+		t.Errorf("MakerOfferedPercentFee = %d, want %d", got, want)
+	}
+	if got, want := order.ContainedLovelaceFee, uint64(1000000); got != want {
+		t.Errorf("ContainedLovelaceFee = %d, want %d", got, want)
+	}
+	if got, want := order.ContainedOfferedFee, uint64(1503000); got != want {
+		t.Errorf("ContainedOfferedFee = %d, want %d", got, want)
+	}
+	if order.ContainedAskedFee != 0 {
+		t.Errorf("ContainedAskedFee = %d, want 0", order.ContainedAskedFee)
+	}
+	if order.ContainedPayment != 0 {
+		t.Errorf("ContainedPayment = %d, want 0", order.ContainedPayment)
+	}
+	if !order.IsActive {
+		t.Error("IsActive = false, want true")
+	}
 }

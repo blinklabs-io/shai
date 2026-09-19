@@ -46,15 +46,13 @@ type OrderState struct {
 	UpdatedAt      time.Time          `json:"updatedAt"`
 
 	// Fee and datum fields preserved for partial fill updates
-	NFT                  []byte `json:"nft"`
-	MakerLovelaceFlatFee uint64 `json:"makerLovelaceFlatFee"`
-	MakerFeeNum          int64  `json:"makerFeeNum"`
-	MakerFeeDenom        int64  `json:"makerFeeDenom"`
-	MakerFeeMax          uint64 `json:"makerFeeMax"`
-	ContainedLovelaceFee uint64 `json:"containedLovelaceFee"`
-	ContainedOfferedFee  uint64 `json:"containedOfferedFee"`
-	ContainedAskedFee    uint64 `json:"containedAskedFee"`
-	ContainedPayment     uint64 `json:"containedPayment"`
+	NFT                    []byte `json:"nft"`
+	MakerLovelaceFlatFee   uint64 `json:"makerLovelaceFlatFee"`
+	MakerOfferedPercentFee uint64 `json:"makerOfferedPercentFee"`
+	ContainedLovelaceFee   uint64 `json:"containedLovelaceFee"`
+	ContainedOfferedFee    uint64 `json:"containedOfferedFee"`
+	ContainedAskedFee      uint64 `json:"containedAskedFee"`
+	ContainedPayment       uint64 `json:"containedPayment"`
 }
 
 // Key returns a unique identifier for this order state
@@ -149,15 +147,13 @@ func (p *Parser) ParseOrderDatum(
 		UpdatedAt:      timestamp,
 
 		// Preserve fee and datum fields for partial fill reconstruction
-		NFT:                  orderDatum.NFT,
-		MakerLovelaceFlatFee: orderDatum.MakerLovelaceFlatFee,
-		MakerFeeNum:          orderDatum.MakerOfferedPercentFee.Numerator,
-		MakerFeeDenom:        orderDatum.MakerOfferedPercentFee.Denominator,
-		MakerFeeMax:          orderDatum.MakerOfferedPercentFeeMax,
-		ContainedLovelaceFee: orderDatum.ContainedFee.LovelaceFee,
-		ContainedOfferedFee:  orderDatum.ContainedFee.OfferedFee,
-		ContainedAskedFee:    orderDatum.ContainedFee.AskedFee,
-		ContainedPayment:     orderDatum.ContainedPayment,
+		NFT:                    orderDatum.NFT,
+		MakerLovelaceFlatFee:   orderDatum.MakerLovelaceFlatFee,
+		MakerOfferedPercentFee: orderDatum.MakerOfferedPercentFee,
+		ContainedLovelaceFee:   orderDatum.ContainedFee.LovelaceFee,
+		ContainedOfferedFee:    orderDatum.ContainedFee.OfferedFee,
+		ContainedAskedFee:      orderDatum.ContainedFee.AskedFee,
+		ContainedPayment:       orderDatum.ContainedPayment,
 	}
 
 	return state, nil
@@ -188,15 +184,6 @@ func (p *Parser) isOrderActive(datum PartialOrderDatum, now time.Time) bool {
 // GenerateOrderId generates a unique order ID from the NFT token name
 func GenerateOrderId(nftTokenName []byte) string {
 	return fmt.Sprintf("gy_%s", hex.EncodeToString(nftTokenName))
-}
-
-// GetOrderAddresses returns mainnet order contract addresses
-func GetOrderAddresses() []string {
-	return []string{
-		// Genius Yield order-book DEX contract address (mainnet)
-		// The actual address derived from OrderScriptHash
-		"addr1w8lj5fvnqvx8rtp8k6e6kcp7g76twqv2ad2hg7avfqtj7qgc5rquk",
-	}
 }
 
 // CalculateFillAmount calculates how much of an order can be filled
