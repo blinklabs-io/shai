@@ -187,6 +187,8 @@ func (a *OracleAPI) RegisterHandlers(mux *http.ServeMux) {
 	)
 	mux.HandleFunc("GET /api/v1/cdps", a.HandleListCDPs)
 	mux.HandleFunc("GET /api/v1/cdps/{cdpId}", a.HandleGetCDP)
+	mux.HandleFunc("GET /api/v1/orders", a.HandleListOrders)
+	mux.HandleFunc("GET /api/v1/orders/{orderId}", a.HandleGetOrder)
 	mux.HandleFunc("GET /api/v1/prices", a.HandleListPrices)
 	mux.HandleFunc("GET /api/v1/prices/ada-usd", a.HandleADAUSDPrice)
 	mux.HandleFunc("/ws/prices", a.HandlePriceStream)
@@ -353,6 +355,46 @@ func (a *OracleAPI) HandleGetCDP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(cdp)
+}
+
+// HandleListOrders returns all tracked order-book orders.
+func (a *OracleAPI) HandleListOrders(w http.ResponseWriter, r *http.Request) {
+	orders := a.getAllOrders()
+
+	protocol := r.URL.Query().Get("protocol")
+	if protocol != "" {
+		filtered := make([]*OrderState, 0)
+		for _, order := range orders {
+			if order.Protocol == protocol {
+				filtered = append(filtered, order)
+			}
+		}
+		orders = filtered
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"orders": orders,
+		"count":  len(orders),
+	})
+}
+
+// HandleGetOrder returns a specific order by ID.
+func (a *OracleAPI) HandleGetOrder(w http.ResponseWriter, r *http.Request) {
+	orderId := r.PathValue("orderId")
+	if orderId == "" {
+		http.Error(w, "order ID required", http.StatusBadRequest)
+		return
+	}
+
+	order, ok := a.getOrderState(orderId)
+	if !ok {
+		http.Error(w, "order not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(order)
 }
 
 // HandleListPrices returns current prices for all pools
@@ -576,6 +618,23 @@ func (a *OracleAPI) getAllCDPs() []*CDPState {
 		merged = append(merged, o.GetAllCDPs()...)
 	}
 	return merged
+}
+
+func (a *OracleAPI) getAllOrders() []*OrderState {
+	var merged []*OrderState
+	for _, o := range a.oracles {
+		merged = append(merged, o.GetAllOrders()...)
+	}
+	return merged
+}
+
+func (a *OracleAPI) getOrderState(orderId string) (*OrderState, bool) {
+	for _, o := range a.oracles {
+		if order, ok := o.GetOrderState(orderId); ok {
+			return order, true
+		}
+	}
+	return nil, false
 }
 
 func (a *OracleAPI) getPoolState(poolId string) (*PoolState, bool) {

@@ -155,6 +155,26 @@ func main() {
 					synthCfg.Protocol,
 				),
 			)
+		case config.ProfileTypeOrderbook:
+			orderbookCfg, ok := profile.Config.(config.OrderbookProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid orderbook profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			oracles = append(
+				oracles,
+				startOracleProfile(
+					idx,
+					&profile,
+					getOrderbookParser(orderbookCfg.Protocol),
+					"Orderbook",
+					orderbookCfg.Protocol,
+				),
+			)
 		case config.ProfileTypeLending:
 			lendingCfg, ok := profile.Config.(config.LendingProfileConfig)
 			if !ok {
@@ -342,6 +362,16 @@ func getSyntheticsParser(protocol string) oracle.PoolParser {
 	switch protocol {
 	case "indigo":
 		return oracle.NewIndigoParser()
+	default:
+		return nil
+	}
+}
+
+// getOrderbookParser returns the appropriate parser for an order-book protocol.
+func getOrderbookParser(protocol string) oracle.PoolParser {
+	switch protocol {
+	case "geniusyield":
+		return oracle.NewGeniusYieldParser()
 	default:
 		return nil
 	}

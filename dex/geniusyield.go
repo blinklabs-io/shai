@@ -69,6 +69,12 @@ func (p *GeniusYieldParser) ParseOrderDatum(
 	return p.parser.ParseOrderDatum(datum, txHash, txIndex, slot, timestamp)
 }
 
+// GetGeniusYieldOrderPaymentCredentials wraps
+// geniusyield.GetOrderPaymentCredentials.
+func GetGeniusYieldOrderPaymentCredentials() []string {
+	return geniusyield.GetOrderPaymentCredentials()
+}
+
 // GenerateGeniusYieldOrderId wraps geniusyield.GenerateOrderId
 func GenerateGeniusYieldOrderId(nftTokenName []byte) string {
 	return geniusyield.GenerateOrderId(nftTokenName)

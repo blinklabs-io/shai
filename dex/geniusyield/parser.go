@@ -28,6 +28,8 @@ import (
 type OrderState struct {
 	OrderId        string             `json:"orderId"`
 	Protocol       string             `json:"protocol"`
+	Network        string             `json:"network,omitempty"`
+	BlockHash      string             `json:"blockHash,omitempty"`
 	Owner          string             `json:"owner"`
 	OfferedAsset   common.AssetAmount `json:"offeredAsset"`
 	OriginalAmount uint64             `json:"originalAmount"`

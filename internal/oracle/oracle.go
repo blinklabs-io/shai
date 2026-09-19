@@ -25,6 +25,7 @@ import (
 
 	"github.com/blinklabs-io/adder/event"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledger_common "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
@@ -51,24 +52,45 @@ type CDPParser interface {
 	CDPIdForOutput(txHash string, txIndex uint32) string
 }
 
+// OrderParser parses order-book datums that are tracked separately from AMM
+// pool states. An order keeps its identity across partial fills, so the parser
+// derives the order key from the datum rather than from the UTxO it sits in.
+type OrderParser interface {
+	Protocol() string
+	ParseOrderDatum(
+		datum []byte,
+		txHash string,
+		txIndex uint32,
+		slot uint64,
+		timestamp time.Time,
+	) (*OrderState, error)
+}
+
 // Oracle tracks pool states from on-chain data
 type Oracle struct {
-	idx           *indexer.Indexer
-	profile       *config.Profile
-	parser        PoolParser
-	pools         map[string]*PoolState
-	poolsMu       sync.RWMutex
-	cdps          map[string]*CDPState
-	cdpsMu        sync.RWMutex
-	poolAddresses map[string]struct{} // Set for O(1) lookup
-	storage       *OracleStorage
-	stopChan      chan struct{}
-	subscribers   []chan *PriceUpdate
-	subMu         sync.RWMutex
-	stopped       bool
-	dropCount     atomic.Uint64
-	mempoolMgr    *MempoolStateManager
-	activity      *ActivityTracker
+	idx     *indexer.Indexer
+	profile *config.Profile
+	parser  PoolParser
+	pools   map[string]*PoolState
+	poolsMu sync.RWMutex
+	cdps    map[string]*CDPState
+	cdpsMu  sync.RWMutex
+	orders  map[string]*OrderState
+	// orderUtxos maps a tracked order UTxO reference to its order key, so a
+	// spent input can be resolved without rescanning the order set.
+	orderUtxos              map[string]string
+	ordersMu                sync.RWMutex
+	poolAddresses           map[string]struct{} // Set for O(1) lookup
+	orderAddresses          map[string]struct{}
+	orderPaymentCredentials map[string]struct{}
+	storage                 *OracleStorage
+	stopChan                chan struct{}
+	subscribers             []chan *PriceUpdate
+	subMu                   sync.RWMutex
+	stopped                 bool
+	dropCount               atomic.Uint64
+	mempoolMgr              *MempoolStateManager
+	activity                *ActivityTracker
 }
 
 // New creates a new Oracle instance
@@ -82,15 +104,19 @@ func New(
 		panic(err)
 	}
 	o := &Oracle{
-		idx:           idx,
-		profile:       profile,
-		parser:        parser,
-		pools:         make(map[string]*PoolState),
-		cdps:          make(map[string]*CDPState),
-		poolAddresses: make(map[string]struct{}),
-		stopChan:      make(chan struct{}),
-		mempoolMgr:    NewMempoolStateManager(),
-		activity:      activity,
+		idx:                     idx,
+		profile:                 profile,
+		parser:                  parser,
+		pools:                   make(map[string]*PoolState),
+		cdps:                    make(map[string]*CDPState),
+		orders:                  make(map[string]*OrderState),
+		orderUtxos:              make(map[string]string),
+		poolAddresses:           make(map[string]struct{}),
+		orderAddresses:          make(map[string]struct{}),
+		orderPaymentCredentials: make(map[string]struct{}),
+		stopChan:                make(chan struct{}),
+		mempoolMgr:              NewMempoolStateManager(),
+		activity:                activity,
 	}
 
 	o.addProfileAddresses()
@@ -107,6 +133,13 @@ func (o *Oracle) addProfileAddresses() {
 	case config.SyntheticsProfileConfig:
 		for _, addr := range profileConfig.CDPAddresses {
 			o.poolAddresses[addr.Address] = struct{}{}
+		}
+	case config.OrderbookProfileConfig:
+		for _, addr := range profileConfig.OrderAddresses {
+			o.orderAddresses[addr.Address] = struct{}{}
+		}
+		for _, credential := range profileConfig.OrderPaymentCredentials {
+			o.orderPaymentCredentials[credential] = struct{}{}
 		}
 	}
 }
@@ -139,7 +172,8 @@ func (o *Oracle) Start() error {
 		"Oracle started",
 		"profile", o.profile.Name,
 		"protocol", o.parser.Protocol(),
-		"addresses", len(o.poolAddresses),
+		"addresses", len(o.poolAddresses)+len(o.orderAddresses),
+		"paymentCredentials", len(o.orderPaymentCredentials),
 	)
 
 	return nil
@@ -289,6 +323,15 @@ func (o *Oracle) handleTransaction(
 	cdpParser, hasCDPParser := o.parser.(CDPParser)
 	if hasCDPParser && o.isSyntheticsProfile() {
 		o.deleteSpentCDPStates(logger, cdpParser, transactionInputs(txEvt))
+	}
+	if orderParser, ok := o.parser.(OrderParser); ok && o.isOrderbookProfile() {
+		return o.handleOrderTransaction(
+			logger,
+			orderParser,
+			cfg.Network,
+			txEvt,
+			ctx,
+		)
 	}
 
 	// Check for tracked UTxOs at monitored addresses.
@@ -512,6 +555,205 @@ func (o *Oracle) deleteCDPStateByID(cdpId string) (*CDPState, bool) {
 	return state, true
 }
 
+// handleOrderTransaction applies one confirmed transaction to the tracked
+// order set: every order UTxO it spends leaves the set, and every order UTxO
+// it produces enters it. Spends are applied first because a partial fill
+// spends an order and recreates it under the same key in the same transaction.
+func (o *Oracle) handleOrderTransaction(
+	logger *slog.Logger,
+	parser OrderParser,
+	network string,
+	txEvt event.TransactionEvent,
+	ctx event.TransactionContext,
+) error {
+	if err := o.deleteSpentOrderStates(
+		logger,
+		transactionInputs(txEvt),
+	); err != nil {
+		return err
+	}
+
+	now := time.Now()
+	var datums map[string][]byte
+	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
+		if !o.isOrderAddress(utxo.Output.Address().String()) {
+			continue
+		}
+		if datums == nil {
+			datums = witnessDatums(txEvt)
+		}
+		datumCbor := outputDatumCbor(utxo.Output, datums)
+		if datumCbor == nil {
+			continue
+		}
+		state, err := parser.ParseOrderDatum(
+			datumCbor,
+			ctx.TransactionHash,
+			utxo.Id.Index(),
+			ctx.SlotNumber,
+			now,
+		)
+		if err != nil {
+			logger.Debug(
+				"skipping invalid order datum",
+				"error", err,
+				"txHash", ctx.TransactionHash,
+				"outputIndex", utxo.Id.Index(),
+			)
+			continue
+		}
+		if state == nil {
+			continue
+		}
+		state.Protocol = parser.Protocol()
+		state.Network = network
+		state.BlockHash = txEvt.BlockHash
+		state.UpdatedAt = now
+		if err := o.putOrderState(state); err != nil {
+			return err
+		}
+		logger.Debug(
+			"order state updated",
+			"orderId", state.OrderId,
+			"protocol", state.Protocol,
+			"slot", state.Slot,
+		)
+	}
+
+	return nil
+}
+
+// putOrderState records an order in memory and in storage under its durable
+// key, replacing whatever UTxO previously carried the same order.
+func (o *Oracle) putOrderState(state *OrderState) error {
+	o.ordersMu.Lock()
+	if o.orders == nil {
+		o.orders = make(map[string]*OrderState)
+	}
+	if o.orderUtxos == nil {
+		o.orderUtxos = make(map[string]string)
+	}
+	if prev, ok := o.orders[state.OrderId]; ok {
+		delete(o.orderUtxos, orderUtxoRef(prev.TxHash, prev.TxIndex))
+	}
+	o.orders[state.OrderId] = state
+	o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
+	o.ordersMu.Unlock()
+
+	if o.storage == nil {
+		return errors.New("oracle storage is required for order state")
+	}
+	if err := o.storage.SaveOrderState(state); err != nil {
+		return fmt.Errorf("failed to persist order %s: %w", state.OrderId, err)
+	}
+	return nil
+}
+
+// deleteSpentOrderStates drops every tracked order whose UTxO this
+// transaction consumes.
+func (o *Oracle) deleteSpentOrderStates(
+	logger *slog.Logger,
+	inputs []ledger.TransactionInput,
+) error {
+	for _, input := range inputs {
+		ref := orderUtxoRef(input.Id().String(), input.Index())
+		o.ordersMu.Lock()
+		orderId, ok := o.orderUtxos[ref]
+		if !ok {
+			o.ordersMu.Unlock()
+			continue
+		}
+		state := o.orders[orderId]
+		delete(o.orderUtxos, ref)
+		delete(o.orders, orderId)
+		o.ordersMu.Unlock()
+		if state == nil || o.storage == nil {
+			continue
+		}
+		if err := o.storage.DeleteOrderState(
+			state.Network,
+			state.Protocol,
+			orderId,
+		); err != nil {
+			return fmt.Errorf(
+				"failed to delete spent order %s: %w",
+				orderId,
+				err,
+			)
+		}
+		logger.Debug(
+			"deleted spent order state",
+			"orderId", orderId,
+			"protocol", state.Protocol,
+		)
+	}
+	return nil
+}
+
+// outputDatumCbor returns the datum bytes for an output. Order outputs carry
+// their datum by hash rather than inline, so the hash is resolved against the
+// transaction's Plutus witness data.
+func outputDatumCbor(
+	output ledger.TransactionOutput,
+	datums map[string][]byte,
+) []byte {
+	if datum := output.Datum(); datum != nil {
+		return datum.Cbor()
+	}
+	hash := output.DatumHash()
+	if hash == nil {
+		return nil
+	}
+	return datums[hash.String()]
+}
+
+// witnessDatums indexes a transaction's supplemental Plutus datums by hash.
+func witnessDatums(txEvt event.TransactionEvent) map[string][]byte {
+	witnesses := txEvt.Witnesses
+	if witnesses == nil && txEvt.Transaction != nil {
+		witnesses = txEvt.Transaction.Witnesses()
+	}
+	if witnesses == nil {
+		return map[string][]byte{}
+	}
+	plutusData := witnesses.PlutusData()
+	datums := make(map[string][]byte, len(plutusData))
+	for _, datum := range plutusData {
+		datums[datum.Hash().String()] = datum.Cbor()
+	}
+	return datums
+}
+
+func orderUtxoRef(txHash string, txIndex uint32) string {
+	return fmt.Sprintf("%s#%d", txHash, txIndex)
+}
+
+func (o *Oracle) isOrderbookProfile() bool {
+	return o.profile != nil && o.profile.Type == config.ProfileTypeOrderbook
+}
+
+// isOrderAddress reports whether an address holds order UTxOs for this
+// profile. Orders sit at base addresses that combine the order script's
+// payment credential with the maker's own staking credential, so an exact
+// address set cannot enumerate them.
+func (o *Oracle) isOrderAddress(addr string) bool {
+	if _, ok := o.orderAddresses[addr]; ok {
+		return true
+	}
+	if len(o.orderPaymentCredentials) == 0 {
+		return false
+	}
+	parsed, err := ledger_common.NewAddress(addr)
+	if err != nil {
+		return false
+	}
+	if parsed.Type()&ledger_common.AddressTypeScriptBit == 0 {
+		return false
+	}
+	_, ok := o.orderPaymentCredentials[parsed.PaymentKeyHash().String()]
+	return ok
+}
+
 func (o *Oracle) isSyntheticsProfile() bool {
 	return o.profile != nil && o.profile.Type == config.ProfileTypeSynthetics
 }
@@ -569,6 +811,19 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		delete(o.pools, state.PoolId)
 	}
 	o.poolsMu.Unlock()
+
+	o.ordersMu.Lock()
+	var ordersToDelete []*OrderState
+	for _, state := range o.orders {
+		if state.Slot >= firstInvalidSlot {
+			ordersToDelete = append(ordersToDelete, state)
+		}
+	}
+	for _, state := range ordersToDelete {
+		delete(o.orders, state.OrderId)
+		delete(o.orderUtxos, orderUtxoRef(state.TxHash, state.TxIndex))
+	}
+	o.ordersMu.Unlock()
 
 	o.cdpsMu.Lock()
 	var cdpsToDelete []*CDPState
@@ -661,6 +916,36 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		}
 	}
 
+	for _, state := range ordersToDelete {
+		if err := o.storage.DeleteOrderState(
+			state.Network,
+			state.Protocol,
+			state.OrderId,
+		); err != nil {
+			logger.Error(
+				"failed to delete rolled-back order state",
+				"error", err,
+				"orderId", state.OrderId,
+				"slot", state.Slot,
+			)
+			errs = append(
+				errs,
+				fmt.Errorf(
+					"delete rolled-back order %s: %w",
+					state.OrderId,
+					err,
+				),
+			)
+		} else {
+			logger.Info(
+				"invalidated order state due to rollback",
+				"orderId", state.OrderId,
+				"slot", state.Slot,
+				"rollbackSlot", evt.SlotNumber,
+			)
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf(
 			"failed to persist oracle rollback: %w",
@@ -695,6 +980,10 @@ func (o *Oracle) loadPersistedStates() error {
 		return err
 	}
 	cdpStates, err := o.storage.LoadAllCDPStates()
+	if err != nil {
+		return err
+	}
+	orderStates, err := o.storage.LoadAllOrderStates()
 	if err != nil {
 		return err
 	}
@@ -734,6 +1023,19 @@ func (o *Oracle) loadPersistedStates() error {
 	}
 	o.cdpsMu.Unlock()
 
+	o.ordersMu.Lock()
+	if o.orders == nil {
+		o.orders = make(map[string]*OrderState)
+	}
+	if o.orderUtxos == nil {
+		o.orderUtxos = make(map[string]string)
+	}
+	for _, state := range orderStates {
+		o.orders[state.OrderId] = state
+		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
+	}
+	o.ordersMu.Unlock()
+
 	if o.mempoolMgr == nil {
 		o.mempoolMgr = NewMempoolStateManager()
 	}
@@ -746,6 +1048,7 @@ func (o *Oracle) loadPersistedStates() error {
 		"loaded persisted oracle states",
 		"pools", len(states),
 		"cdps", len(cdpStates),
+		"orders", len(orderStates),
 		"swaps", len(activityState.Swaps),
 	)
 
@@ -810,6 +1113,34 @@ func (o *Oracle) GetAllCDPs() []*CDPState {
 		cdps = append(cdps, state)
 	}
 	return cdps
+}
+
+// GetOrderState returns the current state of an order.
+func (o *Oracle) GetOrderState(orderId string) (*OrderState, bool) {
+	o.ordersMu.RLock()
+	defer o.ordersMu.RUnlock()
+
+	state, ok := o.orders[orderId]
+	return state, ok
+}
+
+// GetAllOrders returns all tracked order states.
+func (o *Oracle) GetAllOrders() []*OrderState {
+	o.ordersMu.RLock()
+	defer o.ordersMu.RUnlock()
+
+	orders := make([]*OrderState, 0, len(o.orders))
+	for _, state := range o.orders {
+		orders = append(orders, state)
+	}
+	return orders
+}
+
+// OrderCount returns the number of tracked orders.
+func (o *Oracle) OrderCount() int {
+	o.ordersMu.RLock()
+	defer o.ordersMu.RUnlock()
+	return len(o.orders)
 }
 
 // CDPCount returns the number of tracked CDPs.

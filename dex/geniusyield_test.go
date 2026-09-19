@@ -843,11 +843,12 @@ func newTestGeniusYieldDatum(
 	return cborData
 }
 
-// mainnetOrderDatumHex is the inline datum of Genius Yield partial order
-// tx 9e0b60d328b5b2d5b2c4a5fbf33cfe72f261ed41374c61793631ebd1ac3d2fb0#0
-// (datum hash 62b117867fbf59e59f818755bf3c953492f30cf5779d2d027c6722593ca249dd),
-// an output at the mainnet order script carrying order NFT
-// 22f6999d4effc0ade05f6e1a70b702c65d6b3cdf0e301e4a8267f585.
+// mainnetOrderDatumHex is the datum of Genius Yield partial order
+// tx 9e0b60d328b5b2d5b2c4a5fbf33cfe72f261ed41374c61793631ebd1ac3d2fb0#0, an
+// output at the mainnet order script carrying order NFT
+// 22f6999d4effc0ade05f6e1a70b702c65d6b3cdf0e301e4a8267f585. The output holds
+// datum hash 62b117867fbf59e59f818755bf3c953492f30cf5779d2d027c6722593ca249dd
+// and the datum itself travels in the transaction witness set.
 const mainnetOrderDatumHex = "d8799f581c2c4e9efffdf5bb0472f67670c294ab477a33c0e07c8139592b4ae97cd8799fd8799f581c2c4e9efffdf5bb0472f67670c294ab477a33c0e07c8139592b4ae97cffd8799fd8799fd8799f581c06002e0e5db28135057f69493d27d64ab80a8a0a38e0ac02b6d241c8ffffffffd8799f4040ff1a1ddca7401a1ddca740d8799f581cdda5fdb1002f7389b33e036b6afee82a8189becb6cba852e8b79b4fb480014df1047454e53ffd8799f1913881901f5ff582001cc152f3bcd3418dc7da48d16fe19b939b7a92197c1b415b081c4ec2d6275c9d87a80d8799f1b0000018df33bd080ff001a000f42401a000f4240d8799f1a000f42401a0016ef1800ff00ff"
 
 func TestGeniusYieldParseMainnetOrderDatum(t *testing.T) {
@@ -880,7 +881,7 @@ func TestGeniusYieldParseMainnetOrderDatum(t *testing.T) {
 		datum,
 		"9e0b60d328b5b2d5b2c4a5fbf33cfe72f261ed41374c61793631ebd1ac3d2fb0",
 		0,
-		116866723,
+		115390723,
 		time.UnixMilli(1706957014000),
 	)
 	if err != nil {

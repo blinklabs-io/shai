@@ -37,6 +37,14 @@ const (
 	OrderNFTPolicy = "22f6999d4effc0ade05f6e1a70b702c65d6b3cdf0e301e4a8267f585"
 )
 
+// GetOrderPaymentCredentials returns the mainnet payment credentials that hold
+// partial order UTxOs. Orders are located by payment credential rather than by
+// bech32 address because each maker's order sits at a base address built from
+// OrderScriptHash and that maker's own staking credential.
+func GetOrderPaymentCredentials() []string {
+	return []string{OrderScriptHash}
+}
+
 // PartialOrderDatum represents the Genius Yield order datum structure
 // Based on the Haskell definition:
 //
