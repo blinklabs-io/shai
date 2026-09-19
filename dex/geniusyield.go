@@ -15,11 +15,8 @@
 package dex
 
 import (
-	"fmt"
-	"math/big"
 	"time"
 
-	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/dex/geniusyield"
 )
 
@@ -42,7 +39,11 @@ type (
 	GeniusYieldContainedFee      = geniusyield.ContainedFee
 )
 
-// GeniusYieldParser wraps geniusyield.Parser for backward compatibility
+// GeniusYieldParser wraps geniusyield.Parser for backward compatibility.
+//
+// It parses order state only and is not a PoolParser; see the dex/geniusyield
+// package documentation for why order-book state is not published as a
+// PoolState.
 type GeniusYieldParser struct {
 	parser *geniusyield.Parser
 }
@@ -57,13 +58,6 @@ func (p *GeniusYieldParser) Protocol() string {
 	return p.parser.Protocol()
 }
 
-// PoolAddresses returns the mainnet script addresses holding this protocol's
-// order UTxOs. Query your node for UTxOs at these addresses, then feed each
-// output's datum and value CBOR to ParsePoolDatum.
-func (p *GeniusYieldParser) PoolAddresses() []string {
-	return PoolAddresses(p.Protocol())
-}
-
 // ParseOrderDatum parses a Genius Yield order datum
 func (p *GeniusYieldParser) ParseOrderDatum(
 	datum []byte,
@@ -75,79 +69,9 @@ func (p *GeniusYieldParser) ParseOrderDatum(
 	return p.parser.ParseOrderDatum(datum, txHash, txIndex, slot, timestamp)
 }
 
-// ParsePoolDatum adapts an order-book order into the generic oracle PoolState.
-func (p *GeniusYieldParser) ParsePoolDatum(
-	datum []byte,
-	utxoValue []byte,
-	txHash string,
-	txIndex uint32,
-	slot uint64,
-	timestamp time.Time,
-) (*PoolState, error) {
-	order, err := p.ParseOrderDatum(datum, txHash, txIndex, slot, timestamp)
-	if err != nil {
-		return nil, err
-	}
-	if order == nil || !order.IsActive {
-		return nil, nil
-	}
-
-	askedAmount, err := geniusYieldAskedAmount(order)
-	if err != nil {
-		return nil, err
-	}
-
-	return &PoolState{
-		PoolId:   order.OrderId,
-		Protocol: order.Protocol,
-		AssetX:   order.OfferedAsset,
-		AssetY: common.AssetAmount{
-			Class:  order.AskedAsset,
-			Amount: askedAmount,
-		},
-		FeeNum:    1,
-		FeeDenom:  1,
-		Slot:      order.Slot,
-		TxHash:    order.TxHash,
-		TxIndex:   order.TxIndex,
-		Timestamp: order.Timestamp,
-	}, nil
-}
-
-func geniusYieldAskedAmount(order *geniusyield.OrderState) (uint64, error) {
-	if order.PriceNum <= 0 || order.PriceDenom <= 0 {
-		return 0, fmt.Errorf(
-			"invalid Genius Yield price %d/%d",
-			order.PriceNum,
-			order.PriceDenom,
-		)
-	}
-	if order.OfferedAsset.Amount == 0 {
-		return 0, nil
-	}
-
-	offered := new(big.Int).SetUint64(order.OfferedAsset.Amount)
-	num := big.NewInt(order.PriceNum)
-	denom := big.NewInt(order.PriceDenom)
-	asked := new(big.Int).Mul(offered, num)
-	asked.Div(asked, denom)
-	if asked.IsUint64() {
-		return asked.Uint64(), nil
-	}
-	return 0, fmt.Errorf(
-		"asked amount overflows uint64 for Genius Yield order %s",
-		order.OrderId,
-	)
-}
-
 // GenerateGeniusYieldOrderId wraps geniusyield.GenerateOrderId
 func GenerateGeniusYieldOrderId(nftTokenName []byte) string {
 	return geniusyield.GenerateOrderId(nftTokenName)
-}
-
-// GetGeniusYieldOrderAddresses returns mainnet order addresses
-func GetGeniusYieldOrderAddresses() []string {
-	return PoolAddresses(GeniusYieldProtocolName)
 }
 
 // CalculateGeniusYieldFillAmount calculates fill amounts for an order
