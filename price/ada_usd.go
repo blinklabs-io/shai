@@ -35,6 +35,8 @@ var (
 	ErrConcentratedLiquidity    = errors.New("price: one pool dominates qualified liquidity")
 	ErrDivergentPrices          = errors.New("price: qualified pool prices diverge")
 	ErrNonFinitePrice           = errors.New("price: non-finite floating-point price")
+	ErrInvalidActivityConfig    = errors.New("price: invalid pool activity configuration")
+	ErrInvalidPoolActivity      = errors.New("price: invalid pool activity")
 )
 
 const (
@@ -57,6 +59,22 @@ type Config struct {
 	IncludeMempool  bool
 }
 
+// ActivityConfig controls confirmed-volume qualification. Stablecoin volume is
+// normalized to six decimal places, matching StableMicros.
+type ActivityConfig struct {
+	MinSwapCount    uint64
+	MinStableVolume uint64
+}
+
+// DefaultActivityConfig requires both confirmed turnover and at least $100 of
+// stablecoin-side volume over the tracker's configured rolling window.
+func DefaultActivityConfig() ActivityConfig {
+	return ActivityConfig{
+		MinSwapCount:    1,
+		MinStableVolume: 100_000_000,
+	}
+}
+
 // DefaultConfig rejects dust pools while accepting the independently pegged
 // mainnet USDM and USDCx CSWAP pools observed during implementation. A pool
 // holding up to 75% of qualified liquidity may determine the weighted median;
@@ -77,22 +95,25 @@ func DefaultConfig() Config {
 
 // PoolObservation is one qualified ADA/stablecoin spot price.
 type PoolObservation struct {
-	PoolID        string    `json:"poolId"`
-	Protocol      string    `json:"protocol"`
-	Stablecoin    string    `json:"stablecoin"`
-	ADAReserve    uint64    `json:"adaReserve"`
-	StableReserve uint64    `json:"stableReserve"`
-	StableMicros  uint64    `json:"stableMicros"`
-	PriceNum      string    `json:"priceNumerator"`
-	PriceDen      string    `json:"priceDenominator"`
-	Price         float64   `json:"price"`
-	Slot          uint64    `json:"slot"`
-	BlockHash     string    `json:"blockHash"`
-	TxHash        string    `json:"txHash"`
-	TxIndex       uint32    `json:"txIndex"`
-	ObservedAt    time.Time `json:"observedAt"`
-	AgeSeconds    *int64    `json:"ageSeconds"`
-	Validation    string    `json:"validation"`
+	PoolID             string    `json:"poolId"`
+	Protocol           string    `json:"protocol"`
+	Stablecoin         string    `json:"stablecoin"`
+	ADAReserve         uint64    `json:"adaReserve"`
+	StableReserve      uint64    `json:"stableReserve"`
+	StableMicros       uint64    `json:"stableMicros"`
+	PriceNum           string    `json:"priceNumerator"`
+	PriceDen           string    `json:"priceDenominator"`
+	Price              float64   `json:"price"`
+	Slot               uint64    `json:"slot"`
+	BlockHash          string    `json:"blockHash"`
+	TxHash             string    `json:"txHash"`
+	TxIndex            uint32    `json:"txIndex"`
+	ObservedAt         time.Time `json:"observedAt"`
+	AgeSeconds         *int64    `json:"ageSeconds"`
+	Validation         string    `json:"validation"`
+	StableVolumeMicros uint64    `json:"stableVolumeMicros,omitempty"`
+	SwapCount          uint64    `json:"swapCount,omitempty"`
+	ActivitySlots      uint64    `json:"activityWindowSlots,omitempty"`
 
 	price *big.Rat
 }
@@ -218,6 +239,139 @@ func AggregateADAUSDAt(
 		}
 	}
 	return result, nil
+}
+
+// AggregateADAUSDWithActivity qualifies pools by locally inferred confirmed
+// swap volume before applying the normal liquidity and agreement checks.
+func AggregateADAUSDWithActivity(
+	pools []*dex.PoolState,
+	volumes []dex.PoolVolume,
+	config Config,
+	activityConfig ActivityConfig,
+) (Result, error) {
+	return AggregateADAUSDWithActivityAt(
+		pools,
+		volumes,
+		config,
+		activityConfig,
+		time.Now(),
+	)
+}
+
+// AggregateADAUSDWithActivityAt is AggregateADAUSDWithActivity with an
+// explicit evaluation time.
+func AggregateADAUSDWithActivityAt(
+	pools []*dex.PoolState,
+	volumes []dex.PoolVolume,
+	config Config,
+	activityConfig ActivityConfig,
+	now time.Time,
+) (Result, error) {
+	if activityConfig.MinSwapCount == 0 ||
+		activityConfig.MinStableVolume == 0 {
+		return Result{}, ErrInvalidActivityConfig
+	}
+	activityByPool := make(map[string]dex.PoolVolume, len(volumes))
+	for _, volume := range volumes {
+		key := volume.Key()
+		if volume.PoolID == "" ||
+			volume.Network == "" ||
+			volume.Protocol == "" {
+			return Result{}, ErrInvalidPoolActivity
+		}
+		if _, exists := activityByPool[key]; exists {
+			return Result{}, fmt.Errorf(
+				"%w: duplicate volume for %s",
+				ErrInvalidPoolActivity,
+				key,
+			)
+		}
+		activityByPool[key] = volume
+	}
+
+	qualified := make([]*dex.PoolState, 0, len(pools))
+	qualifiedActivity := make(map[string]dex.PoolVolume)
+	for _, pool := range pools {
+		if pool == nil {
+			continue
+		}
+		volume, ok := activityByPool[pool.Key()]
+		if !ok {
+			continue
+		}
+		stableVolume, err := stableVolumeMicros(pool, volume, config)
+		if err != nil {
+			return Result{}, err
+		}
+		if stableVolume < activityConfig.MinStableVolume ||
+			volume.SwapCount < activityConfig.MinSwapCount {
+			continue
+		}
+		qualified = append(qualified, pool)
+		qualifiedActivity[pool.Key()] = volume
+	}
+
+	result, err := AggregateADAUSDAt(qualified, config, now)
+	for i := range result.Observations {
+		observation := &result.Observations[i]
+		for _, pool := range qualified {
+			if pool.PoolId != observation.PoolID ||
+				pool.Protocol != observation.Protocol {
+				continue
+			}
+			volume := qualifiedActivity[pool.Key()]
+			stableVolume, volumeErr := stableVolumeMicros(
+				pool,
+				volume,
+				config,
+			)
+			if volumeErr != nil {
+				return Result{}, volumeErr
+			}
+			observation.StableVolumeMicros = stableVolume
+			observation.SwapCount = volume.SwapCount
+			observation.ActivitySlots = volume.WindowSlots
+			break
+		}
+	}
+	return result, err
+}
+
+func stableVolumeMicros(
+	pool *dex.PoolState,
+	volume dex.PoolVolume,
+	config Config,
+) (uint64, error) {
+	if pool == nil ||
+		volume.Key() != pool.Key() ||
+		volume.WindowSlots == 0 ||
+		volume.WindowEnd < pool.Slot ||
+		!pool.AssetX.IsAsset(volume.AssetX) ||
+		!pool.AssetY.IsAsset(volume.AssetY) {
+		return 0, ErrInvalidPoolActivity
+	}
+	var stable common.AssetAmount
+	var amount uint64
+	switch {
+	case pool.AssetX.IsLovelace():
+		stable = pool.AssetY
+		amount = volume.VolumeY
+	case pool.AssetY.IsLovelace():
+		stable = pool.AssetX
+		amount = volume.VolumeX
+	default:
+		return 0, ErrInvalidPoolActivity
+	}
+	for _, candidate := range config.Stablecoins {
+		if stable.IsAsset(candidate.Asset) {
+			normalized, ok := normalizeToMicros(amount, candidate.Decimals)
+			if !ok {
+				return 0, ErrInvalidPoolActivity
+			}
+			return normalized, nil
+		}
+	}
+	return 0, ErrInvalidPoolActivity
 }
 
 func liquidityWeightedMedian(

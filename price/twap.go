@@ -16,6 +16,7 @@ package price
 
 import (
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -34,6 +35,7 @@ var (
 	ErrTWAPRollbackUnavailable = errors.New(
 		"price: TWAP rollback history is unavailable",
 	)
+	ErrInvalidTWAPState = errors.New("price: invalid persisted TWAP state")
 )
 
 // TWAPConfig controls the time-weighted average and retained history.
@@ -57,6 +59,23 @@ type TWAPResult struct {
 	LastObservedAt   time.Time     `json:"lastObservedAt"`
 
 	price *big.Rat
+}
+
+// TWAPObservation is the persistence-safe representation of one exact price
+// observation.
+type TWAPObservation struct {
+	Slot     uint64    `json:"slot"`
+	At       time.Time `json:"observedAt"`
+	PriceNum string    `json:"priceNumerator"`
+	PriceDen string    `json:"priceDenominator"`
+}
+
+// TWAPState is a complete bounded snapshot that can restore an engine after a
+// restart without weakening rollback detection.
+type TWAPState struct {
+	Config        TWAPConfig        `json:"config"`
+	Observations  []TWAPObservation `json:"observations"`
+	HistoryPruned bool              `json:"historyPruned"`
 }
 
 // Rat returns a copy of the exact time-weighted average.
@@ -93,6 +112,46 @@ func NewTWAPEngine(config TWAPConfig) (*TWAPEngine, error) {
 		return nil, ErrInvalidTWAPConfig
 	}
 	return &TWAPEngine{config: config}, nil
+}
+
+// NewTWAPEngineFromState restores a previously persisted engine snapshot.
+func NewTWAPEngineFromState(state TWAPState) (*TWAPEngine, error) {
+	engine, err := NewTWAPEngine(state.Config)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalidTWAPState, err)
+	}
+	engine.historyPruned = state.HistoryPruned
+	for _, persisted := range state.Observations {
+		numerator, ok := new(big.Int).SetString(persisted.PriceNum, 10)
+		if !ok {
+			return nil, fmt.Errorf(
+				"%w: invalid price numerator",
+				ErrInvalidTWAPState,
+			)
+		}
+		denominator, ok := new(big.Int).SetString(persisted.PriceDen, 10)
+		if !ok || denominator.Sign() <= 0 {
+			return nil, fmt.Errorf(
+				"%w: invalid price denominator",
+				ErrInvalidTWAPState,
+			)
+		}
+		value := new(big.Rat).SetFrac(numerator, denominator)
+		if err := engine.Observe(persisted.Slot, persisted.At, value); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidTWAPState, err)
+		}
+	}
+	// Observe may prune while validating a snapshot. A valid persisted state is
+	// already bounded, so any additional pruning means it was inconsistent
+	// with its own configuration.
+	if len(engine.observations) != len(state.Observations) {
+		return nil, fmt.Errorf(
+			"%w: observations exceed configured retention",
+			ErrInvalidTWAPState,
+		)
+	}
+	engine.historyPruned = state.HistoryPruned
+	return engine, nil
 }
 
 // Observe adds an exact confirmed observation. Slots and timestamps must both
@@ -230,6 +289,27 @@ func (e *TWAPEngine) Len() int {
 	e.mu.RLock()
 	defer e.mu.RUnlock()
 	return len(e.observations)
+}
+
+// Snapshot returns a deep persistence-safe copy of the bounded engine state.
+func (e *TWAPEngine) Snapshot() TWAPState {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	state := TWAPState{
+		Config:        e.config,
+		Observations:  make([]TWAPObservation, 0, len(e.observations)),
+		HistoryPruned: e.historyPruned,
+	}
+	for _, observation := range e.observations {
+		state.Observations = append(state.Observations, TWAPObservation{
+			Slot:     observation.slot,
+			At:       observation.at,
+			PriceNum: observation.price.Num().String(),
+			PriceDen: observation.price.Denom().String(),
+		})
+	}
+	return state
 }
 
 func (e *TWAPEngine) prune(latest time.Time) {

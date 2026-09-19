@@ -236,6 +236,92 @@ func TestAggregateADAUSDCanUseOneQualifiedPool(t *testing.T) {
 	require.Equal(t, "1/5", result.Rat().String())
 }
 
+func TestAggregateADAUSDWithActivityCanUseOneLiquidActivePool(t *testing.T) {
+	config := DefaultConfig()
+	config.MinObservations = 1
+	config.MinStablecoins = 1
+	config.MaxPoolShare = 1
+	pool := poolFixture(
+		t,
+		"single",
+		USDCxPolicyID,
+		USDCxAssetName,
+		5_000_000_000,
+		1_000_000_000,
+		"single",
+		1,
+	)
+	pool.Network = "mainnet"
+	volume := poolVolume(pool, 3, 250_000_000)
+
+	result, err := AggregateADAUSDWithActivity(
+		[]*dex.PoolState{pool},
+		[]dex.PoolVolume{volume},
+		config,
+		DefaultActivityConfig(),
+	)
+	require.NoError(t, err)
+	require.Equal(t, "1/5", result.Rat().String())
+	require.Equal(
+		t,
+		uint64(250_000_000),
+		result.Observations[0].StableVolumeMicros,
+	)
+	require.Equal(t, uint64(3), result.Observations[0].SwapCount)
+}
+
+func TestAggregateADAUSDWithActivityRejectsInactivePool(t *testing.T) {
+	config := DefaultConfig()
+	config.MinObservations = 1
+	config.MinStablecoins = 1
+	config.MaxPoolShare = 1
+	pool := poolFixture(
+		t,
+		"inactive",
+		USDCxPolicyID,
+		USDCxAssetName,
+		5_000_000_000,
+		1_000_000_000,
+		"inactive",
+		1,
+	)
+	pool.Network = "mainnet"
+	volume := poolVolume(pool, 1, 99_999_999)
+
+	result, err := AggregateADAUSDWithActivity(
+		[]*dex.PoolState{pool},
+		[]dex.PoolVolume{volume},
+		config,
+		DefaultActivityConfig(),
+	)
+	require.ErrorIs(t, err, ErrInsufficientObservations)
+	require.Empty(t, result.Observations)
+}
+
+func TestAggregateADAUSDWithActivityRejectsInvalidVolume(t *testing.T) {
+	pool := poolFixture(
+		t,
+		"pool",
+		USDCxPolicyID,
+		USDCxAssetName,
+		5_000_000_000,
+		1_000_000_000,
+		"pool",
+		1,
+	)
+	pool.Network = "mainnet"
+	volume := poolVolume(pool, 1, 100_000_000)
+	volume.AssetY = common.Lovelace()
+
+	_, err := AggregateADAUSDWithActivity(
+		[]*dex.PoolState{pool},
+		[]dex.PoolVolume{volume},
+		DefaultConfig(),
+		DefaultActivityConfig(),
+	)
+	require.ErrorIs(t, err, ErrInvalidPoolActivity)
+}
+
 func TestLiquidityWeightedMedianRejectsInvalidWeights(t *testing.T) {
 	_, _, err := liquidityWeightedMedian(nil)
 	require.ErrorIs(t, err, ErrInsufficientObservations)
@@ -572,5 +658,23 @@ func poolFixture(
 		Slot:    193_000_000,
 		TxHash:  txHash,
 		TxIndex: txIndex,
+	}
+}
+
+func poolVolume(
+	pool *dex.PoolState,
+	swaps uint64,
+	stableVolume uint64,
+) dex.PoolVolume {
+	return dex.PoolVolume{
+		PoolID:      pool.PoolId,
+		Network:     pool.Network,
+		Protocol:    pool.Protocol,
+		AssetX:      pool.AssetX.Class,
+		AssetY:      pool.AssetY.Class,
+		VolumeY:     stableVolume,
+		SwapCount:   swaps,
+		WindowSlots: 86_400,
+		WindowEnd:   pool.Slot,
 	}
 }
