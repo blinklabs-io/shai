@@ -30,8 +30,23 @@ type PriceUpdate = dex.PriceUpdate
 // PoolParser is an alias for dex.PoolParser.
 type PoolParser = dex.PoolParser
 
+// PoolVolume is an alias for dex.PoolVolume.
+type PoolVolume = dex.PoolVolume
+
+// SwapTransition is an alias for dex.SwapTransition.
+type SwapTransition = dex.SwapTransition
+
+// ActivityState is an alias for dex.ActivityState.
+type ActivityState = dex.ActivityState
+
+// ActivityTracker is an alias for dex.ActivityTracker.
+type ActivityTracker = dex.ActivityTracker
+
 // NewPriceUpdate re-exports dex.NewPriceUpdate.
 var NewPriceUpdate = dex.NewPriceUpdate
+
+// NewActivityTracker re-exports dex.NewActivityTracker.
+var NewActivityTracker = dex.NewActivityTracker
 
 // clonePoolState wraps dex.ClonePoolState for internal use.
 func clonePoolState(state *PoolState) *PoolState {

@@ -288,7 +288,7 @@ var Profiles = map[string]map[string]Profile{
 			Type: ProfileTypeOracle,
 			// CSWAP DEX pool script launch (mainnet)
 			InterceptSlot: 149650740,
-			InterceptHash: "6027a8e3af4cd1cd2b3de0a1b583882573953c200c0ccf120119a04d1def5b49",
+			InterceptHash: "76e1965f49d2ed87150045666c4a9abec1b9439338b87eb50331797b8f37205b",
 			Config: OracleProfileConfig{
 				Protocol:      "cswap",
 				PoolAddresses: poolAddrs("cswap"),
