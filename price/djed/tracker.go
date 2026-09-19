@@ -108,13 +108,15 @@ func NewTrackerFromState(state TrackerState) (*Tracker, error) {
 	return tracker, nil
 }
 
-// Apply validates and records a produced Djed oracle UTxO.
+// Apply authenticates and records a produced Djed oracle UTxO. It does not
+// require the observation to be live: a tracker replaying historical chain data
+// must retain what the chain contained, and Current applies the validity window
+// when an observation is served.
 func (t *Tracker) Apply(
 	data []byte,
 	utxo OracleUTxO,
-	now time.Time,
 ) (Observation, error) {
-	observation, err := ParseMainnetObservation(data, utxo, now)
+	observation, err := ParseAuthenticatedMainnetObservation(data, utxo)
 	if err != nil {
 		return Observation{}, err
 	}

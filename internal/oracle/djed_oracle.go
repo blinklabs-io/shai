@@ -15,7 +15,6 @@
 package oracle
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"sync"
@@ -33,6 +32,21 @@ import (
 // The Cardano mainnet stability window is 3k/f = 129,600 slots. Retaining
 // spent observations across that window keeps all rollback-relevant history.
 const djedRollbackRetentionSlots uint64 = 129_600
+
+// The Djed oracle NFT identity is derived once from compile-time constants.
+// Deriving it per candidate output produced an error return that could only
+// ever fire on a malformed constant, yet was fatal to the whole process.
+var (
+	djedOracleNFT       = djed.MainnetOracleAsset()
+	djedOracleNFTPolicy = lcommon.NewBlake2b224(djedOracleNFT.PolicyId)
+)
+
+// djedCandidate pairs a produced output with its inline datum. Keeping the
+// index and the datum together stops the two from drifting apart.
+type djedCandidate struct {
+	utxoIndex int
+	datum     []byte
+}
 
 // DjedStateStorage persists rollback-aware Djed tracker snapshots.
 type DjedStateStorage interface {
@@ -88,7 +102,14 @@ func (o *DjedOracle) Start() error {
 	if err == nil {
 		tracker, restoreErr := djed.NewTrackerFromState(state)
 		if restoreErr != nil {
-			return fmt.Errorf("restore Djed tracker: %w", restoreErr)
+			// Unreadable persisted state is fatal rather than silently
+			// discarded, so name the key an operator has to remove to
+			// resync from the profile intercept point.
+			return fmt.Errorf(
+				"restore Djed tracker: %w (delete storage key %s to resync)",
+				restoreErr,
+				storage.DjedStateKey(o.network),
+			)
 		}
 		o.tracker = tracker
 	}
@@ -116,7 +137,10 @@ func (o *DjedOracle) HandleChainsyncEvent(evt event.Event) error {
 			)
 			return nil
 		}
-		return o.handleTransaction(evt.Timestamp, ctx, payload)
+		// evt.Timestamp is adder's wall-clock ingest time, not block time,
+		// so it is not used to judge an observation's validity window.
+		// Current does that at serving time.
+		return o.handleTransaction(ctx, payload)
 	case event.RollbackEvent:
 		return o.handleRollback(payload)
 	default:
@@ -125,7 +149,6 @@ func (o *DjedOracle) HandleChainsyncEvent(evt event.Event) error {
 }
 
 func (o *DjedOracle) handleTransaction(
-	observedAt time.Time,
 	ctx event.TransactionContext,
 	txEvt event.TransactionEvent,
 ) error {
@@ -145,24 +168,13 @@ func (o *DjedOracle) handleTransaction(
 
 	logger := logging.GetLogger()
 	utxos := producedUTXOs(txEvt, ctx.TransactionHash)
-	outputIndexes := make([]int, 0)
-	outputData := make([][]byte, 0)
+	candidates := make([]djedCandidate, 0)
 	for i, utxo := range utxos {
 		output := utxo.Output
 		if output.Address().String() != o.address {
 			continue
 		}
-		hasNFT, err := hasDjedNFT(output.Assets())
-		if err != nil {
-			logger.Warn(
-				"ignoring Djed oracle output with invalid asset data",
-				"error", err,
-				"txHash", ctx.TransactionHash,
-				"txIndex", utxo.Id.Index(),
-			)
-			continue
-		}
-		if !hasNFT {
+		if !hasDjedNFT(output.Assets()) {
 			continue
 		}
 		datum := output.Datum()
@@ -174,10 +186,12 @@ func (o *DjedOracle) handleTransaction(
 			)
 			continue
 		}
-		outputIndexes = append(outputIndexes, i)
-		outputData = append(outputData, datum.Cbor())
+		candidates = append(candidates, djedCandidate{
+			utxoIndex: i,
+			datum:     datum.Cbor(),
+		})
 	}
-	if len(inputRefs) == 0 && len(outputIndexes) == 0 {
+	if len(inputRefs) == 0 && len(candidates) == 0 {
 		return nil
 	}
 
@@ -191,32 +205,30 @@ func (o *DjedOracle) handleTransaction(
 			changed = true
 		}
 	}
-	oracleNFT, err := djedNFT()
-	if err != nil {
-		return err
-	}
-	for candidateIndex, outputIndex := range outputIndexes {
-		utxo := utxos[outputIndex]
-		ref := djed.OutputRef{TxHash: ctx.TransactionHash, TxIndex: utxo.Id.Index()}
+	for _, candidate := range candidates {
+		utxo := utxos[candidate.utxoIndex]
+		ref := djed.OutputRef{
+			TxHash:  ctx.TransactionHash,
+			TxIndex: utxo.Id.Index(),
+		}
 		if staged.Contains(ref) {
 			continue
 		}
 		output := utxo.Output
+		// The parser re-checks the oracle NFT against the output's own
+		// assets, so hasDjedNFT above stays a pre-filter whose failure mode
+		// is a miss rather than a false accept.
 		_, err = staged.Apply(
-			outputData[candidateIndex],
+			candidate.datum,
 			djed.OracleUTxO{
-				Address: output.Address().String(),
-				Assets: []common.AssetAmount{{
-					Class:  oracleNFT,
-					Amount: 1,
-				}},
+				Address:          output.Address().String(),
+				Assets:           outputAssetAmounts(output.Assets()),
 				TxHash:           ctx.TransactionHash,
 				TxIndex:          utxo.Id.Index(),
 				TransactionIndex: ctx.TransactionIdx,
 				Slot:             ctx.SlotNumber,
 				BlockHash:        txEvt.BlockHash,
 			},
-			observedAt,
 		)
 		if err != nil {
 			logger.Warn(
@@ -271,39 +283,43 @@ func (o *DjedOracle) handleRollback(evt event.RollbackEvent) error {
 	return nil
 }
 
+// hasDjedNFT pre-filters produced outputs. MultiAsset.Asset returns a nil
+// amount for an absent policy or name, so an output at the oracle address
+// carrying any other native token reaches this with nil.
 func hasDjedNFT(
 	assets *lcommon.MultiAsset[lcommon.MultiAssetTypeOutput],
-) (bool, error) {
+) bool {
 	if assets == nil {
-		return false, nil
+		return false
 	}
-	policyBytes, err := hex.DecodeString(djed.MainnetOraclePolicy)
-	if err != nil {
-		return false, fmt.Errorf("decode Djed NFT policy: %w", err)
-	}
-	name, err := hex.DecodeString(djed.OracleNFTName)
-	if err != nil {
-		return false, fmt.Errorf("decode Djed NFT name: %w", err)
-	}
-	var policy lcommon.Blake2b224
-	if len(policyBytes) != len(policy) {
-		return false, fmt.Errorf("invalid Djed NFT policy length")
-	}
-	copy(policy[:], policyBytes)
-	amount := assets.Asset(policy, name)
-	return amount != nil && amount.IsInt64() && amount.Int64() == 1, nil
+	amount := assets.Asset(djedOracleNFTPolicy, djedOracleNFT.Name)
+	return amount != nil && amount.IsInt64() && amount.Int64() == 1
 }
 
-func djedNFT() (common.AssetClass, error) {
-	asset, err := common.NewAssetClass(
-		djed.MainnetOraclePolicy,
-		djed.OracleNFTName,
-	)
-	if err != nil {
-		return common.AssetClass{}, fmt.Errorf(
-			"decode Djed NFT identity: %w",
-			err,
-		)
+// outputAssetAmounts converts an output's native tokens for the Djed parser.
+// Amounts that do not fit a uint64 are dropped; they cannot be the oracle NFT,
+// whose amount is 1.
+func outputAssetAmounts(
+	assets *lcommon.MultiAsset[lcommon.MultiAssetTypeOutput],
+) []common.AssetAmount {
+	if assets == nil {
+		return nil
 	}
-	return asset, nil
+	amounts := make([]common.AssetAmount, 0)
+	for _, policy := range assets.Policies() {
+		for _, name := range assets.Assets(policy) {
+			amount := assets.Asset(policy, name)
+			if amount == nil || !amount.IsUint64() {
+				continue
+			}
+			amounts = append(amounts, common.AssetAmount{
+				Class: common.AssetClass{
+					PolicyId: policy.Bytes(),
+					Name:     name,
+				},
+				Amount: amount.Uint64(),
+			})
+		}
+	}
+	return amounts
 }

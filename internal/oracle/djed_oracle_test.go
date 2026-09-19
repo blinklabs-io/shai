@@ -34,7 +34,17 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const djedDatumFixture = "d8799f584004ea10278c7b8c3c636536a8a1b831d8e193e8aca7df1ee2b83fe856f1fede93fb818e3453f135f37a68d464bf3c6e38d1e4e4750d60cba6dbc3a96132aa6507d8799fd8799f1a000f42401a00029463ffd8799fd8799fd87a9f1b0000019f90e8fcc0ffd87a80ffd8799fd87a9f1b0000019f90f6b860ffd87a80ffff43555344ff581c815aca02042ba9188a2ca4f8ce7b276046e2376b4bce56391342299eff"
+const djedDatumFixture = "" +
+	"d8799f584004ea10278c7b8c3c636536a8a1b831d8e193e8aca7df1ee2b83fe8" +
+	"56f1fede93fb818e3453f135f37a68d464bf3c6e38d1e4e4750d60cba6dbc3a9" +
+	"6132aa6507d8799fd8799f1a000f42401a00029463ffd8799fd8799fd87a9f1b" +
+	"0000019f90e8fcc0ffd87a80ffd8799fd87a9f1b0000019f90f6b860ffd87a80" +
+	"ffff43555344ff581c815aca02042ba9188a2ca4f8ce7b276046e2376b4bce56" +
+	"391342299eff"
+
+type testAssetAmounts = map[cbor.ByteString]lcommon.MultiAssetTypeOutput
+
+type testPolicyAssets = map[lcommon.Blake2b224]testAssetAmounts
 
 type testDjedStorage struct {
 	state   djed.TrackerState
@@ -276,11 +286,113 @@ func TestDjedOraclePrunesSpentHistoryBeyondStabilityWindow(t *testing.T) {
 	)
 }
 
-func testDjedOutput(t *testing.T) ledger.TransactionOutput {
+func TestDjedOracleIngestsOutputExpiredAgainstIngestClock(t *testing.T) {
+	stateStorage := &testDjedStorage{}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	require.NoError(t, oracle.Start())
+	inWindow := time.Unix(1_784_842_625, 0).UTC()
+	txHash := strings.Repeat("a1", 32)
+	require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+		// Historical catch-up emits a wall-clock ingest timestamp long past
+		// the datum's on-chain validity window.
+		Timestamp: inWindow.Add(48 * time.Hour),
+		Context: event.TransactionContext{
+			TransactionHash: txHash,
+			SlotNumber:      100,
+		},
+		Payload: event.TransactionEvent{
+			BlockHash: "block-100",
+			Outputs: []ledger.TransactionOutput{
+				testDjedOutput(t),
+			},
+		},
+	}))
+	require.Equal(t, 1, stateStorage.saves)
+	current, err := oracle.Current(inWindow)
+	require.NoError(t, err)
+	require.Equal(t, txHash, current.TxHash)
+	_, err = oracle.Current(inWindow.Add(48 * time.Hour))
+	require.ErrorIs(t, err, djed.ErrExpired)
+}
+
+func TestDjedOracleParsesOutputsOwnAssets(t *testing.T) {
+	output := testDjedOutputWithAssets(
+		t,
+		mustDjedDatum(t),
+		testDjedAssets(t, true),
+	)
+	amounts := outputAssetAmounts(output.Assets())
+	require.Len(t, amounts, 2)
+	oracleNFT := djed.MainnetOracleAsset()
+	found := false
+	for _, amount := range amounts {
+		if amount.IsAsset(oracleNFT) {
+			require.Equal(t, uint64(1), amount.Amount)
+			found = true
+		}
+	}
+	require.True(t, found)
+	require.Nil(t, outputAssetAmounts(nil))
+
+	stateStorage := &testDjedStorage{}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	require.NoError(t, oracle.Start())
+	now := time.Unix(1_784_842_625, 0).UTC()
+	txHash := strings.Repeat("b2", 32)
+	require.NoError(t, oracle.HandleChainsyncEvent(event.Event{
+		Timestamp: now,
+		Context: event.TransactionContext{
+			TransactionHash: txHash,
+			SlotNumber:      100,
+		},
+		Payload: event.TransactionEvent{
+			BlockHash: "block-100",
+			Outputs:   []ledger.TransactionOutput{output},
+		},
+	}))
+	current, err := oracle.Current(now)
+	require.NoError(t, err)
+	require.Equal(t, txHash, current.TxHash)
+}
+
+func TestDjedOracleRestoreFailureNamesStorageKey(t *testing.T) {
+	stateStorage := &testDjedStorage{
+		present: true,
+		state: djed.TrackerState{
+			Observations: []djed.TrackedObservation{{}},
+		},
+	}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	err := oracle.Start()
+	require.ErrorIs(t, err, djed.ErrInvalidTrackerState)
+	require.ErrorContains(t, err, storage.DjedStateKey("mainnet"))
+}
+
+func mustDjedDatum(t *testing.T) []byte {
 	t.Helper()
 	datum, err := hex.DecodeString(djedDatumFixture)
 	require.NoError(t, err)
-	return testDjedOutputWithDatum(t, datum)
+	return datum
+}
+
+func testDjedOutput(t *testing.T) ledger.TransactionOutput {
+	t.Helper()
+	return testDjedOutputWithDatum(t, mustDjedDatum(t))
 }
 
 func testDjedOutputWithForeignAsset(t *testing.T) ledger.TransactionOutput {
@@ -316,21 +428,45 @@ func testDjedOutputWithDatum(
 	datum []byte,
 ) ledger.TransactionOutput {
 	t.Helper()
-	address, err := lcommon.NewAddress(djed.MainnetOracleAddress)
-	require.NoError(t, err)
+	return testDjedOutputWithAssets(t, datum, testDjedAssets(t, false))
+}
+
+func testDjedAssets(
+	t *testing.T,
+	withExtra bool,
+) lcommon.MultiAsset[lcommon.MultiAssetTypeOutput] {
+	t.Helper()
 	policyBytes, err := hex.DecodeString(djed.MainnetOraclePolicy)
 	require.NoError(t, err)
 	name, err := hex.DecodeString(djed.OracleNFTName)
 	require.NoError(t, err)
 	var policy lcommon.Blake2b224
 	copy(policy[:], policyBytes)
-	assets := lcommon.NewMultiAsset[lcommon.MultiAssetTypeOutput](
-		map[lcommon.Blake2b224]map[cbor.ByteString]lcommon.MultiAssetTypeOutput{
-			policy: {
-				cbor.NewByteString(name): big.NewInt(1),
-			},
+	data := testPolicyAssets{
+		policy: {
+			cbor.NewByteString(name): big.NewInt(1),
 		},
-	)
+	}
+	if withExtra {
+		extraBytes, err := hex.DecodeString(strings.Repeat("22", 28))
+		require.NoError(t, err)
+		var extra lcommon.Blake2b224
+		copy(extra[:], extraBytes)
+		data[extra] = testAssetAmounts{
+			cbor.NewByteString([]byte("EXTRA")): big.NewInt(7),
+		}
+	}
+	return lcommon.NewMultiAsset(data)
+}
+
+func testDjedOutputWithAssets(
+	t *testing.T,
+	datum []byte,
+	assets lcommon.MultiAsset[lcommon.MultiAssetTypeOutput],
+) ledger.TransactionOutput {
+	t.Helper()
+	address, err := lcommon.NewAddress(djed.MainnetOracleAddress)
+	require.NoError(t, err)
 	outputFields := map[uint64]any{
 		0: address,
 		1: mary.MaryTransactionOutputValue{

@@ -25,6 +25,12 @@ import (
 
 const djedStateKeyPrefix = "price_djed_"
 
+// DjedStateKey returns the key holding retained Djed history for a network.
+// It is named in restore failures so an operator can remove unreadable state.
+func DjedStateKey(network string) string {
+	return djedStateKeyPrefix + network
+}
+
 var ErrDjedStateNotFound = errors.New("storage: Djed state not found")
 
 // SaveDjedState atomically persists retained Djed rollback history.
@@ -40,7 +46,7 @@ func (s *Storage) SaveDjedState(
 		return fmt.Errorf("storage: marshal Djed state: %w", err)
 	}
 	if err := s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(djedStateKeyPrefix+network), data)
+		return txn.Set([]byte(DjedStateKey(network)), data)
 	}); err != nil {
 		return fmt.Errorf("storage: save Djed state: %w", err)
 	}
@@ -56,7 +62,7 @@ func (s *Storage) LoadDjedState(network string) (djed.TrackerState, error) {
 	}
 	var state djed.TrackerState
 	err := s.db.View(func(txn *badger.Txn) error {
-		item, err := txn.Get([]byte(djedStateKeyPrefix + network))
+		item, err := txn.Get([]byte(DjedStateKey(network)))
 		if err != nil {
 			return err
 		}
