@@ -475,7 +475,7 @@ func TestOrderAPIReevaluatesActivityAtServingTime(t *testing.T) {
 
 	// The tracked order itself is untouched by serving it.
 	tracked, ok := o.GetOrderState("gy_expired")
-	if !ok || !tracked.IsActive {
+	if !ok || tracked == nil || !tracked.IsActive {
 		t.Error("serving an order must not rewrite its recorded IsActive")
 	}
 }
@@ -561,7 +561,7 @@ func TestGeniusYieldOrderWithoutItsNFTIsIgnored(t *testing.T) {
 		t.Fatalf("tracked orders = %d, want 1", o.OrderCount())
 	}
 	tracked, ok := o.GetOrderState(orderId)
-	if !ok {
+	if !ok || tracked == nil {
 		t.Fatalf("expected order %s to remain tracked", orderId)
 	}
 	if tracked.TxHash != mainnetOrderTxHash {
