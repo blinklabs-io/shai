@@ -15,10 +15,13 @@
 package oracle
 
 import (
+	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -83,14 +86,17 @@ type Oracle struct {
 	poolAddresses           map[string]struct{} // Set for O(1) lookup
 	orderAddresses          map[string]struct{}
 	orderPaymentCredentials map[string]struct{}
-	storage                 *OracleStorage
-	stopChan                chan struct{}
-	subscribers             []chan *PriceUpdate
-	subMu                   sync.RWMutex
-	stopped                 bool
-	dropCount               atomic.Uint64
-	mempoolMgr              *MempoolStateManager
-	activity                *ActivityTracker
+	// orderNFTPolicy is the minting policy of the NFT that identifies a
+	// genuine order UTxO, when the profile declares one.
+	orderNFTPolicy *ledger_common.Blake2b224
+	storage        *OracleStorage
+	stopChan       chan struct{}
+	subscribers    []chan *PriceUpdate
+	subMu          sync.RWMutex
+	stopped        bool
+	dropCount      atomic.Uint64
+	mempoolMgr     *MempoolStateManager
+	activity       *ActivityTracker
 }
 
 // New creates a new Oracle instance
@@ -140,6 +146,18 @@ func (o *Oracle) addProfileAddresses() {
 		}
 		for _, credential := range profileConfig.OrderPaymentCredentials {
 			o.orderPaymentCredentials[credential] = struct{}{}
+		}
+		if profileConfig.OrderNFTPolicy != "" {
+			policy, err := hex.DecodeString(profileConfig.OrderNFTPolicy)
+			if err != nil || len(policy) != ledger_common.Blake2b224Size {
+				panic(fmt.Sprintf(
+					"profile %s declares an invalid order NFT policy %q",
+					o.profile.Name,
+					profileConfig.OrderNFTPolicy,
+				))
+			}
+			policyId := ledger_common.NewBlake2b224(policy)
+			o.orderNFTPolicy = &policyId
 		}
 	}
 }
@@ -582,6 +600,18 @@ func (o *Oracle) handleOrderTransaction(
 		if datums == nil {
 			datums = witnessDatums(txEvt)
 		}
+		// A script address can be paid to by anyone, so the output's own
+		// order NFT is what distinguishes a genuine order from an
+		// arbitrary UTxO parked at the order script's payment credential.
+		nftName, ok := o.outputOrderNFTName(utxo.Output)
+		if !ok {
+			logger.Debug(
+				"skipping order address output without an order NFT",
+				"txHash", ctx.TransactionHash,
+				"outputIndex", utxo.Id.Index(),
+			)
+			continue
+		}
 		datumCbor := outputDatumCbor(utxo.Output, datums)
 		if datumCbor == nil {
 			continue
@@ -603,6 +633,18 @@ func (o *Oracle) handleOrderTransaction(
 			continue
 		}
 		if state == nil {
+			continue
+		}
+		// The order key is derived from the datum, which the producer of
+		// the output chooses. Requiring it to name the NFT the output
+		// actually holds stops a forged output from overwriting the state
+		// of a genuine order that carries that NFT.
+		if nftName != nil && !bytes.Equal(state.NFT, nftName) {
+			logger.Debug(
+				"skipping order whose datum does not name its order NFT",
+				"txHash", ctx.TransactionHash,
+				"outputIndex", utxo.Id.Index(),
+			)
 			continue
 		}
 		state.Protocol = parser.Protocol()
@@ -752,6 +794,30 @@ func (o *Oracle) isOrderAddress(addr string) bool {
 	}
 	_, ok := o.orderPaymentCredentials[parsed.PaymentKeyHash().String()]
 	return ok
+}
+
+// outputOrderNFTName returns the token name of the order NFT the output
+// carries. A profile that declares no order NFT policy accepts any output at
+// an order address, and reports a nil name so the datum is not cross-checked.
+func (o *Oracle) outputOrderNFTName(
+	output ledger.TransactionOutput,
+) ([]byte, bool) {
+	if o.orderNFTPolicy == nil {
+		return nil, true
+	}
+	assets := output.Assets()
+	if assets == nil {
+		return nil, false
+	}
+	names := assets.Assets(*o.orderNFTPolicy)
+	if len(names) != 1 {
+		return nil, false
+	}
+	amount := assets.Asset(*o.orderNFTPolicy, names[0])
+	if amount == nil || amount.Cmp(big.NewInt(1)) != 0 {
+		return nil, false
+	}
+	return names[0], true
 }
 
 func (o *Oracle) isSyntheticsProfile() bool {

@@ -111,9 +111,6 @@ func (p *Parser) ParseOrderDatum(
 	// Generate order ID from the NFT token name
 	orderId := GenerateOrderId(orderDatum.NFT)
 
-	// Check if order is active
-	isActive := p.isOrderActive(orderDatum, timestamp)
-
 	// Convert timestamps
 	var startTime, endTime *time.Time
 	if orderDatum.Start.IsPresent {
@@ -138,7 +135,6 @@ func (p *Parser) ParseOrderDatum(
 		Price:          orderDatum.Price.ToFloat64(),
 		PriceNum:       orderDatum.Price.Numerator,
 		PriceDenom:     orderDatum.Price.Denominator,
-		IsActive:       isActive,
 		StartTime:      startTime,
 		EndTime:        endTime,
 		PartialFills:   orderDatum.PartialFills,
@@ -157,26 +153,32 @@ func (p *Parser) ParseOrderDatum(
 		ContainedAskedFee:      orderDatum.ContainedFee.AskedFee,
 		ContainedPayment:       orderDatum.ContainedPayment,
 	}
+	state.IsActive = state.ActiveAt(timestamp)
 
 	return state, nil
 }
 
-// isOrderActive checks if an order is currently active
-func (p *Parser) isOrderActive(datum PartialOrderDatum, now time.Time) bool {
+// ActiveAt reports whether the order can be filled at the supplied time.
+//
+// IsActive on a stored order records this answer for the moment the order was
+// last seen on chain. A time-bounded order starts or expires without any
+// transaction touching it, so a consumer serving a stored order re-evaluates
+// it here rather than reading the recorded value.
+func (o *OrderState) ActiveAt(now time.Time) bool {
 	// Order is inactive if no amount remaining
-	if datum.OfferedAmount == 0 {
+	if o.OfferedAsset.Amount == 0 {
 		return false
 	}
 
 	nowMs := now.UnixMilli()
 
 	// Check start time constraint
-	if datum.Start.IsPresent && datum.Start.Time > nowMs {
+	if o.StartTime != nil && o.StartTime.UnixMilli() > nowMs {
 		return false // Order hasn't started yet
 	}
 
 	// Check end time constraint
-	if datum.End.IsPresent && datum.End.Time < nowMs {
+	if o.EndTime != nil && o.EndTime.UnixMilli() < nowMs {
 		return false // Order has expired
 	}
 

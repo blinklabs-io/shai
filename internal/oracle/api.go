@@ -621,9 +621,12 @@ func (a *OracleAPI) getAllCDPs() []*CDPState {
 }
 
 func (a *OracleAPI) getAllOrders() []*OrderState {
+	now := time.Now()
 	var merged []*OrderState
 	for _, o := range a.oracles {
-		merged = append(merged, o.GetAllOrders()...)
+		for _, order := range o.GetAllOrders() {
+			merged = append(merged, orderAt(order, now))
+		}
 	}
 	return merged
 }
@@ -631,10 +634,24 @@ func (a *OracleAPI) getAllOrders() []*OrderState {
 func (a *OracleAPI) getOrderState(orderId string) (*OrderState, bool) {
 	for _, o := range a.oracles {
 		if order, ok := o.GetOrderState(orderId); ok {
-			return order, true
+			return orderAt(order, time.Now()), true
 		}
 	}
 	return nil, false
+}
+
+// orderAt returns a copy of a tracked order with its activity re-evaluated at
+// the serving time. A tracked order's IsActive is the value observed when the
+// chain last produced it, and a time-bounded order starts or expires with no
+// transaction to re-observe, so serving the stored value reports an expired
+// order as fillable.
+func orderAt(order *OrderState, now time.Time) *OrderState {
+	if order == nil {
+		return nil
+	}
+	served := *order
+	served.IsActive = served.ActiveAt(now)
+	return &served
 }
 
 func (a *OracleAPI) getPoolState(poolId string) (*PoolState, bool) {

@@ -82,6 +82,10 @@ type OrderbookProfileConfig struct {
 	// OrderPaymentCredentials are hex-encoded payment credentials whose
 	// addresses hold order UTxOs, whatever staking part they carry.
 	OrderPaymentCredentials []string
+	// OrderNFTPolicy is the hex-encoded minting policy of the NFT that
+	// identifies a genuine order UTxO. Anyone can pay to a script address,
+	// so an output at an order address without this NFT is not an order.
+	OrderNFTPolicy string
 }
 
 // LendingProfileConfig contains configuration for lending protocols.
@@ -334,6 +338,7 @@ var Profiles = map[string]map[string]Profile{
 			Config: OrderbookProfileConfig{
 				Protocol:                "geniusyield",
 				OrderPaymentCredentials: geniusyield.GetOrderPaymentCredentials(),
+				OrderNFTPolicy:          geniusyield.OrderNFTPolicy,
 			},
 		},
 		"liqwid": {
