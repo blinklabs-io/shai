@@ -187,6 +187,8 @@ func (a *OracleAPI) RegisterHandlers(mux *http.ServeMux) {
 	)
 	mux.HandleFunc("GET /api/v1/cdps", a.HandleListCDPs)
 	mux.HandleFunc("GET /api/v1/cdps/{cdpId}", a.HandleGetCDP)
+	mux.HandleFunc("GET /api/v1/orders", a.HandleListOrders)
+	mux.HandleFunc("GET /api/v1/orders/{orderId}", a.HandleGetOrder)
 	mux.HandleFunc("GET /api/v1/prices", a.HandleListPrices)
 	mux.HandleFunc("GET /api/v1/prices/ada-usd", a.HandleADAUSDPrice)
 	mux.HandleFunc("/ws/prices", a.HandlePriceStream)
@@ -353,6 +355,46 @@ func (a *OracleAPI) HandleGetCDP(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(cdp)
+}
+
+// HandleListOrders returns all tracked order-book orders.
+func (a *OracleAPI) HandleListOrders(w http.ResponseWriter, r *http.Request) {
+	orders := a.getAllOrders()
+
+	protocol := r.URL.Query().Get("protocol")
+	if protocol != "" {
+		filtered := make([]*OrderState, 0)
+		for _, order := range orders {
+			if order.Protocol == protocol {
+				filtered = append(filtered, order)
+			}
+		}
+		orders = filtered
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"orders": orders,
+		"count":  len(orders),
+	})
+}
+
+// HandleGetOrder returns a specific order by ID.
+func (a *OracleAPI) HandleGetOrder(w http.ResponseWriter, r *http.Request) {
+	orderId := r.PathValue("orderId")
+	if orderId == "" {
+		http.Error(w, "order ID required", http.StatusBadRequest)
+		return
+	}
+
+	order, ok := a.getOrderState(orderId)
+	if !ok {
+		http.Error(w, "order not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(order)
 }
 
 // HandleListPrices returns current prices for all pools
@@ -576,6 +618,40 @@ func (a *OracleAPI) getAllCDPs() []*CDPState {
 		merged = append(merged, o.GetAllCDPs()...)
 	}
 	return merged
+}
+
+func (a *OracleAPI) getAllOrders() []*OrderState {
+	now := time.Now()
+	var merged []*OrderState
+	for _, o := range a.oracles {
+		for _, order := range o.GetAllOrders() {
+			merged = append(merged, orderAt(order, now))
+		}
+	}
+	return merged
+}
+
+func (a *OracleAPI) getOrderState(orderId string) (*OrderState, bool) {
+	for _, o := range a.oracles {
+		if order, ok := o.GetOrderState(orderId); ok {
+			return orderAt(order, time.Now()), true
+		}
+	}
+	return nil, false
+}
+
+// orderAt returns a copy of a tracked order with its activity re-evaluated at
+// the serving time. A tracked order's IsActive is the value observed when the
+// chain last produced it, and a time-bounded order starts or expires with no
+// transaction to re-observe, so serving the stored value reports an expired
+// order as fillable.
+func orderAt(order *OrderState, now time.Time) *OrderState {
+	if order == nil {
+		return nil
+	}
+	served := *order
+	served.IsActive = served.ActiveAt(now)
+	return &served
 }
 
 func (a *OracleAPI) getPoolState(poolId string) (*PoolState, bool) {

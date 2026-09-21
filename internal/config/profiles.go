@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/blinklabs-io/shai/dex"
+	"github.com/blinklabs-io/shai/dex/geniusyield"
 )
 
 // poolAddrs builds the monitored-address list for a protocol from the canonical
@@ -26,6 +27,7 @@ const (
 	ProfileTypeOracle
 	ProfileTypeSynthetics
 	ProfileTypeLending
+	ProfileTypeOrderbook
 )
 
 type Profile struct {
@@ -70,6 +72,20 @@ type OracleProfileConfig struct {
 type SyntheticsProfileConfig struct {
 	Protocol     string                 // Protocol name (e.g., "indigo")
 	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+}
+
+// OrderbookProfileConfig contains configuration for order-book protocols.
+type OrderbookProfileConfig struct {
+	Protocol string // Protocol name (e.g., "geniusyield")
+	// OrderAddresses are exact order addresses to monitor.
+	OrderAddresses []ProfileConfigAddress
+	// OrderPaymentCredentials are hex-encoded payment credentials whose
+	// addresses hold order UTxOs, whatever staking part they carry.
+	OrderPaymentCredentials []string
+	// OrderNFTPolicy is the hex-encoded minting policy of the NFT that
+	// identifies a genuine order UTxO. Anyone can pay to a script address,
+	// so an output at an order address without this NFT is not an order.
+	OrderNFTPolicy string
 }
 
 // LendingProfileConfig contains configuration for lending protocols.
@@ -310,6 +326,19 @@ var Profiles = map[string]map[string]Profile{
 						Address: "addr1w80ptp0qgmcklhmeweesqgeurtlma8fsxsr9dt8au30fzss0czhl9",
 					},
 				},
+			},
+		},
+		"geniusyield": {
+			Name: "geniusyield",
+			// Parent of the block holding the earliest transaction at the
+			// partial order script.
+			InterceptSlot: 110212426,
+			InterceptHash: "d0e0542025876bc633fe75a898a3922d10f7b18a15093ee6cf4972d1733de9c3",
+			Type:          ProfileTypeOrderbook,
+			Config: OrderbookProfileConfig{
+				Protocol:                "geniusyield",
+				OrderPaymentCredentials: geniusyield.GetOrderPaymentCredentials(),
+				OrderNFTPolicy:          geniusyield.OrderNFTPolicy,
 			},
 		},
 		"liqwid": {
