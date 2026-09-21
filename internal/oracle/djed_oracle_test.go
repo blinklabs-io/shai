@@ -50,6 +50,7 @@ type testDjedStorage struct {
 	state   djed.TrackerState
 	present bool
 	saveErr error
+	loadErr error
 	saves   int
 }
 
@@ -69,6 +70,9 @@ func (s *testDjedStorage) SaveDjedState(
 func (s *testDjedStorage) LoadDjedState(
 	_ string,
 ) (djed.TrackerState, error) {
+	if s.loadErr != nil {
+		return djed.TrackerState{}, s.loadErr
+	}
 	if !s.present {
 		return djed.TrackerState{}, storage.ErrDjedStateNotFound
 	}
@@ -381,6 +385,57 @@ func TestDjedOracleRestoreFailureNamesStorageKey(t *testing.T) {
 	err := oracle.Start()
 	require.ErrorIs(t, err, djed.ErrInvalidTrackerState)
 	require.ErrorContains(t, err, storage.DjedStateKey("mainnet"))
+}
+
+func TestDjedOracleLoadFailureNamesStorageKey(t *testing.T) {
+	t.Parallel()
+	loadErr := errors.New("unmarshal Djed state: unexpected end of JSON input")
+	stateStorage := &testDjedStorage{loadErr: loadErr}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	err := oracle.Start()
+	require.ErrorIs(t, err, loadErr)
+	require.ErrorContains(t, err, storage.DjedStateKey("mainnet"))
+}
+
+func TestDjedOracleReplayedOutputIsNotPersistedAgain(t *testing.T) {
+	t.Parallel()
+	stateStorage := &testDjedStorage{}
+	oracle := NewDjedOracle(
+		indexer.New(),
+		"mainnet",
+		djed.MainnetOracleAddress,
+		stateStorage,
+	)
+	require.NoError(t, oracle.Start())
+	now := time.Unix(1_784_842_625, 0).UTC()
+	txHash := strings.Repeat("c3", 32)
+	evt := event.Event{
+		Timestamp: now,
+		Context: event.TransactionContext{
+			TransactionHash: txHash,
+			SlotNumber:      100,
+		},
+		Payload: event.TransactionEvent{
+			BlockHash: "block-100",
+			Outputs: []ledger.TransactionOutput{
+				testDjedOutput(t),
+			},
+		},
+	}
+	require.NoError(t, oracle.HandleChainsyncEvent(evt))
+	require.Equal(t, 1, stateStorage.saves)
+	// Chain replay redelivers the same produced output. The tracker already
+	// holds it, so nothing changed and no snapshot is rewritten.
+	require.NoError(t, oracle.HandleChainsyncEvent(evt))
+	require.Equal(t, 1, stateStorage.saves)
+	current, err := oracle.Current(now)
+	require.NoError(t, err)
+	require.Equal(t, txHash, current.TxHash)
 }
 
 func mustDjedDatum(t *testing.T) []byte {

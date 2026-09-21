@@ -97,7 +97,14 @@ func (o *DjedOracle) Start() error {
 	}
 	state, err := o.storage.LoadDjedState(o.network)
 	if err != nil && !errors.Is(err, storage.ErrDjedStateNotFound) {
-		return err
+		// A stored value that cannot be read back, such as a truncated
+		// or corrupt one, is as fatal as a semantically invalid one, so
+		// it names the same recovery step.
+		return fmt.Errorf(
+			"load Djed tracker state: %w (delete storage key %s to resync)",
+			err,
+			storage.DjedStateKey(o.network),
+		)
 	}
 	if err == nil {
 		tracker, restoreErr := djed.NewTrackerFromState(state)
