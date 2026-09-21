@@ -15,10 +15,12 @@
 package oracle
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -63,14 +65,17 @@ type Oracle struct {
 	cdpsMu                sync.RWMutex
 	poolAddresses         map[string]struct{} // Set for O(1) lookup
 	cdpPaymentCredentials map[string]struct{}
-	storage               *OracleStorage
-	stopChan              chan struct{}
-	subscribers           []chan *PriceUpdate
-	subMu                 sync.RWMutex
-	stopped               bool
-	dropCount             atomic.Uint64
-	mempoolMgr            *MempoolStateManager
-	activity              *ActivityTracker
+	// cdpNFTPolicy is the minting policy of the per-position pointer NFT a
+	// genuine CDP UTxO carries, when the profile declares one.
+	cdpNFTPolicy *ledger_common.Blake2b224
+	storage      *OracleStorage
+	stopChan     chan struct{}
+	subscribers  []chan *PriceUpdate
+	subMu        sync.RWMutex
+	stopped      bool
+	dropCount    atomic.Uint64
+	mempoolMgr   *MempoolStateManager
+	activity     *ActivityTracker
 }
 
 // New creates a new Oracle instance
@@ -113,6 +118,18 @@ func (o *Oracle) addProfileAddresses() {
 		}
 		for _, credential := range profileConfig.CDPPaymentCredentials {
 			o.cdpPaymentCredentials[credential] = struct{}{}
+		}
+		if profileConfig.CDPNFTPolicy != "" {
+			policy, err := hex.DecodeString(profileConfig.CDPNFTPolicy)
+			if err != nil || len(policy) != ledger_common.Blake2b224Size {
+				panic(fmt.Sprintf(
+					"profile %s declares an invalid CDP NFT policy %q",
+					o.profile.Name,
+					profileConfig.CDPNFTPolicy,
+				))
+			}
+			policyId := ledger_common.NewBlake2b224(policy)
+			o.cdpNFTPolicy = &policyId
 		}
 	}
 }
@@ -416,6 +433,17 @@ func (o *Oracle) handleCDPTransaction(
 		if !o.isPoolAddress(utxo.Output.Address().String()) {
 			continue
 		}
+		// A script address can be paid to by anyone, so the pointer NFT the
+		// output carries is what separates a real position from an
+		// arbitrary UTxO parked at the CDP script's payment credential.
+		if !o.hasCDPNFT(utxo.Output) {
+			logger.Warn(
+				"skipping CDP address output without its pointer NFT",
+				"txHash", ctx.TransactionHash,
+				"outputIndex", utxo.Id.Index(),
+			)
+			continue
+		}
 		datum := utxo.Output.Datum()
 		if datum == nil {
 			continue
@@ -492,6 +520,22 @@ func (o *Oracle) handleCDPTransaction(
 		o.cdps[state.CDPId] = state
 	}
 	return nil
+}
+
+// hasCDPNFT reports whether the output carries the profile's per-position
+// pointer NFT: a single token of quantity one, with an empty asset name,
+// under the declared policy. A profile that declares no policy accepts any
+// output at a CDP address.
+func (o *Oracle) hasCDPNFT(output ledger.TransactionOutput) bool {
+	if o.cdpNFTPolicy == nil {
+		return true
+	}
+	assets := output.Assets()
+	if assets == nil {
+		return false
+	}
+	amount := assets.Asset(*o.cdpNFTPolicy, nil)
+	return amount != nil && amount.Cmp(big.NewInt(1)) == 0
 }
 
 func (o *Oracle) isSyntheticsProfile() bool {

@@ -75,6 +75,10 @@ type SyntheticsProfileConfig struct {
 	Protocol              string                 // Protocol name (e.g., "butane")
 	CDPAddresses          []ProfileConfigAddress // Exact CDP addresses to monitor
 	CDPPaymentCredentials []string               // CDP payment credentials to monitor
+	// CDPNFTPolicy is the hex-encoded minting policy of the per-position
+	// pointer NFT a CDP UTxO carries. Anyone can pay to a script address,
+	// so an output at a CDP credential without that NFT is not a CDP.
+	CDPNFTPolicy string
 }
 
 // LendingProfileConfig contains configuration for lending protocols.
@@ -325,6 +329,7 @@ var Profiles = map[string]map[string]Profile{
 			Config: SyntheticsProfileConfig{
 				Protocol:              "butane",
 				CDPPaymentCredentials: butane.GetCDPPaymentCredentials(),
+				CDPNFTPolicy:          butane.SyntheticPolicyId,
 			},
 		},
 		"liqwid": {

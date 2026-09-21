@@ -16,6 +16,7 @@ package oracle
 
 import (
 	"encoding/hex"
+	"math/big"
 	"strings"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
+	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/dex/butane"
 	"github.com/blinklabs-io/shai/internal/config"
@@ -384,24 +386,58 @@ func newTestButaneCDPOutput(t *testing.T, addr string) ledger.TransactionOutput 
 	return newTestButaneOutput(t, addr, testButaneCDPDatum(t, 50_000_000))
 }
 
+// newTestButaneOutput builds a CDP output in the shape the chain holds one:
+// the pointer NFT under the deployed policy, with an empty asset name and a
+// quantity of one, alongside the inline CDP datum.
 func newTestButaneOutput(
 	t *testing.T,
 	addr string,
 	datumCbor []byte,
 ) ledger.TransactionOutput {
 	t.Helper()
+	return newTestButaneOutputWithNFT(t, addr, datumCbor, true)
+}
+
+func newTestButaneOutputWithNFT(
+	t *testing.T,
+	addr string,
+	datumCbor []byte,
+	withNFT bool,
+) ledger.TransactionOutput {
+	t.Helper()
 	address, err := common.NewAddress(addr)
 	if err != nil {
 		t.Fatalf("failed to parse Butane CDP address: %v", err)
 	}
-	outputCbor, err := cbor.Encode(&map[uint64]any{
+	outputFields := map[uint64]any{
 		0: address,
-		1: uint64(2_000_000),
 		2: []any{
 			uint64(1),
 			cbor.Tag{Number: 24, Content: datumCbor},
 		},
-	})
+	}
+	if withNFT {
+		policyBytes, err := hex.DecodeString(butane.SyntheticPolicyId)
+		if err != nil {
+			t.Fatalf("failed to decode Butane synthetic policy: %v", err)
+		}
+		var policy common.Blake2b224
+		copy(policy[:], policyBytes)
+		assets := common.NewMultiAsset(
+			map[common.Blake2b224]map[cbor.ByteString]common.MultiAssetTypeOutput{
+				policy: {
+					cbor.NewByteString(nil): big.NewInt(1),
+				},
+			},
+		)
+		outputFields[1] = mary.MaryTransactionOutputValue{
+			Amount: 2_000_000,
+			Assets: &assets,
+		}
+	} else {
+		outputFields[1] = uint64(2_000_000)
+	}
+	outputCbor, err := cbor.Encode(&outputFields)
 	if err != nil {
 		t.Fatalf("failed to encode Butane CDP output: %v", err)
 	}
@@ -410,6 +446,50 @@ func newTestButaneOutput(
 		t.Fatalf("failed to decode Butane CDP output: %v", err)
 	}
 	return output
+}
+
+// A CDP script address can be paid to by anyone. Without the pointer NFT the
+// chain mints per position, a hand-written datum at that address would be
+// served as a real position with an attacker's minted amount.
+func TestButaneOutputWithoutPointerNFTIsIgnored(t *testing.T) {
+	profile := config.Profiles["mainnet"]["butane"]
+	o := New(nil, &profile, NewButaneParser())
+	o.storage = newTestOracleStorage(t)
+
+	datum, err := hex.DecodeString(liveMainnetButaneCDPDatum)
+	if err != nil {
+		t.Fatalf("failed to decode live datum fixture: %v", err)
+	}
+	forgedHash := strings.Repeat("1", 64)
+	if err := o.handleTransaction(
+		event.Event{Context: event.TransactionContext{
+			TransactionHash: forgedHash,
+			SlotNumber:      196_882_174,
+		}},
+		event.TransactionEvent{
+			BlockHash: strings.Repeat("2", 64),
+			Outputs: []ledger.TransactionOutput{
+				newTestButaneOutputWithNFT(
+					t,
+					liveMainnetButaneCDPAddress,
+					datum,
+					false,
+				),
+			},
+		},
+	); err != nil {
+		t.Fatalf("handleTransaction returned error: %v", err)
+	}
+	if _, ok := o.GetCDPState(butane.GenerateCDPId(forgedHash, 0)); ok {
+		t.Fatal("expected an output without the pointer NFT to be ignored")
+	}
+	if _, err := o.storage.LoadCDPState(
+		"mainnet",
+		"butane",
+		butane.GenerateCDPId(forgedHash, 0),
+	); err == nil {
+		t.Fatal("expected no CDP state to be persisted for a forged output")
+	}
 }
 
 func testButaneCDPDatum(t *testing.T, minted uint64) []byte {
