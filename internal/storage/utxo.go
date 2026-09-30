@@ -16,7 +16,7 @@ func (u *Utxo) UnmarshalCBOR(data []byte) error {
 	if _, err := cbor.Decode(data, &tmpUnwrap); err != nil {
 		return err
 	}
-	if _, err := cbor.Decode(tmpUnwrap[0], &(u.Ref)); err != nil {
+	if _, err := cbor.Decode(tmpUnwrap[0], &u.Ref); err != nil {
 		return err
 	}
 	txOutput, err := ledger.NewTransactionOutputFromCbor(tmpUnwrap[1])
