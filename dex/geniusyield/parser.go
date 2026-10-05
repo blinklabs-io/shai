@@ -108,10 +108,8 @@ func (p *Parser) ParseOrderDatum(
 		)
 	}
 
-	// Generate order ID from the NFT token name
 	orderId := GenerateOrderId(orderDatum.NFT)
 
-	// Convert timestamps
 	var startTime, endTime *time.Time
 	if orderDatum.Start.IsPresent {
 		t := time.UnixMilli(orderDatum.Start.Time)
@@ -144,7 +142,6 @@ func (p *Parser) ParseOrderDatum(
 		Timestamp:      timestamp,
 		UpdatedAt:      timestamp,
 
-		// Preserve fee and datum fields for partial fill reconstruction
 		NFT:                    orderDatum.NFT,
 		MakerLovelaceFlatFee:   orderDatum.MakerLovelaceFlatFee,
 		MakerOfferedPercentFee: orderDatum.MakerOfferedPercentFee,
@@ -165,21 +162,18 @@ func (p *Parser) ParseOrderDatum(
 // transaction touching it, so a consumer serving a stored order re-evaluates
 // it here rather than reading the recorded value.
 func (o *OrderState) ActiveAt(now time.Time) bool {
-	// Order is inactive if no amount remaining
 	if o.OfferedAsset.Amount == 0 {
 		return false
 	}
 
 	nowMs := now.UnixMilli()
 
-	// Check start time constraint
 	if o.StartTime != nil && o.StartTime.UnixMilli() > nowMs {
-		return false // Order hasn't started yet
+		return false
 	}
 
-	// Check end time constraint
 	if o.EndTime != nil && o.EndTime.UnixMilli() < nowMs {
-		return false // Order has expired
+		return false
 	}
 
 	return true
@@ -201,34 +195,30 @@ func CalculateFillAmount(
 		return 0, askedAssetAmount
 	}
 
-	// Calculate offered amount based on price using big.Int to avoid overflow
-	// offeredAmount = askedAssetAmount * priceDenom / priceNum
 	asked := new(big.Int).SetUint64(askedAssetAmount)
 	denom := new(big.Int).SetInt64(order.PriceDenom)
 	num := new(big.Int).SetInt64(order.PriceNum)
 
-	// maxOffered = asked * denom / num
+	// Floor, so the order never gives more than the asked amount pays for.
 	maxOfferedBig := new(big.Int).Mul(asked, denom)
 	maxOfferedBig.Div(maxOfferedBig, num)
 
-	// Cap at uint64 max and available amount
+	// Saturating is safe: the result is clamped to the order balance below.
 	maxOffered := uint64(0)
 	if maxOfferedBig.IsUint64() {
 		maxOffered = maxOfferedBig.Uint64()
 	} else if maxOfferedBig.Sign() > 0 {
-		maxOffered = ^uint64(0) // max uint64 if overflow
+		maxOffered = ^uint64(0)
 	}
 
-	// Cap at available amount
 	if maxOffered > order.OfferedAsset.Amount {
 		offeredAmount = order.OfferedAsset.Amount
 	} else {
 		offeredAmount = maxOffered
 	}
 
-	// Calculate how much asked asset was actually used for the offered amount
-	// usedAsked = ceil(offeredAmount * priceNum / priceDenom)
-	// This accounts for integer division truncation in both branches
+	// Ceiling, so a fractional price never releases offered units for zero
+	// asked units.
 	offered := new(big.Int).SetUint64(offeredAmount)
 	usedAskedBig := new(big.Int).Mul(offered, num)
 	usedAskedBig = ceilDivPositiveBig(usedAskedBig, denom)

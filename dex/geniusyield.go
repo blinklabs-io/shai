@@ -20,14 +20,12 @@ import (
 	"github.com/blinklabs-io/shai/dex/geniusyield"
 )
 
-// Re-export constants for backward compatibility
 const (
 	GeniusYieldProtocolName    = geniusyield.ProtocolName
 	GeniusYieldOrderScriptHash = geniusyield.OrderScriptHash
 	GeniusYieldOrderNFTPolicy  = geniusyield.OrderNFTPolicy
 )
 
-// Re-export types for backward compatibility
 type (
 	GeniusYieldPartialOrderDatum = geniusyield.PartialOrderDatum
 	GeniusYieldOrderState        = geniusyield.OrderState
@@ -39,7 +37,7 @@ type (
 	GeniusYieldContainedFee      = geniusyield.ContainedFee
 )
 
-// GeniusYieldParser wraps geniusyield.Parser for backward compatibility.
+// GeniusYieldParser wraps geniusyield.Parser.
 //
 // It parses order state only and is not a PoolParser; see the dex/geniusyield
 // package documentation for why order-book state is not published as a

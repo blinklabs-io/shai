@@ -21,7 +21,6 @@ import (
 	"github.com/blinklabs-io/shai/common"
 )
 
-// Protocol constants
 const (
 	ProtocolName = "geniusyield"
 
