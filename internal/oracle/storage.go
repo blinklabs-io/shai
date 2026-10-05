@@ -26,8 +26,9 @@ import (
 )
 
 const (
-	poolStateKeyPrefix = "oracle_pool_"
-	cdpStateKeyPrefix  = "oracle_cdp_"
+	poolStateKeyPrefix  = "oracle_pool_"
+	cdpStateKeyPrefix   = "oracle_cdp_"
+	orderStateKeyPrefix = "oracle_order_"
 )
 
 // OracleStorage handles persistence of oracle data
@@ -170,6 +171,108 @@ func (s *OracleStorage) LoadAllCDPStates() ([]*CDPState, error) {
 	}
 
 	return states, nil
+}
+
+// SaveOrderState persists an order state to storage.
+func (s *OracleStorage) SaveOrderState(state *OrderState) error {
+	key := orderStateKey(state.Network, state.Protocol, state.OrderId)
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal order state: %w", err)
+	}
+
+	err = s.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(key), data)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to save order state: %w", err)
+	}
+
+	return nil
+}
+
+// LoadAllOrderStates loads all order states from storage.
+func (s *OracleStorage) LoadAllOrderStates() ([]*OrderState, error) {
+	logger := logging.GetLogger()
+	var states []*OrderState
+
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte(orderStateKeyPrefix)
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		for it.Rewind(); it.Valid(); it.Next() {
+			item := it.Item()
+			err := item.Value(func(val []byte) error {
+				var state OrderState
+				if err := json.Unmarshal(val, &state); err != nil {
+					logger.Warn(
+						"failed to unmarshal order state",
+						"key", string(item.Key()),
+						"error", err,
+					)
+					return nil
+				}
+				states = append(states, &state)
+				return nil
+			})
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load order states: %w", err)
+	}
+
+	return states, nil
+}
+
+// LoadOrderState loads a single order state by network, protocol, and order ID.
+func (s *OracleStorage) LoadOrderState(
+	network,
+	protocol,
+	orderId string,
+) (*OrderState, error) {
+	key := orderStateKey(network, protocol, orderId)
+
+	var state *OrderState
+	err := s.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			state = &OrderState{}
+			return json.Unmarshal(val, state)
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to load order state: %w", err)
+	}
+
+	return state, nil
+}
+
+// DeleteOrderState removes an order state from storage.
+func (s *OracleStorage) DeleteOrderState(
+	network,
+	protocol,
+	orderId string,
+) error {
+	key := orderStateKey(network, protocol, orderId)
+
+	err := s.db.Update(func(txn *badger.Txn) error {
+		return txn.Delete([]byte(key))
+	})
+	if err != nil {
+		return fmt.Errorf("failed to delete order state: %w", err)
+	}
+
+	return nil
 }
 
 // LoadCDPState loads a single CDP state by network, protocol, and CDP ID.
@@ -315,6 +418,11 @@ func poolStateKey(network, protocol, poolId string) string {
 // cdpStateKey generates the storage key for a CDP state.
 func cdpStateKey(network, protocol, cdpId string) string {
 	return cdpStateKeyPrefix + network + ":" + protocol + ":" + cdpId
+}
+
+// orderStateKey generates the storage key for an order state.
+func orderStateKey(network, protocol, orderId string) string {
+	return orderStateKeyPrefix + network + ":" + protocol + ":" + orderId
 }
 
 // ParsePoolStateKey extracts network, protocol, and poolId from a pool key.
