@@ -21,6 +21,16 @@ make golines
 make clean
 ```
 
+## Comments
+
+Comments explain an invariant, a non-obvious algorithm, or a gotcha: why this
+order, why this bound, why the obvious thing is wrong. Delete comments that
+restate the code below them, label sections, or narrate a change's history.
+Prose explaining how a system works belongs in documentation.
+
+Doc comments on exported identifiers are the exception. They are published API
+documentation: keep them accurate and in `// Name ...` form.
+
 ## Project Overview
 
 Shai is a Cardano Multi-DEX matcher bot and oracle. It monitors the blockchain for swap/deposit/redeem requests and executes matching transactions against liquidity pools. It also functions as an oracle, tracking pool state that can be served to other protocols even when not acting as a batcher. It acts as both a Cardano node (accepting NtN and NtC connections) and an indexer.
