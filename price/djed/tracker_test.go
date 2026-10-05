@@ -32,7 +32,6 @@ func TestTrackerTracksCurrentUnspentObservation(t *testing.T) {
 	applied, err := tracker.Apply(
 		mustDecodeHex(t, currentMainnetDatum),
 		utxo,
-		now,
 	)
 	require.NoError(t, err)
 	require.Equal(t, utxo.Slot, applied.Slot)
@@ -59,9 +58,12 @@ func TestTrackerRejectsExpiredCurrentObservation(t *testing.T) {
 	_, err := tracker.Apply(
 		mustDecodeHex(t, currentMainnetDatum),
 		utxo,
-		validAt,
 	)
 	require.NoError(t, err)
+
+	live, err := tracker.Current(validAt)
+	require.NoError(t, err)
+	require.Equal(t, utxo.TxHash, live.TxHash)
 
 	current, err := tracker.Current(
 		time.UnixMilli(1_784_843_516_001).UTC(),
@@ -70,32 +72,51 @@ func TestTrackerRejectsExpiredCurrentObservation(t *testing.T) {
 	require.Equal(t, Observation{}, current)
 }
 
+func TestTrackerApplyRecordsObservationPastItsWindow(t *testing.T) {
+	tracker := NewTracker()
+	utxo := currentMainnetUTxO(t)
+	utxo.Slot = 10
+	applied, err := tracker.Apply(
+		mustDecodeHex(t, currentMainnetDatum),
+		utxo,
+	)
+	require.NoError(t, err)
+	require.True(t, tracker.Contains(OutputRef{
+		TxHash:  utxo.TxHash,
+		TxIndex: utxo.TxIndex,
+	}))
+	require.ErrorIs(
+		t,
+		applied.ValidateAt(time.UnixMilli(1_784_843_516_001).UTC()),
+		ErrExpired,
+	)
+}
+
 func TestTrackerDuplicateApplyPreservesSpend(t *testing.T) {
 	tracker := NewTracker()
 	now := time.Unix(1_784_842_625, 0).UTC()
 	utxo := currentMainnetUTxO(t)
 	utxo.Slot = 10
 	data := mustDecodeHex(t, currentMainnetDatum)
-	_, err := tracker.Apply(data, utxo, now)
+	_, err := tracker.Apply(data, utxo)
 	require.NoError(t, err)
 
 	ref := OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex}
 	tracker.ConsumeAt(ref, 20)
-	_, err = tracker.Apply(data, utxo, now)
+	_, err = tracker.Apply(data, utxo)
 	require.NoError(t, err)
 	require.ErrorIs(t, currentError(tracker, now), ErrNoCurrentObservation)
 }
 
 func TestTrackerRejectsConflictingDuplicate(t *testing.T) {
 	tracker := NewTracker()
-	now := time.Unix(1_784_842_625, 0).UTC()
 	utxo := currentMainnetUTxO(t)
 	data := mustDecodeHex(t, currentMainnetDatum)
-	_, err := tracker.Apply(data, utxo, now)
+	_, err := tracker.Apply(data, utxo)
 	require.NoError(t, err)
 
 	utxo.BlockHash = "conflicting-block"
-	_, err = tracker.Apply(data, utxo, now)
+	_, err = tracker.Apply(data, utxo)
 	require.ErrorIs(t, err, ErrConflictingObservation)
 }
 
@@ -132,14 +153,14 @@ func TestTrackerUsesBlockTransactionOrder(t *testing.T) {
 	first.TxHash = "ffffffff"
 	first.Slot = 10
 	first.TransactionIndex = 1
-	_, err := tracker.Apply(data, first, now)
+	_, err := tracker.Apply(data, first)
 	require.NoError(t, err)
 
 	second := currentMainnetUTxO(t)
 	second.TxHash = "00000000"
 	second.Slot = 10
 	second.TransactionIndex = 2
-	_, err = tracker.Apply(data, second, now)
+	_, err = tracker.Apply(data, second)
 	require.NoError(t, err)
 
 	current, err := tracker.Current(now)
@@ -156,7 +177,6 @@ func TestTrackerRollbackRestoresSpentObservation(t *testing.T) {
 	applied, err := tracker.Apply(
 		mustDecodeHex(t, currentMainnetDatum),
 		utxo,
-		now,
 	)
 	require.NoError(t, err)
 
@@ -178,7 +198,6 @@ func TestTrackerRollbackRemovesProducedObservation(t *testing.T) {
 	_, err := tracker.Apply(
 		mustDecodeHex(t, currentMainnetDatum),
 		utxo,
-		now,
 	)
 	require.NoError(t, err)
 
@@ -194,7 +213,6 @@ func TestTrackerRollbackRetainsPointState(t *testing.T) {
 	applied, err := tracker.Apply(
 		mustDecodeHex(t, currentMainnetDatum),
 		utxo,
-		now,
 	)
 	require.NoError(t, err)
 
@@ -213,22 +231,22 @@ func TestTrackerRollbackRetainsPointState(t *testing.T) {
 
 func TestTrackerPrunesOnlyImmutableSpentHistory(t *testing.T) {
 	tracker := NewTracker()
-	now := time.Unix(1_784_842_625, 0).UTC()
 	utxo := currentMainnetUTxO(t)
 	utxo.Slot = 10
 	_, err := tracker.Apply(
 		mustDecodeHex(t, currentMainnetDatum),
 		utxo,
-		now,
 	)
 	require.NoError(t, err)
 	ref := OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex}
+	require.True(t, tracker.Contains(ref))
 	tracker.ConsumeAt(ref, 20)
 
 	require.Equal(t, 0, tracker.Prune(20))
 	require.Len(t, tracker.observations, 1)
 	require.Equal(t, 1, tracker.Prune(21))
 	require.Empty(t, tracker.observations)
+	require.False(t, tracker.Contains(ref))
 	require.Equal(t, 0, tracker.Prune(21))
 }
 
@@ -239,7 +257,6 @@ func TestTrackerRejectsUnauthenticatedOutput(t *testing.T) {
 	_, err := tracker.Apply(
 		mustDecodeHex(t, currentMainnetDatum),
 		utxo,
-		time.Unix(1_784_842_625, 0).UTC(),
 	)
 	require.ErrorIs(t, err, ErrMissingNFT)
 	require.ErrorIs(
@@ -249,7 +266,137 @@ func TestTrackerRejectsUnauthenticatedOutput(t *testing.T) {
 	)
 }
 
+func TestTrackerSnapshotRoundTripRestoresSpentOutput(t *testing.T) {
+	now := time.Unix(1_784_842_625, 0).UTC()
+	tracker := NewTracker()
+	first := currentMainnetUTxO(t)
+	first.Slot = 100
+	_, err := tracker.Apply(
+		mustDecodeHex(t, currentMainnetDatum),
+		first,
+	)
+	require.NoError(t, err)
+	tracker.ConsumeAt(OutputRef{
+		TxHash:  first.TxHash,
+		TxIndex: first.TxIndex,
+	}, 101)
+
+	restored, err := NewTrackerFromState(tracker.Snapshot())
+	require.NoError(t, err)
+	_, err = restored.Current(now)
+	require.ErrorIs(t, err, ErrNoCurrentObservation)
+	restored.Rollback(100)
+	observation, err := restored.Current(now)
+	require.NoError(t, err)
+	require.Equal(t, first.TxHash, observation.TxHash)
+}
+
+func TestTrackerRestoreRejectsInvalidState(t *testing.T) {
+	_, err := NewTrackerFromState(TrackerState{
+		Observations: []TrackedObservation{{
+			Observation: Observation{Pair: "ADA/EUR"},
+		}},
+	})
+	require.ErrorIs(t, err, ErrInvalidTrackerState)
+}
+
 func currentError(tracker *Tracker, now time.Time) error {
 	_, err := tracker.Current(now)
 	return err
+}
+
+func TestTrackerConsumeAtOnlyAdvancesSpendSlot(t *testing.T) {
+	const observationSlot uint64 = 10
+	tests := []struct {
+		name        string
+		firstSpend  *uint64
+		rollbackTo  *uint64
+		unknownRef  bool
+		slot        uint64
+		wantChanged bool
+		wantSpentAt *uint64
+	}{
+		{
+			name:       "unknown output reference is ignored",
+			unknownRef: true,
+			slot:       20,
+		},
+		{
+			name:        "first spend is recorded",
+			slot:        20,
+			wantChanged: true,
+			wantSpentAt: slotPtr(20),
+		},
+		{
+			name: "spend before observation is ignored",
+			slot: 9,
+		},
+		{
+			name:        "duplicate delivery at the same slot is ignored",
+			firstSpend:  slotPtr(20),
+			slot:        20,
+			wantSpentAt: slotPtr(20),
+		},
+		{
+			name:        "earlier slot does not move the spend backwards",
+			firstSpend:  slotPtr(20),
+			slot:        15,
+			wantSpentAt: slotPtr(20),
+		},
+		{
+			name:        "later slot advances the spend",
+			firstSpend:  slotPtr(20),
+			slot:        25,
+			wantChanged: true,
+			wantSpentAt: slotPtr(25),
+		},
+		{
+			name:        "respend after rollback records the new slot",
+			firstSpend:  slotPtr(25),
+			rollbackTo:  slotPtr(observationSlot),
+			slot:        22,
+			wantChanged: true,
+			wantSpentAt: slotPtr(22),
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			tracker := NewTracker()
+			utxo := currentMainnetUTxO(t)
+			utxo.Slot = observationSlot
+			_, err := tracker.Apply(
+				mustDecodeHex(t, currentMainnetDatum),
+				utxo,
+			)
+			require.NoError(t, err)
+			ref := OutputRef{TxHash: utxo.TxHash, TxIndex: utxo.TxIndex}
+			if test.firstSpend != nil {
+				require.True(t, tracker.ConsumeAt(ref, *test.firstSpend))
+			}
+			if test.rollbackTo != nil {
+				require.True(t, tracker.Rollback(*test.rollbackTo))
+			}
+			target := ref
+			if test.unknownRef {
+				target = OutputRef{TxHash: "unknown", TxIndex: 7}
+			}
+			require.Equal(
+				t,
+				test.wantChanged,
+				tracker.ConsumeAt(target, test.slot),
+			)
+			tracked, ok := tracker.observations[ref]
+			require.True(t, ok)
+			if test.wantSpentAt == nil {
+				require.Nil(t, tracked.spentAt)
+				return
+			}
+			require.NotNil(t, tracked.spentAt)
+			require.Equal(t, *test.wantSpentAt, *tracked.spentAt)
+		})
+	}
+}
+
+func slotPtr(slot uint64) *uint64 {
+	return &slot
 }

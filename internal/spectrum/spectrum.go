@@ -190,7 +190,7 @@ func (s *Spectrum) handleTransactionOutput(
 			if err != nil {
 				logger.Error("failed to build transaction:", "error:", err)
 			} else {
-				//fmt.Printf("txBytes(%d) = %x\n", len(txBytes), txBytes)
+				// fmt.Printf("txBytes(%d) = %x\n", len(txBytes), txBytes)
 				// Submit the TX
 				txsubmit.SubmitTx(txBytes)
 			}
