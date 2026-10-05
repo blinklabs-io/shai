@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/blinklabs-io/shai/dex/butane"
 )
 
 func TestMainnetCSwapProfileIsWired(t *testing.T) {
@@ -175,6 +177,66 @@ func TestPreviewSundaeSwapV3ProfileIsWired(t *testing.T) {
 		OutputIdx: 0,
 	}) {
 		t.Fatalf("unexpected pool input ref: %#v", oracleCfg.InputRefs[1])
+	}
+}
+
+func TestMainnetButaneProfileIsWired(t *testing.T) {
+	t.Parallel()
+
+	mainnetProfiles, ok := Profiles["mainnet"]
+	if !ok {
+		t.Fatal("missing mainnet profiles")
+	}
+
+	profile, ok := mainnetProfiles["butane"]
+	if !ok {
+		t.Fatal("missing butane profile")
+	}
+	if profile.Type != ProfileTypeSynthetics {
+		t.Fatalf(
+			"unexpected profile type: got %v want %v",
+			profile.Type,
+			ProfileTypeSynthetics,
+		)
+	}
+	if profile.InterceptSlot == 0 {
+		t.Fatal("butane intercept slot must be non-zero")
+	}
+	if strings.Trim(profile.InterceptHash, "0") == "" {
+		t.Fatal("butane intercept hash must not be the zero hash")
+	}
+	if len(profile.InterceptHash) != 64 {
+		t.Fatalf(
+			"unexpected intercept hash length: got %d want 64",
+			len(profile.InterceptHash),
+		)
+	}
+
+	synthCfg, ok := profile.Config.(SyntheticsProfileConfig)
+	if !ok {
+		t.Fatalf("unexpected config type: %T", profile.Config)
+	}
+	if synthCfg.Protocol != "butane" {
+		t.Fatalf("unexpected protocol: got %q want %q", synthCfg.Protocol, "butane")
+	}
+	if len(synthCfg.CDPAddresses) != 0 {
+		t.Fatalf(
+			"unexpected Butane exact CDP address count: got %d want 0",
+			len(synthCfg.CDPAddresses),
+		)
+	}
+	if len(synthCfg.CDPPaymentCredentials) != 1 {
+		t.Fatalf(
+			"unexpected Butane payment credential count: got %d want 1",
+			len(synthCfg.CDPPaymentCredentials),
+		)
+	}
+	if synthCfg.CDPPaymentCredentials[0] != butane.CDPPaymentCredential {
+		t.Fatalf(
+			"unexpected Butane payment credential: got %q want %q",
+			synthCfg.CDPPaymentCredentials[0],
+			butane.CDPPaymentCredential,
+		)
 	}
 }
 
