@@ -7,22 +7,22 @@ require (
 	github.com/blinklabs-io/adder v0.44.0
 	github.com/blinklabs-io/bursa v0.16.1-0.20260817233527-1eb8b64db609
 	github.com/blinklabs-io/dingo v0.70.1
-	github.com/blinklabs-io/gouroboros v0.202.5
+	github.com/blinklabs-io/gouroboros v0.204.0
 	github.com/blinklabs-io/ouroboros-mock v0.19.0
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/crypto v0.56.0
-	golang.org/x/sys v0.47.0
+	golang.org/x/crypto v0.57.0
+	golang.org/x/sys v0.48.0
 	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
 	github.com/maestro-org/go-sdk v1.2.1 // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
-	golang.org/x/text v0.41.0 // indirect
+	golang.org/x/text v0.42.0 // indirect
 )
 
 //replace github.com/blinklabs-io/gouroboros => ../gouroboros
@@ -74,7 +74,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.45.0 // indirect
 	go.opentelemetry.io/otel/trace v1.45.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
-	golang.org/x/sync v0.22.0 // indirect
+	golang.org/x/sync v0.23.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

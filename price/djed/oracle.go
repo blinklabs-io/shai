@@ -36,6 +36,11 @@ const (
 	oracleSignatureLength = 64
 )
 
+// mainnetOracleAsset is the Djed oracle NFT identity. It is derived once from
+// compile-time constants, so a malformed constant fails at package
+// initialization rather than on an unreachable error path per output.
+var mainnetOracleAsset = newMainnetOracleAsset()
+
 var (
 	ErrInvalidDatum = errors.New("djed: invalid oracle datum")
 	ErrInvalidRate  = errors.New("djed: invalid ADA/USD rate")
@@ -46,6 +51,23 @@ var (
 	ErrNotYetValid  = errors.New("djed: oracle value is not yet valid")
 	ErrExpired      = errors.New("djed: oracle value is expired")
 )
+
+func newMainnetOracleAsset() common.AssetClass {
+	asset, err := common.NewAssetClass(MainnetOraclePolicy, OracleNFTName)
+	if err != nil {
+		panic("djed: invalid built-in oracle identity: " + err.Error())
+	}
+	return asset
+}
+
+// MainnetOracleAsset returns the Djed oracle NFT identity. The policy and name
+// bytes are copied, so a caller cannot mutate the package-level identity.
+func MainnetOracleAsset() common.AssetClass {
+	return common.AssetClass{
+		PolicyId: bytes.Clone(mainnetOracleAsset.PolicyId),
+		Name:     bytes.Clone(mainnetOracleAsset.Name),
+	}
+}
 
 // OracleDatum is the authenticated price and validity interval stored with the
 // Djed Oracle NFT.
@@ -208,25 +230,18 @@ func ParseOracleDatum(data []byte) (OracleDatum, error) {
 	return datum, nil
 }
 
-// ValidateMainnet authenticates a decoded datum against the mainnet deployment
-// and checks that its rate is currently usable.
-func (d OracleDatum) ValidateMainnet(
-	utxo OracleUTxO,
-	now time.Time,
-) error {
+// AuthenticateMainnet verifies that a decoded datum was produced by the
+// mainnet Djed oracle deployment and that its validity interval is well
+// formed. It deliberately omits the liveness check against a clock: ingestion
+// records what the chain contained, and Observation.ValidateAt gates whether a
+// recorded observation may be served.
+func (d OracleDatum) AuthenticateMainnet(utxo OracleUTxO) error {
 	if utxo.Address != MainnetOracleAddress {
 		return ErrWrongAddress
 	}
-	oracleAsset, err := common.NewAssetClass(
-		MainnetOraclePolicy,
-		OracleNFTName,
-	)
-	if err != nil {
-		return fmt.Errorf("djed: invalid built-in oracle identity: %w", err)
-	}
 	hasNFT := false
 	for _, asset := range utxo.Assets {
-		if asset.IsAsset(oracleAsset) && asset.Amount == 1 {
+		if asset.IsAsset(mainnetOracleAsset) && asset.Amount == 1 {
 			hasNFT = true
 			break
 		}
@@ -241,7 +256,7 @@ func (d OracleDatum) ValidateMainnet(
 			oracleSignatureLength,
 		)
 	}
-	if !bytes.Equal(d.OraclePolicy, oracleAsset.PolicyId) {
+	if !bytes.Equal(d.OraclePolicy, mainnetOracleAsset.PolicyId) {
 		return ErrWrongPolicy
 	}
 	if string(d.ExpressedIn) != QuoteCurrency {
@@ -249,6 +264,23 @@ func (d OracleDatum) ValidateMainnet(
 	}
 	if d.PriceNumerator == 0 || d.PriceDenominator == 0 {
 		return ErrInvalidRate
+	}
+	return validateIntervalShape(
+		d.ValidFrom,
+		d.ValidFromInclusive,
+		d.ValidUntil,
+		d.ValidUntilInclusive,
+	)
+}
+
+// ValidateMainnet authenticates a decoded datum against the mainnet deployment
+// and checks that its rate is usable at the supplied time.
+func (d OracleDatum) ValidateMainnet(
+	utxo OracleUTxO,
+	now time.Time,
+) error {
+	if err := d.AuthenticateMainnet(utxo); err != nil {
+		return err
 	}
 	return validateInterval(
 		d.ValidFrom,
@@ -270,17 +302,36 @@ func (d OracleDatum) Rat() (*big.Rat, error) {
 	), nil
 }
 
-// ParseMainnetObservation decodes and validates a mainnet Djed observation.
+// ParseMainnetObservation decodes a mainnet Djed observation and requires it to
+// be usable at the supplied time.
 func ParseMainnetObservation(
 	data []byte,
 	utxo OracleUTxO,
 	now time.Time,
 ) (Observation, error) {
+	observation, err := ParseAuthenticatedMainnetObservation(data, utxo)
+	if err != nil {
+		return Observation{}, err
+	}
+	if err := observation.ValidateAt(now); err != nil {
+		return Observation{}, err
+	}
+	return observation, nil
+}
+
+// ParseAuthenticatedMainnetObservation decodes a mainnet Djed observation and
+// authenticates it without applying its validity window to a clock. Callers
+// ingesting historical chain data use this so that catch-up records the same
+// observations a node at tip would have recorded.
+func ParseAuthenticatedMainnetObservation(
+	data []byte,
+	utxo OracleUTxO,
+) (Observation, error) {
 	datum, err := ParseOracleDatum(data)
 	if err != nil {
 		return Observation{}, err
 	}
-	if err := datum.ValidateMainnet(utxo, now); err != nil {
+	if err := datum.AuthenticateMainnet(utxo); err != nil {
 		return Observation{}, err
 	}
 	rate, err := datum.Rat()
@@ -321,6 +372,20 @@ func finiteRateFloat64(rate *big.Rat) (float64, error) {
 	return approximation, nil
 }
 
+func validateIntervalShape(
+	validFrom time.Time,
+	validFromInclusive bool,
+	validUntil time.Time,
+	validUntilInclusive bool,
+) error {
+	if validFrom.After(validUntil) ||
+		(validFrom.Equal(validUntil) &&
+			(!validFromInclusive || !validUntilInclusive)) {
+		return fmt.Errorf("%w: invalid validity interval", ErrInvalidDatum)
+	}
+	return nil
+}
+
 func validateInterval(
 	validFrom time.Time,
 	validFromInclusive bool,
@@ -328,10 +393,13 @@ func validateInterval(
 	validUntilInclusive bool,
 	now time.Time,
 ) error {
-	if validFrom.After(validUntil) ||
-		(validFrom.Equal(validUntil) &&
-			(!validFromInclusive || !validUntilInclusive)) {
-		return fmt.Errorf("%w: invalid validity interval", ErrInvalidDatum)
+	if err := validateIntervalShape(
+		validFrom,
+		validFromInclusive,
+		validUntil,
+		validUntilInclusive,
+	); err != nil {
+		return err
 	}
 	now = now.UTC()
 	if now.Before(validFrom) ||
