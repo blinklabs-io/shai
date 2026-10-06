@@ -137,11 +137,12 @@ func TestOracleRollbackClearsMempoolState(t *testing.T) {
 			o.mempoolMgr.PoolCount(),
 		)
 	}
+	// A rollback to slot 50 leaves slot 50 as the latest valid slot.
 	if _, ok, err := o.activity.Volume(
 		"mainnet",
 		"test",
 		"pool1",
-		49,
+		50,
 	); err != nil {
 		t.Fatalf("failed to read rolled-back pool activity: %v", err)
 	} else if ok {

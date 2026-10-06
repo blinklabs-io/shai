@@ -240,6 +240,16 @@ func cswapActivityPool(
 	}
 }
 
+func TestPoolVolumeKeyMatchesPoolState(t *testing.T) {
+	pool := activityPool(100, 1_000, 2_000)
+	volume := PoolVolume{
+		PoolID:   pool.PoolId,
+		Network:  pool.Network,
+		Protocol: pool.Protocol,
+	}
+	require.Equal(t, pool.Key(), volume.Key())
+}
+
 func activityPool(slot, reserveX, reserveY uint64) *PoolState {
 	return &PoolState{
 		PoolId:   "pool",

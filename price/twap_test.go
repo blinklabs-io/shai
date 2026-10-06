@@ -318,6 +318,44 @@ func TestNewTWAPEngineRejectsInvalidConfig(t *testing.T) {
 	}
 }
 
+func TestTWAPSnapshotRoundTripPreservesRollbackBoundary(t *testing.T) {
+	now := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	config := validTWAPConfig()
+	config.MaxObservations = 2
+	engine := newTestTWAP(t, config)
+	for i := range 3 {
+		require.NoError(t, engine.Observe(
+			uint64(i+1),
+			now.Add(time.Duration(i)*time.Second),
+			big.NewRat(int64(i+1), 10),
+		))
+	}
+
+	restored, err := NewTWAPEngineFromState(engine.Snapshot())
+	require.NoError(t, err)
+	require.Equal(t, engine.Snapshot(), restored.Snapshot())
+	require.ErrorIs(t, restored.Rollback(0), ErrTWAPRollbackUnavailable)
+}
+
+func TestTWAPRestoreRejectsInvalidState(t *testing.T) {
+	state := TWAPState{
+		Config: validTWAPConfig(),
+		Observations: []TWAPObservation{{
+			Slot:     1,
+			At:       time.Now(),
+			PriceNum: "not-an-integer",
+			PriceDen: "1",
+		}},
+	}
+	_, err := NewTWAPEngineFromState(state)
+	require.ErrorIs(t, err, ErrInvalidTWAPState)
+
+	state.Observations[0].PriceNum = "1"
+	state.Observations[0].PriceDen = "0"
+	_, err = NewTWAPEngineFromState(state)
+	require.ErrorIs(t, err, ErrInvalidTWAPState)
+}
+
 func newTestTWAP(t *testing.T, config TWAPConfig) *TWAPEngine {
 	t.Helper()
 	engine, err := NewTWAPEngine(config)

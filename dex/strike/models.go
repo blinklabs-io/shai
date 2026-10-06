@@ -202,8 +202,10 @@ func (c ExternalAPIConfig) Validate() error {
 	return nil
 }
 
-type MarketID string
-type PositionID string
+type (
+	MarketID   string
+	PositionID string
+)
 
 type Direction string
 
