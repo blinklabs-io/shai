@@ -156,6 +156,26 @@ func main() {
 					synthCfg.Protocol,
 				),
 			)
+		case config.ProfileTypeBonds:
+			bondsCfg, ok := profile.Config.(config.BondsProfileConfig)
+			if !ok {
+				logger.Error(
+					"invalid bonds profile config",
+					"profile",
+					profile.Name,
+				)
+				os.Exit(1)
+			}
+			oracles = append(
+				oracles,
+				startOracleProfile(
+					idx,
+					&profile,
+					getBondsParser(bondsCfg.Protocol),
+					"Bonds",
+					bondsCfg.Protocol,
+				),
+			)
 		case config.ProfileTypeLending:
 			lendingCfg, ok := profile.Config.(config.LendingProfileConfig)
 			if !ok {
@@ -379,6 +399,16 @@ func getSyntheticsParser(protocol string) oracle.PoolParser {
 	switch protocol {
 	case "indigo":
 		return oracle.NewIndigoParser()
+	default:
+		return nil
+	}
+}
+
+// getBondsParser returns the appropriate parser for a bonds protocol.
+func getBondsParser(protocol string) oracle.PoolParser {
+	switch protocol {
+	case "optim":
+		return oracle.NewOptimParser()
 	default:
 		return nil
 	}
