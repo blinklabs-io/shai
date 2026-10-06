@@ -101,6 +101,14 @@ var mainnetLocators = map[string]PoolLocator{
 			"addr1z8ke0c9p89rjfwmuh98jpt8ky74uy5mffjft3zlcld9h7ml3lmln3mwk0y3zsh3gs3dzqlwa9rjzrxawkwm4udw9axhs6fuu6e",
 		},
 	},
+	"geniusyield": {
+		Protocol: "geniusyield",
+		Network:  "mainnet",
+		Addresses: []string{
+			"addr1w9zr09hgj7z6vz3d7wnxw0u4x30arsp5k8avlcm84utptls8uqd0z",
+		},
+		PoolNFTPolicy: "fae686ea8f21d567841d703dea4d4221c2af071a6f2b433ff07c0af2",
+	},
 }
 
 // Locator returns the mainnet pool locator for the given protocol identifier
