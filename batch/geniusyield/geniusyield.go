@@ -121,6 +121,9 @@ func (gy *GeniusYield) loadPersistedOrders() {
 			if len(orderConfig.NFT) == 0 {
 				continue
 			}
+			if !gy.hasOrderNFT(utxo.Output, orderConfig.NFT) {
+				continue
+			}
 
 			// Create order state
 			orderState := dexgy.OrderConfigToState(
@@ -270,6 +273,9 @@ func (gy *GeniusYield) handleTransactionOutput(
 	if len(orderConfig.NFT) == 0 {
 		return nil
 	}
+	if !gy.hasOrderNFT(txOutput, orderConfig.NFT) {
+		return nil
+	}
 
 	// Create order state for SOR
 	orderState := dexgy.OrderConfigToState(
@@ -369,8 +375,8 @@ func (gy *GeniusYield) tryMatchOrder(
 	// Find orders that can be matched against this one
 	// We look for orders on the opposite side of the book
 	route, err := gy.sor.FindRoute(
-		order.AskedAsset,    // We want the asset they're asking for
-		order.OfferedAsset,  // They're offering what we want
+		order.OfferedAsset,
+		order.AskedAsset,
 		order.OfferedAmount, // How much they're offering
 		maxSlippage,
 	)
@@ -403,6 +409,18 @@ func (gy *GeniusYield) tryMatchOrder(
 	}
 
 	return nil
+}
+
+func (gy *GeniusYield) hasOrderNFT(
+	txOutput ledger.TransactionOutput,
+	nftName []byte,
+) bool {
+	policy, err := hex.DecodeString(gy.config.OrderNFTPolicy)
+	if err != nil || len(policy) != 28 || txOutput.Assets() == nil {
+		return false
+	}
+	amount := txOutput.Assets().Asset(ledger.NewBlake2b224(policy), nftName)
+	return amount != nil && amount.Sign() > 0
 }
 
 // executeRoute builds and submits a transaction to execute a matched route
