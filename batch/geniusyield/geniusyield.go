@@ -19,6 +19,7 @@ package geniusyield
 import (
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/blinklabs-io/adder/event"
@@ -122,6 +123,9 @@ func (gy *GeniusYield) loadPersistedOrders() {
 				continue
 			}
 			if !gy.hasOrderNFT(utxo.Output, orderConfig.NFT) {
+				continue
+			}
+			if !hasOfferedAmount(utxo.Output, orderConfig) {
 				continue
 			}
 
@@ -276,6 +280,9 @@ func (gy *GeniusYield) handleTransactionOutput(
 	if !gy.hasOrderNFT(txOutput, orderConfig.NFT) {
 		return nil
 	}
+	if !hasOfferedAmount(txOutput, orderConfig) {
+		return nil
+	}
 
 	// Create order state for SOR
 	orderState := dexgy.OrderConfigToState(
@@ -421,6 +428,30 @@ func (gy *GeniusYield) hasOrderNFT(
 	}
 	amount := txOutput.Assets().Asset(ledger.NewBlake2b224(policy), nftName)
 	return amount != nil && amount.Sign() > 0
+}
+
+func hasOfferedAmount(
+	txOutput ledger.TransactionOutput,
+	order dexgy.OrderConfig,
+) bool {
+	want := new(big.Int).SetUint64(order.OfferedAmount)
+	if want.Sign() == 0 {
+		return false
+	}
+	if order.OfferedAsset.IsLovelace() {
+		amount := txOutput.Amount()
+		return amount != nil && amount.Cmp(want) >= 0
+	}
+	if len(order.OfferedAsset.PolicyId) != 28 ||
+		len(order.OfferedAsset.AssetName) > 32 ||
+		txOutput.Assets() == nil {
+		return false
+	}
+	amount := txOutput.Assets().Asset(
+		ledger.NewBlake2b224(order.OfferedAsset.PolicyId),
+		order.OfferedAsset.AssetName,
+	)
+	return amount != nil && amount.Cmp(want) >= 0
 }
 
 // executeRoute builds and submits a transaction to execute a matched route
