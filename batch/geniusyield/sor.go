@@ -498,10 +498,10 @@ func (sor *SmartOrderRouter) findDirectRoute(
 
 		if isBuyingBase {
 			maxOutput := entry.AvailQty
-			maxInput := uint64(float64(maxOutput) * entry.EffPrice)
+			maxInput := askInputCapacity(entry)
 			if maxInput >= remainingInput {
 				legInput = remainingInput
-				legOutput = uint64(float64(legInput) / entry.EffPrice)
+				legOutput = askOutputForInput(entry, legInput)
 			} else {
 				legInput = maxInput
 				legOutput = maxOutput
@@ -558,6 +558,28 @@ func (sor *SmartOrderRouter) findDirectRoute(
 	return route, nil
 }
 
+func askInputCapacity(entry *OrderBookEntry) uint64 {
+	if entry.Order == nil {
+		return 0
+	}
+	return mulDivCeil(
+		entry.AvailQty,
+		entry.Order.PriceNum,
+		entry.Order.PriceDenom,
+	)
+}
+
+func askOutputForInput(entry *OrderBookEntry, input uint64) uint64 {
+	if entry.Order == nil {
+		return 0
+	}
+	return mulDivFloor(
+		input,
+		entry.Order.PriceDenom,
+		entry.Order.PriceNum,
+	)
+}
+
 func bidInputCapacity(entry *OrderBookEntry) uint64 {
 	if entry.Order != nil &&
 		entry.Order.PriceNum > 0 &&
@@ -592,6 +614,22 @@ func mulDivFloor(value uint64, numerator, denominator int64) uint64 {
 	result := new(big.Int).SetUint64(value)
 	result.Mul(result, big.NewInt(numerator))
 	result.Div(result, big.NewInt(denominator))
+	if !result.IsUint64() {
+		return math.MaxUint64
+	}
+	return result.Uint64()
+}
+
+func mulDivCeil(value uint64, numerator, denominator int64) uint64 {
+	if numerator <= 0 || denominator <= 0 {
+		return 0
+	}
+
+	result := new(big.Int).SetUint64(value)
+	result.Mul(result, big.NewInt(numerator))
+	denom := big.NewInt(denominator)
+	result.Add(result, new(big.Int).Sub(denom, big.NewInt(1)))
+	result.Div(result, denom)
 	if !result.IsUint64() {
 		return math.MaxUint64
 	}

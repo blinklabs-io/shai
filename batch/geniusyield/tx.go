@@ -333,6 +333,9 @@ func (gy *GeniusYield) calculateFillOutputs(
 		inputAmount:  route.TotalInput,
 		outputAmount: route.TotalOutput,
 	}
+	if err := validateFillPayment(newOrder, newOrderOutput); err != nil {
+		return nil, err
+	}
 	outputs = append(outputs, newOrderOutput)
 
 	// Calculate outputs for matched orders (makers)
@@ -346,10 +349,39 @@ func (gy *GeniusYield) calculateFillOutputs(
 			inputAmount:  leg.OutputAmount, // Maker's consumed amount (their offered asset)
 			outputAmount: leg.InputAmount,  // Maker's received amount (from taker)
 		}
+		if err := validateFillPayment(leg.Order, legOutput); err != nil {
+			return nil, err
+		}
 		outputs = append(outputs, legOutput)
 	}
 
 	return outputs, nil
+}
+
+func validateFillPayment(
+	order *dexgy.OrderState,
+	fill orderFillOutput,
+) error {
+	if order == nil {
+		return fmt.Errorf("missing order state for fill")
+	}
+	requiredPayment := mulDivCeil(
+		fill.inputAmount,
+		order.PriceNum,
+		order.PriceDenom,
+	)
+	if requiredPayment == 0 || requiredPayment == ^uint64(0) {
+		return fmt.Errorf("invalid price for order %s", order.OrderId)
+	}
+	if fill.outputAmount < requiredPayment {
+		return fmt.Errorf(
+			"payment %d for order %s is below required amount %d",
+			fill.outputAmount,
+			order.OrderId,
+			requiredPayment,
+		)
+	}
+	return nil
 }
 
 // orderFillOutput represents the calculated output for an order fill
