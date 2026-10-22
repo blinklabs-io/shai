@@ -15,7 +15,7 @@ Shai is a Cardano Multi-DEX oracle and matcher bot. It monitors the blockchain f
 
 ### Prerequisites
 
-- Go 1.24 or later
+- Go 1.26.10 or later
 - Access to a Cardano node (for topology/peer connections)
 
 ### Build
