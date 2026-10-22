@@ -668,7 +668,15 @@ func (o *Oracle) handleOrderTransaction(
 // putOrderState records an order in memory and in storage under its durable
 // key, replacing whatever UTxO previously carried the same order.
 func (o *Oracle) putOrderState(state *OrderState) error {
+	if o.storage == nil {
+		return errors.New("oracle storage is required for order state")
+	}
+
 	o.ordersMu.Lock()
+	defer o.ordersMu.Unlock()
+	if err := o.storage.SaveOrderState(state); err != nil {
+		return fmt.Errorf("failed to persist order %s: %w", state.OrderId, err)
+	}
 	if o.orders == nil {
 		o.orders = make(map[string]*OrderState)
 	}
@@ -680,14 +688,6 @@ func (o *Oracle) putOrderState(state *OrderState) error {
 	}
 	o.orders[state.OrderId] = state
 	o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
-	o.ordersMu.Unlock()
-
-	if o.storage == nil {
-		return errors.New("oracle storage is required for order state")
-	}
-	if err := o.storage.SaveOrderState(state); err != nil {
-		return fmt.Errorf("failed to persist order %s: %w", state.OrderId, err)
-	}
 	return nil
 }
 
@@ -706,23 +706,29 @@ func (o *Oracle) deleteSpentOrderStates(
 			continue
 		}
 		state := o.orders[orderId]
-		delete(o.orderUtxos, ref)
-		delete(o.orders, orderId)
-		o.ordersMu.Unlock()
-		if state == nil || o.storage == nil {
-			continue
+		if state == nil {
+			o.ordersMu.Unlock()
+			return fmt.Errorf("order state %s is missing", orderId)
+		}
+		if o.storage == nil {
+			o.ordersMu.Unlock()
+			return errors.New("oracle storage is required for order state")
 		}
 		if err := o.storage.DeleteOrderState(
 			state.Network,
 			state.Protocol,
 			orderId,
 		); err != nil {
+			o.ordersMu.Unlock()
 			return fmt.Errorf(
 				"failed to delete spent order %s: %w",
 				orderId,
 				err,
 			)
 		}
+		delete(o.orderUtxos, ref)
+		delete(o.orders, orderId)
+		o.ordersMu.Unlock()
 		logger.Debug(
 			"deleted spent order state",
 			"orderId", orderId,

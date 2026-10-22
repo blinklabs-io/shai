@@ -15,9 +15,13 @@
 package oracle
 
 import (
+	"log/slog"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/blinklabs-io/gouroboros/ledger"
+	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/common"
 	"github.com/dgraph-io/badger/v4"
 )
@@ -39,6 +43,71 @@ func newTestOracleStorage(t *testing.T) *OracleStorage {
 		}
 	})
 	return storage
+}
+
+func newClosedTestOracleStorage(t *testing.T) *OracleStorage {
+	t.Helper()
+
+	db, err := badger.Open(
+		badger.DefaultOptions("").WithInMemory(true).WithLogger(nil),
+	)
+	if err != nil {
+		t.Fatalf("failed to open test badger DB: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("failed to close test badger DB: %v", err)
+	}
+	return &OracleStorage{db: db}
+}
+
+func TestOracleDoesNotPublishOrderWhenPersistenceFails(t *testing.T) {
+	state := &OrderState{
+		Network:  "mainnet",
+		Protocol: "geniusyield",
+		OrderId:  "order-1",
+		TxHash:   strings.Repeat("a", 64),
+	}
+	oracle := &Oracle{storage: newClosedTestOracleStorage(t)}
+
+	if err := oracle.putOrderState(state); err == nil {
+		t.Fatal("expected putOrderState to fail")
+	}
+	if _, ok := oracle.GetOrderState(state.OrderId); ok {
+		t.Fatal("order was published after persistence failed")
+	}
+}
+
+func TestOracleKeepsOrderWhenPersistentDeleteFails(t *testing.T) {
+	state := &OrderState{
+		Network:  "mainnet",
+		Protocol: "geniusyield",
+		OrderId:  "order-1",
+		TxHash:   strings.Repeat("a", 64),
+	}
+	ref := orderUtxoRef(state.TxHash, state.TxIndex)
+	oracle := &Oracle{
+		storage:    newClosedTestOracleStorage(t),
+		orders:     map[string]*OrderState{state.OrderId: state},
+		orderUtxos: map[string]string{ref: state.OrderId},
+	}
+
+	err := oracle.deleteSpentOrderStates(
+		slog.Default(),
+		[]ledger.TransactionInput{
+			shelley.NewShelleyTransactionInput(state.TxHash, int(state.TxIndex)),
+		},
+	)
+	if err == nil {
+		t.Fatal("expected deleteSpentOrderStates to fail")
+	}
+	if _, ok := oracle.GetOrderState(state.OrderId); !ok {
+		t.Fatal("order was removed after persistent deletion failed")
+	}
+	oracle.ordersMu.RLock()
+	defer oracle.ordersMu.RUnlock()
+	if got := oracle.orderUtxos[ref]; got != state.OrderId {
+		t.Fatalf("order UTxO index = %q, want %q", got, state.OrderId)
+	}
 }
 
 func TestOracleStorageLoadPoolState(t *testing.T) {
