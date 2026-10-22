@@ -8,7 +8,6 @@ import (
 	"github.com/blinklabs-io/adder/event"
 	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/connection"
-	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/blockfetch"
 	"github.com/blinklabs-io/gouroboros/protocol/chainsync"
 	ocommon "github.com/blinklabs-io/gouroboros/protocol/common"
@@ -144,17 +143,12 @@ func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {
 			BlockHash:   e.BlockHash,
 			BlockNumber: blockCtx.BlockNumber,
 		}
-		// Determine block type, since adder doesn't provide this information
-		blockType, err := ledger.DetermineBlockType(e.BlockCbor)
-		if err != nil {
-			return err
-		}
 		// Add to recent blocks
 		n.chainsyncClientState.AddBlock(
 			chainsyncBlock{
 				Tip:  n.chainsyncClientState.tip,
 				Cbor: e.BlockCbor,
-				Type: blockType,
+				Type: uint(e.Block.Type()),
 			},
 		)
 	case event.TransactionEvent:
