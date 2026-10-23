@@ -98,6 +98,14 @@ Oracle profiles (price tracking):
 - `vyfi` - VyFi pools
 - `cswap` - CSWAP pools
 
+Order-book profiles (order state tracking):
+- `geniusyield` - Genius Yield partial orders. Orders are located by the order
+  script's payment credential, because each maker's order sits at a base
+  address that adds the maker's own staking credential. Order state is served
+  from `GET /api/v1/orders` and `GET /api/v1/orders/{orderId}`; it is not
+  published as pool state, since a resting order locks only the offered asset
+  and has no second reserve.
+
 Spectrum batching profiles (matcher bot):
 - `spectrum` - Spectrum DEX on mainnet
 - `teddyswap` - TeddySwap on preview/mainnet
