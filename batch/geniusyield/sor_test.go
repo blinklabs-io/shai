@@ -308,6 +308,8 @@ func TestSORFindRouteIgnoresZeroPriceOrders(t *testing.T) {
 		OfferedAmount: 1000000,
 		AskedAsset:    common.Lovelace(),
 		Price:         2.0,
+		PriceNum:      2,
+		PriceDenom:    1,
 		IsActive:      true,
 		TxHash:        "tx_valid",
 		Timestamp:     time.Now(),
@@ -785,5 +787,43 @@ func TestSORUpdateOrder(t *testing.T) {
 			"expected 0 orders after complete fill, got %d",
 			sor.GetOrderCount(),
 		)
+	}
+}
+
+func TestSORFindRouteAskCapacityRoundsUp(t *testing.T) {
+	sor := NewSmartOrderRouter()
+
+	tokenAsset := common.AssetClass{
+		PolicyId: []byte{0xab, 0xcd},
+		Name:     []byte("TOKEN"),
+	}
+
+	// 1000001 * 3/2 = 1500001.5, so draining the order costs 1500002.
+	sor.AddOrder(&dexgy.OrderState{
+		OrderId:       "gy_fractional",
+		OfferedAsset:  tokenAsset,
+		OfferedAmount: 1000001,
+		AskedAsset:    common.Lovelace(),
+		Price:         1.5,
+		PriceNum:      3,
+		PriceDenom:    2,
+		IsActive:      true,
+		TxHash:        "tx_fractional",
+		Timestamp:     time.Now(),
+	})
+
+	route, err := sor.FindRoute(common.Lovelace(), tokenAsset, 2000000, 1000)
+	if err != nil {
+		t.Fatalf("failed to find route: %v", err)
+	}
+	if len(route.Legs) != 1 {
+		t.Fatalf("expected 1 leg, got %d", len(route.Legs))
+	}
+	leg := route.Legs[0]
+	if leg.OutputAmount != 1000001 {
+		t.Fatalf("expected output 1000001, got %d", leg.OutputAmount)
+	}
+	if leg.InputAmount != 1500002 {
+		t.Fatalf("expected input 1500002, got %d", leg.InputAmount)
 	}
 }

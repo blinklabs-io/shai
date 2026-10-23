@@ -914,6 +914,8 @@ func TestCalculateFillOutputs(t *testing.T) {
 	newOrder := &dexgy.OrderState{
 		OrderId:       "taker-order",
 		OfferedAmount: 1000000,
+		PriceNum:      1,
+		PriceDenom:    2,
 	}
 
 	route := &Route{
@@ -924,6 +926,8 @@ func TestCalculateFillOutputs(t *testing.T) {
 				Order: &dexgy.OrderState{
 					OrderId:       "maker-order-1",
 					OfferedAmount: 300000,
+					PriceNum:      2,
+					PriceDenom:    3,
 				},
 				InputAmount:  200000,
 				OutputAmount: 300000,
@@ -932,6 +936,8 @@ func TestCalculateFillOutputs(t *testing.T) {
 				Order: &dexgy.OrderState{
 					OrderId:       "maker-order-2",
 					OfferedAmount: 500000,
+					PriceNum:      3,
+					PriceDenom:    5,
 				},
 				InputAmount:  300000,
 				OutputAmount: 500000,
@@ -984,6 +990,8 @@ func TestCalculateFillOutputs_PartialFills(t *testing.T) {
 	newOrder := &dexgy.OrderState{
 		OrderId:       "taker-order",
 		OfferedAmount: 1000000,
+		PriceNum:      1,
+		PriceDenom:    2,
 	}
 
 	route := &Route{
@@ -994,6 +1002,8 @@ func TestCalculateFillOutputs_PartialFills(t *testing.T) {
 				Order: &dexgy.OrderState{
 					OrderId:       "maker-order-1",
 					OfferedAmount: 1000000,
+					PriceNum:      1,
+					PriceDenom:    2,
 				},
 				InputAmount:  250000,
 				OutputAmount: 500000, // Less than offered - partial
@@ -1230,5 +1240,64 @@ func TestBuildOwnerAddressUnknownNetwork(t *testing.T) {
 	}
 	if _, err := buildOwnerAddress(order); err == nil {
 		t.Fatal("expected error for unknown network name")
+	}
+}
+
+func TestCalculateFillOutputsRejectsMakerUnderpayment(t *testing.T) {
+	gy := &GeniusYield{}
+
+	newOrder := &dexgy.OrderState{
+		OrderId:       "taker-order",
+		OfferedAmount: 199999,
+		PriceNum:      1,
+		PriceDenom:    2,
+	}
+
+	// ceil(300000 * 2/3) = 200000, one more than the taker pays.
+	route := &Route{
+		TotalInput:  199999,
+		TotalOutput: 300000,
+		Legs: []RouteLeg{
+			{
+				Order: &dexgy.OrderState{
+					OrderId:       "maker-order-1",
+					OfferedAmount: 300000,
+					PriceNum:      2,
+					PriceDenom:    3,
+				},
+				InputAmount:  199999,
+				OutputAmount: 300000,
+			},
+		},
+	}
+
+	_, err := gy.calculateFillOutputs(route, newOrder)
+	if err == nil {
+		t.Fatal("expected underpayment error")
+	}
+	if !strings.Contains(err.Error(), "below required amount 200000") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCalculateFillOutputsRejectsMissingRationalPrice(t *testing.T) {
+	gy := &GeniusYield{}
+
+	route := &Route{
+		TotalInput:  1000000,
+		TotalOutput: 500000,
+	}
+	newOrder := &dexgy.OrderState{
+		OrderId:       "taker-order",
+		OfferedAmount: 1000000,
+		Price:         0.5,
+	}
+
+	_, err := gy.calculateFillOutputs(route, newOrder)
+	if err == nil {
+		t.Fatal("expected invalid price error")
+	}
+	if !strings.Contains(err.Error(), "invalid price for order taker-order") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
