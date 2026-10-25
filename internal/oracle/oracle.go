@@ -292,7 +292,11 @@ func (o *Oracle) handleTransaction(
 	}
 
 	// Check for tracked UTxOs at monitored addresses.
-	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
+	produced, err := producedUTXOs(txEvt, ctx.TransactionHash)
+	if err != nil {
+		return err
+	}
+	for _, utxo := range produced {
 		addr := utxo.Output.Address().String()
 		if !o.isPoolAddress(addr) {
 			continue
@@ -529,18 +533,19 @@ func transactionInputs(txEvt event.TransactionEvent) []ledger.TransactionInput {
 func producedUTXOs(
 	txEvt event.TransactionEvent,
 	txHash string,
-) []ledger.Utxo {
+) ([]ledger.Utxo, error) {
 	if txEvt.Transaction != nil {
-		return txEvt.Transaction.Produced()
+		return txEvt.Transaction.Produced(), nil
 	}
 	utxos := make([]ledger.Utxo, 0, len(txEvt.Outputs))
 	for i, output := range txEvt.Outputs {
-		utxos = append(utxos, ledger.Utxo{
-			Id:     shelley.NewShelleyTransactionInput(txHash, i),
-			Output: output,
-		})
+		input, err := shelley.NewShelleyTransactionInput(txHash, i)
+		if err != nil {
+			return nil, fmt.Errorf("build input for output %d: %w", i, err)
+		}
+		utxos = append(utxos, ledger.Utxo{Id: input, Output: output})
 	}
-	return utxos
+	return utxos, nil
 }
 
 // handleRollback processes a rollback event by invalidating pool states that
