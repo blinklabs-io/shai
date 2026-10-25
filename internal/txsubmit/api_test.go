@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +80,34 @@ func TestSubmitTxApiKeepsTransportFailureAmbiguous(t *testing.T) {
 	var rejectedErr *submissionRejectedError
 	if errors.As(err, &rejectedErr) {
 		t.Fatalf("transport failure was classified as rejection: %v", err)
+	}
+}
+
+func TestSubmitTxApiBoundsResponseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(
+		response http.ResponseWriter,
+		_ *http.Request,
+	) {
+		response.WriteHeader(http.StatusBadRequest)
+		_, _ = response.Write([]byte(strings.Repeat(
+			"x",
+			maxSubmitTxResponseSize+1,
+		)))
+	}))
+	defer server.Close()
+
+	err := submitTxApi([]byte{0x80}, server.URL)
+	if err == nil {
+		t.Fatal("oversized response returned success")
+	}
+	var rejectedErr *submissionRejectedError
+	if !errors.As(err, &rejectedErr) {
+		t.Fatalf("definitive rejection was not preserved: %v", err)
+	}
+	if got := string(rejectedErr.body); !strings.Contains(
+		got,
+		"response body exceeds",
+	) {
+		t.Fatalf("oversized body was retained: %q", got)
 	}
 }

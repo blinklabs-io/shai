@@ -26,7 +26,10 @@ import (
 	"github.com/blinklabs-io/shai/internal/logging"
 )
 
-const submitTxRequestTimeout = 30 * time.Second
+const (
+	submitTxRequestTimeout  = 30 * time.Second
+	maxSubmitTxResponseSize = 64 << 10
+)
 
 func (t *TxSubmit) startApi(url string) error {
 	go func() {
@@ -110,10 +113,17 @@ func submitTxApi(txRawBytes []byte, url string) error {
 		return errors.New("failed with nil response")
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	// We have to read the entire response body and close it to prevent a memory leak
-	respBody, err := io.ReadAll(resp.Body)
+	respBody, err := io.ReadAll(
+		io.LimitReader(resp.Body, maxSubmitTxResponseSize+1),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)
+	}
+	if len(respBody) > maxSubmitTxResponseSize {
+		respBody = []byte(fmt.Sprintf(
+			"response body exceeds %d bytes",
+			maxSubmitTxResponseSize,
+		))
 	}
 	if resp.StatusCode == 202 {
 		return nil
