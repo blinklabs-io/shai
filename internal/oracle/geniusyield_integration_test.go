@@ -310,6 +310,117 @@ func TestGeniusYieldOrderSurvivesRestartAndRollsBack(t *testing.T) {
 	}
 }
 
+func TestGeniusYieldRollbackRestoresSpentOrder(t *testing.T) {
+	profile := config.Profiles["mainnet"]["geniusyield"]
+	storage := newTestOracleStorage(t)
+	o := New(nil, &profile, NewGeniusYieldParser())
+	o.storage = storage
+
+	tx := loadMainnetOrderTx(t)
+	if err := o.HandleChainsyncEvent(mainnetOrderEvent(t, tx)); err != nil {
+		t.Fatalf("HandleChainsyncEvent returned error: %v", err)
+	}
+	orderId := geniusyield.GenerateOrderId(
+		orderNFTName(t, tx.Produced()[0].Output),
+	)
+
+	replacementHash := strings.Repeat("e", 64)
+	replacement := event.NewTransactionEventFromTx(tx, false)
+	replacement.BlockHash = strings.Repeat("f", 64)
+	replacement.Inputs = []ledger.TransactionInput{
+		shelley.NewShelleyTransactionInput(mainnetOrderTxHash, 0),
+	}
+	if err := o.HandleChainsyncEvent(event.Event{
+		Context: event.TransactionContext{
+			TransactionHash: replacementHash,
+			SlotNumber:      mainnetOrderSlot + 1,
+		},
+		Payload: replacement,
+	}); err != nil {
+		t.Fatalf("replacement HandleChainsyncEvent returned error: %v", err)
+	}
+	if state, ok := o.GetOrderState(orderId); !ok || state == nil ||
+		state.TxHash != replacementHash {
+		t.Fatalf("expected replacement order %s to be tracked", orderId)
+	}
+
+	restarted := New(nil, &profile, NewGeniusYieldParser())
+	restarted.storage = storage
+	if err := restarted.loadPersistedStates(); err != nil {
+		t.Fatalf("failed to load persisted order states: %v", err)
+	}
+	if err := restarted.handleRollback(event.RollbackEvent{
+		SlotNumber: mainnetOrderSlot,
+		BlockHash:  mainnetOrderBlock,
+	}); err != nil {
+		t.Fatalf("handleRollback returned error: %v", err)
+	}
+
+	restored, ok := restarted.GetOrderState(orderId)
+	if !ok || restored == nil {
+		t.Fatalf("expected rollback to restore order %s", orderId)
+	}
+	if restored.TxHash != mainnetOrderTxHash {
+		t.Fatalf(
+			"restored transaction = %s, want %s",
+			restored.TxHash,
+			mainnetOrderTxHash,
+		)
+	}
+	stored, err := storage.LoadOrderState("mainnet", "geniusyield", orderId)
+	if err != nil {
+		t.Fatalf("expected restored order in storage: %v", err)
+	}
+	if stored == nil {
+		t.Fatal("expected restored order payload in storage")
+	}
+	if stored.TxHash != mainnetOrderTxHash {
+		t.Fatalf(
+			"stored transaction = %s, want %s",
+			stored.TxHash,
+			mainnetOrderTxHash,
+		)
+	}
+}
+
+func TestGeniusYieldTransitionKeepsMemoryWhenPersistenceFails(t *testing.T) {
+	profile := config.Profiles["mainnet"]["geniusyield"]
+	state := &OrderState{
+		Network:  "mainnet",
+		Protocol: "geniusyield",
+		OrderId:  "order-1",
+		TxHash:   strings.Repeat("a", 64),
+	}
+	ref := orderUtxoRef(state.TxHash, state.TxIndex)
+	o := New(nil, &profile, NewGeniusYieldParser())
+	o.storage = newClosedTestOracleStorage(t)
+	o.orders[state.OrderId] = state
+	o.orderUtxos[ref] = state.OrderId
+
+	err := o.HandleChainsyncEvent(event.Event{
+		Context: event.TransactionContext{
+			TransactionHash: strings.Repeat("b", 64),
+			SlotNumber:      mainnetOrderSlot + 1,
+		},
+		Payload: event.TransactionEvent{
+			Inputs: []ledger.TransactionInput{
+				shelley.NewShelleyTransactionInput(state.TxHash, 0),
+			},
+		},
+	})
+	if err == nil {
+		t.Fatal("expected order transition persistence to fail")
+	}
+	if current, ok := o.GetOrderState(state.OrderId); !ok || current != state {
+		t.Fatal("order memory changed after persistence failed")
+	}
+	o.ordersMu.RLock()
+	defer o.ordersMu.RUnlock()
+	if got := o.orderUtxos[ref]; got != state.OrderId {
+		t.Fatalf("order UTxO index = %q, want %q", got, state.OrderId)
+	}
+}
+
 func TestOrderAPIServesTrackedOrder(t *testing.T) {
 	profile := config.Profiles["mainnet"]["geniusyield"]
 	o := New(nil, &profile, NewGeniusYieldParser())

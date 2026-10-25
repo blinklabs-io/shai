@@ -584,15 +584,9 @@ func (o *Oracle) handleOrderTransaction(
 	txEvt event.TransactionEvent,
 	ctx event.TransactionContext,
 ) error {
-	if err := o.deleteSpentOrderStates(
-		logger,
-		transactionInputs(txEvt),
-	); err != nil {
-		return err
-	}
-
 	now := time.Now()
 	var datums map[string][]byte
+	produced := make([]*OrderState, 0)
 	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
 		if !o.isOrderAddress(utxo.Output.Address().String()) {
 			continue
@@ -651,88 +645,75 @@ func (o *Oracle) handleOrderTransaction(
 		state.Network = network
 		state.BlockHash = txEvt.BlockHash
 		state.UpdatedAt = now
-		if err := o.putOrderState(state); err != nil {
-			return err
-		}
-		logger.Debug(
-			"order state updated",
-			"orderId", state.OrderId,
-			"protocol", state.Protocol,
-			"slot", state.Slot,
-		)
-	}
-
-	return nil
-}
-
-// putOrderState records an order in memory and in storage under its durable
-// key, replacing whatever UTxO previously carried the same order.
-func (o *Oracle) putOrderState(state *OrderState) error {
-	if o.storage == nil {
-		return errors.New("oracle storage is required for order state")
+		produced = append(produced, state)
 	}
 
 	o.ordersMu.Lock()
 	defer o.ordersMu.Unlock()
-	if err := o.storage.SaveOrderState(state); err != nil {
-		return fmt.Errorf("failed to persist order %s: %w", state.OrderId, err)
-	}
 	if o.orders == nil {
 		o.orders = make(map[string]*OrderState)
 	}
 	if o.orderUtxos == nil {
 		o.orderUtxos = make(map[string]string)
 	}
-	if prev, ok := o.orders[state.OrderId]; ok {
-		delete(o.orderUtxos, orderUtxoRef(prev.TxHash, prev.TxIndex))
-	}
-	o.orders[state.OrderId] = state
-	o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
-	return nil
-}
-
-// deleteSpentOrderStates drops every tracked order whose UTxO this
-// transaction consumes.
-func (o *Oracle) deleteSpentOrderStates(
-	logger *slog.Logger,
-	inputs []ledger.TransactionInput,
-) error {
-	for _, input := range inputs {
+	spent := make([]*OrderState, 0)
+	spentRefs := make([]string, 0)
+	spentIds := make(map[string]struct{})
+	for _, input := range transactionInputs(txEvt) {
 		ref := orderUtxoRef(input.Id().String(), input.Index())
-		o.ordersMu.Lock()
 		orderId, ok := o.orderUtxos[ref]
 		if !ok {
-			o.ordersMu.Unlock()
+			continue
+		}
+		if _, seen := spentIds[orderId]; seen {
 			continue
 		}
 		state := o.orders[orderId]
 		if state == nil {
-			o.ordersMu.Unlock()
 			return fmt.Errorf("order state %s is missing", orderId)
 		}
-		if o.storage == nil {
-			o.ordersMu.Unlock()
-			return errors.New("oracle storage is required for order state")
-		}
-		if err := o.storage.DeleteOrderState(
-			state.Network,
-			state.Protocol,
-			orderId,
-		); err != nil {
-			o.ordersMu.Unlock()
-			return fmt.Errorf(
-				"failed to delete spent order %s: %w",
-				orderId,
-				err,
+		spent = append(spent, state)
+		spentRefs = append(spentRefs, ref)
+		spentIds[orderId] = struct{}{}
+	}
+	if len(spent) == 0 && len(produced) == 0 {
+		return nil
+	}
+	if o.storage == nil {
+		return errors.New("oracle storage is required for order transaction")
+	}
+	applied, err := o.storage.ApplyOrderTransaction(orderUndoRecord{
+		Network:         network,
+		Protocol:        parser.Protocol(),
+		TransactionHash: ctx.TransactionHash,
+		TransactionIdx:  ctx.TransactionIdx,
+		Slot:            ctx.SlotNumber,
+		Spent:           spent,
+	}, produced)
+	if err != nil {
+		return fmt.Errorf("failed to persist order transaction: %w", err)
+	}
+	if !applied {
+		return nil
+	}
+	for i, state := range spent {
+		delete(o.orderUtxos, spentRefs[i])
+		delete(o.orders, state.OrderId)
+	}
+	for _, state := range produced {
+		if previous, ok := o.orders[state.OrderId]; ok {
+			delete(
+				o.orderUtxos,
+				orderUtxoRef(previous.TxHash, previous.TxIndex),
 			)
 		}
-		delete(o.orderUtxos, ref)
-		delete(o.orders, orderId)
-		o.ordersMu.Unlock()
+		o.orders[state.OrderId] = state
+		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
 		logger.Debug(
-			"deleted spent order state",
-			"orderId", orderId,
+			"order state updated",
+			"orderId", state.OrderId,
 			"protocol", state.Protocol,
+			"slot", state.Slot,
 		)
 	}
 	return nil
@@ -884,19 +865,6 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 	o.poolsMu.Unlock()
 
-	o.ordersMu.Lock()
-	var ordersToDelete []*OrderState
-	for _, state := range o.orders {
-		if state.Slot >= firstInvalidSlot {
-			ordersToDelete = append(ordersToDelete, state)
-		}
-	}
-	for _, state := range ordersToDelete {
-		delete(o.orders, state.OrderId)
-		delete(o.orderUtxos, orderUtxoRef(state.TxHash, state.TxIndex))
-	}
-	o.ordersMu.Unlock()
-
 	o.cdpsMu.Lock()
 	var cdpsToDelete []*CDPState
 	for _, state := range o.cdps {
@@ -988,32 +956,19 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		}
 	}
 
-	for _, state := range ordersToDelete {
-		if err := o.storage.DeleteOrderState(
-			state.Network,
-			state.Protocol,
-			state.OrderId,
-		); err != nil {
-			logger.Error(
-				"failed to delete rolled-back order state",
-				"error", err,
-				"orderId", state.OrderId,
-				"slot", state.Slot,
-			)
-			errs = append(
-				errs,
-				fmt.Errorf(
-					"delete rolled-back order %s: %w",
-					state.OrderId,
-					err,
-				),
-			)
+	if parser, ok := o.parser.(OrderParser); ok && o.isOrderbookProfile() {
+		states, err := o.storage.RollbackOrderStates(
+			config.GetConfig().Network,
+			parser.Protocol(),
+			firstInvalidSlot,
+		)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("rollback order states: %w", err))
 		} else {
-			logger.Info(
-				"invalidated order state due to rollback",
-				"orderId", state.OrderId,
-				"slot", state.Slot,
-				"rollbackSlot", evt.SlotNumber,
+			o.replaceOrderStates(
+				config.GetConfig().Network,
+				parser.Protocol(),
+				states,
 			)
 		}
 	}
@@ -1026,6 +981,25 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 
 	return nil
+}
+
+func (o *Oracle) replaceOrderStates(
+	network string,
+	protocol string,
+	states []*OrderState,
+) {
+	o.ordersMu.Lock()
+	defer o.ordersMu.Unlock()
+	for id, state := range o.orders {
+		if state.Network == network && state.Protocol == protocol {
+			delete(o.orderUtxos, orderUtxoRef(state.TxHash, state.TxIndex))
+			delete(o.orders, id)
+		}
+	}
+	for _, state := range states {
+		o.orders[state.OrderId] = state
+		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
+	}
 }
 
 // firstRolledBackSlot returns the first slot invalidated by a chain-sync
