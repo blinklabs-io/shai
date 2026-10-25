@@ -7,7 +7,7 @@ require (
 	github.com/blinklabs-io/adder v0.46.0
 	github.com/blinklabs-io/bursa v0.19.0
 	github.com/blinklabs-io/dingo v0.86.0
-	github.com/blinklabs-io/gouroboros v0.213.7
+	github.com/blinklabs-io/gouroboros v0.213.11
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
