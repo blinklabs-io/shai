@@ -25,7 +25,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/internal/config"
 )
 
@@ -55,7 +54,7 @@ func TestOracleIndigoCDPUpdateDeletesSpentState(t *testing.T) {
 		event.TransactionEvent{
 			BlockHash: "block-20",
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(oldHash, 0),
+				mustTestInput(t, oldHash, 0),
 			},
 			Outputs: []ledger.TransactionOutput{
 				newTestCDPOutput(t, "iUSD", 42_000_000),
@@ -138,7 +137,7 @@ func TestOracleIndigoCDPCloseDeletesSpentState(t *testing.T) {
 		event.TransactionEvent{
 			BlockHash: "block-20",
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(oldHash, 1),
+				mustTestInput(t, oldHash, 1),
 			},
 		},
 	)

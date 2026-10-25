@@ -174,7 +174,10 @@ func (o *DjedOracle) handleTransaction(
 	}
 
 	logger := logging.GetLogger()
-	utxos := producedUTXOs(txEvt, ctx.TransactionHash)
+	utxos, err := producedUTXOs(txEvt, ctx.TransactionHash)
+	if err != nil {
+		return err
+	}
 	candidates := make([]djedCandidate, 0)
 	for i, utxo := range utxos {
 		output := utxo.Output

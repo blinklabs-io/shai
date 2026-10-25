@@ -408,6 +408,7 @@ func (n *Node) reconnectOutboundConnection(peer outboundPeer) {
 
 func (n *Node) connectionManagerConnClosed(
 	connId ouroboros.ConnectionId,
+	_ bool,
 	err error,
 ) {
 	logger := logging.GetLogger()

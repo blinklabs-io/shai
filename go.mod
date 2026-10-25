@@ -3,11 +3,11 @@ module github.com/blinklabs-io/shai
 go 1.26.10
 
 require (
-	github.com/Salvionied/apollo/v2 v2.1.2
-	github.com/blinklabs-io/adder v0.44.0
-	github.com/blinklabs-io/bursa v0.17.1
+	github.com/Salvionied/apollo/v2 v2.1.4
+	github.com/blinklabs-io/adder v0.46.0
+	github.com/blinklabs-io/bursa v0.19.0
 	github.com/blinklabs-io/dingo v0.86.0
-	github.com/blinklabs-io/gouroboros v0.213.5
+	github.com/blinklabs-io/gouroboros v0.213.7
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
@@ -38,7 +38,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0 // indirect
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
 	github.com/btcsuite/btcutil v1.0.2 // indirect
-	github.com/buger/jsonparser v1.2.0 // indirect
+	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/consensys/gnark-crypto v0.22.0 // indirect
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
@@ -52,7 +52,7 @@ require (
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/klauspost/compress v1.20.0 // indirect
-	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
+	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
@@ -70,6 +70,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
