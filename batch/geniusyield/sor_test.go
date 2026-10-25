@@ -369,6 +369,55 @@ func TestSORFindRouteIgnoresZeroPriceOrders(t *testing.T) {
 	}
 }
 
+func TestSORFindRouteIgnoresExpiredOrders(t *testing.T) {
+	sor := NewSmartOrderRouter()
+	tokenAsset := common.AssetClass{
+		PolicyId: []byte{0xab, 0xcd},
+		Name:     []byte("TOKEN"),
+	}
+	now := time.Now()
+	expiredAt := now.Add(-time.Minute)
+	sor.AddOrder(&dexgy.OrderState{
+		OrderId:       "gy_expired",
+		OfferedAsset:  tokenAsset,
+		OfferedAmount: 1_000_000,
+		AskedAsset:    common.Lovelace(),
+		Price:         1,
+		PriceNum:      1,
+		PriceDenom:    1,
+		IsActive:      true,
+		EndTime:       &expiredAt,
+		TxHash:        "tx_expired",
+		Timestamp:     now.Add(-time.Hour),
+	})
+	valid := &dexgy.OrderState{
+		OrderId:       "gy_valid",
+		OfferedAsset:  tokenAsset,
+		OfferedAmount: 1_000_000,
+		AskedAsset:    common.Lovelace(),
+		Price:         2,
+		PriceNum:      2,
+		PriceDenom:    1,
+		IsActive:      true,
+		TxHash:        "tx_valid",
+		Timestamp:     now,
+	}
+	sor.AddOrder(valid)
+
+	route, err := sor.FindRoute(
+		common.Lovelace(),
+		tokenAsset,
+		1_000_000,
+		10_000,
+	)
+	if err != nil {
+		t.Fatalf("find route: %v", err)
+	}
+	if len(route.Legs) != 1 || route.Legs[0].Order != valid {
+		t.Fatalf("route used an expired order: %+v", route.Legs)
+	}
+}
+
 func TestSORGetQuote(t *testing.T) {
 	sor := NewSmartOrderRouter()
 
@@ -508,37 +557,6 @@ func TestSORClearExpired(t *testing.T) {
 
 	if sor.GetOrderCount() != 1 {
 		t.Errorf("expected 1 order after cleanup, got %d", sor.GetOrderCount())
-	}
-}
-
-func TestHandleConsumedOrderRemovesOrder(t *testing.T) {
-	sor := NewSmartOrderRouter()
-	gy := &GeniusYield{sor: sor}
-
-	tokenAsset := common.AssetClass{
-		PolicyId: []byte{0x44},
-		Name:     []byte("USED"),
-	}
-	order := &dexgy.OrderState{
-		OrderId:       "gy_consumed",
-		OfferedAsset:  tokenAsset,
-		OfferedAmount: 1000000,
-		AskedAsset:    common.Lovelace(),
-		Price:         1.0,
-		IsActive:      true,
-		TxHash:        "consumed_tx",
-		TxIndex:       2,
-		Timestamp:     time.Now(),
-	}
-	sor.AddOrder(order)
-
-	gy.handleConsumedOrder("consumed_tx", 2)
-
-	if sor.GetOrderCount() != 0 {
-		t.Fatalf(
-			"expected consumed order to be removed, got %d",
-			sor.GetOrderCount(),
-		)
 	}
 }
 

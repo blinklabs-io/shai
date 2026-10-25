@@ -159,7 +159,10 @@ func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {
 		)
 	case event.TransactionEvent:
 		eventCtx := evt.Context.(event.TransactionContext)
-		n.txsubmissionMempool.removeTransaction(eventCtx.TransactionHash)
+		n.txsubmissionMempool.removeTransaction(
+			eventCtx.TransactionHash,
+			MempoolRemovalReasonConfirmed,
+		)
 	}
 	return nil
 }

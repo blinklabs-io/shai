@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/blinklabs-io/adder/event"
@@ -36,13 +37,17 @@ import (
 
 // GeniusYield implements the Genius Yield order-book DEX batcher with SOR
 type GeniusYield struct {
-	idx            *indexer.Indexer
-	node           *node.Node
-	config         config.GeniusYieldProfileConfig
-	name           string
-	orderAddresses []string
-	sor            *SmartOrderRouter
-	enabled        bool
+	idx                 *indexer.Indexer
+	node                *node.Node
+	config              config.GeniusYieldProfileConfig
+	name                string
+	orderAddresses      []string
+	sor                 *SmartOrderRouter
+	enabled             bool
+	mu                  sync.Mutex
+	chainOrders         map[string]*trackedOrder
+	pendingTransactions map[string]*pendingTransaction
+	reservedBy          map[string]map[string]struct{}
 }
 
 // New creates a new Genius Yield batcher with SOR
@@ -59,13 +64,16 @@ func New(
 	}
 
 	gy := &GeniusYield{
-		idx:            idx,
-		node:           node,
-		config:         cfg,
-		name:           name,
-		orderAddresses: orderAddresses,
-		sor:            NewSmartOrderRouter(),
-		enabled:        true,
+		idx:                 idx,
+		node:                node,
+		config:              cfg,
+		name:                name,
+		orderAddresses:      orderAddresses,
+		sor:                 NewSmartOrderRouter(),
+		enabled:             true,
+		chainOrders:         make(map[string]*trackedOrder),
+		pendingTransactions: make(map[string]*pendingTransaction),
+		reservedBy:          make(map[string]map[string]struct{}),
 	}
 
 	// Configure SOR with multi-hop if enabled
@@ -73,12 +81,14 @@ func New(
 		gy.sor.EnableMultiHop(true)
 	}
 
+	gy.loadPersistedOrders()
+
 	// Register event handlers
 	idx.AddEventFunc(gy.handleChainsyncEvent)
 	node.AddMempoolNewTransactionFunc(gy.handleMempoolNewTransaction)
-
-	// Load persisted order book from storage
-	go gy.loadPersistedOrders()
+	node.AddMempoolRemovedTransactionFunc(
+		gy.handleMempoolRemovedTransaction,
+	)
 
 	// Start background tasks
 	go gy.cleanupLoop()
@@ -129,7 +139,6 @@ func (gy *GeniusYield) loadPersistedOrders() {
 				continue
 			}
 
-			// Create order state
 			orderState := dexgy.OrderConfigToState(
 				&orderConfig,
 				hex.EncodeToString(utxo.Ref.Id().Bytes()),
@@ -137,7 +146,16 @@ func (gy *GeniusYield) loadPersistedOrders() {
 				0, // Slot unknown for persisted
 			)
 
-			gy.sor.UpdateOrder(orderState)
+			tracked := &trackedOrder{
+				state:      orderState,
+				address:    addr,
+				outputCbor: append([]byte(nil), utxo.Output.Cbor()...),
+			}
+			ref := orderRef(orderState.TxHash, orderState.TxIndex)
+			gy.mu.Lock()
+			gy.chainOrders[ref] = tracked
+			gy.syncOrderLocked(orderState.OrderId)
+			gy.mu.Unlock()
 			count++
 		}
 	}
@@ -158,40 +176,91 @@ func (gy *GeniusYield) handleChainsyncEvent(evt event.Event) error {
 	case event.TransactionEvent:
 		eventTx := evt.Payload.(event.TransactionEvent)
 		eventCtx := evt.Context.(event.TransactionContext)
-
-		// Process outputs (new/updated orders)
+		orders := make([]*trackedOrder, 0)
+		matchOutputs := make([]ledger.TransactionOutput, 0)
 		for idx, txOutput := range eventTx.Outputs {
-			if err := gy.handleTransactionOutput(
+			order, err := gy.parseOrderOutput(
 				eventCtx.TransactionHash,
 				idx,
 				txOutput,
 				eventCtx.SlotNumber,
-				eventCtx.BlockNumber,
-				false,
-			); err != nil {
+			)
+			if err != nil {
 				logger.Debug(
 					"failed to handle chainsync output",
 					"txHash", eventCtx.TransactionHash,
 					"index", idx,
 					"error", err,
 				)
+				continue
 			}
+			if order == nil {
+				continue
+			}
+			if err := storage.GetStorage().AddUtxo(
+				order.address,
+				order.state.TxHash,
+				order.state.TxIndex,
+				order.outputCbor,
+			); err != nil {
+				logger.Warn(
+					"failed to store order UTXO",
+					"txHash", eventCtx.TransactionHash,
+					"error", err,
+				)
+			}
+			orders = append(orders, order)
+			matchOutputs = append(matchOutputs, txOutput)
 		}
-
-		// Process inputs (consumed orders)
-		for _, txInput := range eventTx.Inputs {
-			gy.handleConsumedOrder(txInput.Id().String(), txInput.Index())
+		gy.applyChainTransaction(
+			eventCtx.TransactionHash,
+			eventTx.Inputs,
+			orders,
+		)
+		if gy.enabled {
+			for i, order := range orders {
+				if !gy.confirmedOrderEligible(order, time.Now()) {
+					continue
+				}
+				if err := gy.tryMatchOrder(
+					order.state,
+					matchOutputs[i],
+				); err != nil {
+					logger.Debug(
+						"failed to match confirmed order",
+						"orderId", order.state.OrderId,
+						"error", err,
+					)
+				}
+			}
 		}
 	}
 
 	return nil
 }
 
+func (gy *GeniusYield) confirmedOrderEligible(
+	order *trackedOrder,
+	now time.Time,
+) bool {
+	if order == nil || order.state == nil {
+		return false
+	}
+	ref := orderRef(order.state.TxHash, order.state.TxIndex)
+	gy.mu.Lock()
+	defer gy.mu.Unlock()
+	return gy.chainOrders[ref] == order &&
+		len(gy.reservedBy[ref]) == 0 &&
+		orderEligible(order.state, now)
+}
+
 // handleMempoolNewTransaction processes mempool transactions
 func (gy *GeniusYield) handleMempoolNewTransaction(
 	mempoolTx node.TxsubmissionMempoolTransaction,
 ) error {
-	logger := logging.GetLogger()
+	if mempoolTx.Source != node.MempoolTransactionSourceOwned {
+		return nil
+	}
 
 	tx, err := ledger.NewTransactionFromCbor(mempoolTx.Type, mempoolTx.Cbor)
 	if err != nil {
@@ -199,54 +268,22 @@ func (gy *GeniusYield) handleMempoolNewTransaction(
 	}
 
 	txHash := tx.Hash().String()
-
-	// Remove consumed orders before evaluating new mempool outputs so stale
-	// liquidity cannot be matched in the same mempool update.
-	for _, txInput := range tx.Inputs() {
-		gy.handleConsumedOrder(txInput.Id().String(), txInput.Index())
-	}
-
-	// Process outputs (new orders in mempool)
-	for idx, txOutput := range tx.Outputs() {
-		if err := gy.handleTransactionOutput(
-			txHash,
-			idx,
-			txOutput,
-			0, // Slot unknown for mempool
-			0, // Block unknown for mempool
-			true,
-		); err != nil {
-			logger.Debug(
-				"failed to handle mempool output",
-				"txHash", txHash,
-				"index", idx,
-				"error", err,
-			)
-		}
-	}
-
+	gy.reservePendingTransaction(txHash, tx.Inputs())
 	return nil
 }
 
-// handleTransactionOutput processes a transaction output
-func (gy *GeniusYield) handleTransactionOutput(
+func (gy *GeniusYield) parseOrderOutput(
 	txHash string,
 	txOutputIdx int,
 	txOutput ledger.TransactionOutput,
 	slot uint64,
-	block uint64,
-	fromMempool bool,
-) error {
-	logger := logging.GetLogger()
-
-	// Check if this is an order address
+) (*trackedOrder, error) {
 	outputAddress := txOutput.Address().String()
 	var paymentAddr string
 	if txOutput.Address().PaymentAddress() != nil {
 		paymentAddr = txOutput.Address().PaymentAddress().String()
 	}
 
-	// Check against configured addresses
 	isOrder := false
 	matchedAddress := ""
 	for _, addr := range gy.orderAddresses {
@@ -258,112 +295,48 @@ func (gy *GeniusYield) handleTransactionOutput(
 	}
 
 	if !isOrder {
-		return nil
+		return nil, nil
 	}
 
-	// Get datum
 	datum := txOutput.Datum()
 	if datum == nil {
-		return nil
+		return nil, nil
 	}
 
-	// Parse order config
 	var orderConfig dexgy.OrderConfig
 	if _, err := cbor.Decode(datum.Cbor(), &orderConfig); err != nil {
-		return fmt.Errorf("failed to decode order datum: %w", err)
+		return nil, fmt.Errorf("failed to decode order datum: %w", err)
 	}
 
-	// Validate order has NFT (required for identification)
 	if len(orderConfig.NFT) == 0 {
-		return nil
+		return nil, nil
 	}
 	if !gy.hasOrderNFT(txOutput, orderConfig.NFT) {
-		return nil
+		return nil, nil
 	}
 	if !hasOfferedAmount(txOutput, orderConfig) {
-		return nil
+		return nil, nil
 	}
 
-	// Create order state for SOR
 	orderState := dexgy.OrderConfigToState(
 		&orderConfig,
 		txHash,
 		uint32(txOutputIdx),
 		slot,
 	)
-
-	// Store order UTXO
-	if !fromMempool {
-		if err := storage.GetStorage().AddUtxo(
-			matchedAddress,
-			txHash,
-			uint32(txOutputIdx),
-			txOutput.Cbor(),
-		); err != nil {
-			logger.Warn(
-				"failed to store order UTXO",
-				"txHash", txHash,
-				"error", err,
-			)
-		}
-	}
-
-	logger.Debug(
+	logging.GetLogger().Debug(
 		"processed order",
 		"orderId", orderState.OrderId,
 		"offered", orderState.OfferedAsset.Fingerprint(),
 		"amount", orderState.OfferedAmount,
 		"asked", orderState.AskedAsset.Fingerprint(),
 		"price", orderState.Price,
-		"fromMempool", fromMempool,
 	)
-
-	// If from mempool and SOR is enabled, try to match orders
-	matched := false
-	if fromMempool && gy.enabled {
-		gy.sor.RemoveOrder(orderState.OrderId)
-		if err := gy.tryMatchOrder(orderState, txOutput); err != nil {
-			logger.Debug(
-				"failed to match order",
-				"orderId", orderState.OrderId,
-				"error", err,
-			)
-		} else {
-			matched = true
-		}
-	}
-
-	if !matched {
-		gy.sor.UpdateOrder(orderState)
-	}
-
-	return nil
-}
-
-// handleConsumedOrder removes a consumed order from SOR
-func (gy *GeniusYield) handleConsumedOrder(txHash string, txIndex uint32) {
-	// We need to look up the order ID from the UTXO
-	// For now, we iterate through order books (could be optimized with index)
-	for _, pair := range gy.sor.GetAllPairs() {
-		ob := gy.sor.GetOrderBook(pair)
-		if ob == nil {
-			continue
-		}
-
-		for _, entry := range ob.snapshotBids() {
-			if entry.TxHash == txHash && entry.TxIndex == txIndex {
-				gy.sor.RemoveOrder(entry.Order.OrderId)
-				return
-			}
-		}
-
-		for _, entry := range ob.snapshotAsks() {
-			if entry.TxHash == txHash && entry.TxIndex == txIndex {
-				gy.sor.RemoveOrder(entry.Order.OrderId)
-				return
-			}
-		}
-	}
+	return &trackedOrder{
+		state:      orderState,
+		address:    matchedAddress,
+		outputCbor: append([]byte(nil), txOutput.Cbor()...),
+	}, nil
 }
 
 // tryMatchOrder attempts to match a new order against existing orders
@@ -461,6 +434,9 @@ func (gy *GeniusYield) executeRoute(
 	newOrderOutput ledger.TransactionOutput,
 ) error {
 	logger := logging.GetLogger()
+	if !routeEligible(route, time.Now()) {
+		return fmt.Errorf("route contains an ineligible order")
+	}
 
 	// Build matching transaction
 	txBytes, err := gy.buildMatchTx(route, newOrder, newOrderOutput)
@@ -479,9 +455,7 @@ func (gy *GeniusYield) executeRoute(
 	if !txsubmit.IsStarted() {
 		return fmt.Errorf("txsubmit is not started")
 	}
-	txsubmit.SubmitTx(txBytes)
-
-	return nil
+	return txsubmit.SubmitTx(txBytes)
 }
 
 // cleanupLoop periodically removes expired orders
@@ -490,7 +464,15 @@ func (gy *GeniusYield) cleanupLoop() {
 	defer ticker.Stop()
 
 	for range ticker.C {
-		removed := gy.sor.ClearExpired(time.Now())
+		now := time.Now()
+		removed := gy.sor.ClearExpired(now)
+		gy.mu.Lock()
+		orderIDs := make(map[string]struct{})
+		for _, order := range gy.chainOrders {
+			orderIDs[order.state.OrderId] = struct{}{}
+		}
+		gy.syncAffectedOrdersLocked(orderIDs)
+		gy.mu.Unlock()
 		if removed > 0 {
 			logger := logging.GetLogger()
 			logger.Debug(

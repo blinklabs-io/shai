@@ -456,8 +456,10 @@ func (sor *SmartOrderRouter) findDirectRoute(
 	}
 
 	positiveEntries := entries[:0]
+	now := time.Now()
 	for _, entry := range entries {
-		if entry == nil || entry.EffPrice <= 0 || entry.AvailQty == 0 {
+		if entry == nil || entry.EffPrice <= 0 || entry.AvailQty == 0 ||
+			!orderEligible(entry.Order, now) {
 			continue
 		}
 		positiveEntries = append(positiveEntries, entry)

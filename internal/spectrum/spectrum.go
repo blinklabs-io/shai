@@ -192,7 +192,9 @@ func (s *Spectrum) handleTransactionOutput(
 			} else {
 				// fmt.Printf("txBytes(%d) = %x\n", len(txBytes), txBytes)
 				// Submit the TX
-				txsubmit.SubmitTx(txBytes)
+				if err := txsubmit.SubmitTx(txBytes); err != nil {
+					logger.Error("failed to submit transaction:", "error:", err)
+				}
 			}
 		} else if isDeposit && fromMempool {
 			var depositConfig DepositConfig

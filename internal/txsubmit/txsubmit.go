@@ -14,7 +14,12 @@ const (
 
 type TxSubmit struct {
 	node            *node.Node
-	transactionChan chan []byte
+	transactionChan chan queuedTransaction
+}
+
+type queuedTransaction struct {
+	bytes []byte
+	owned *node.OwnedTransactionHandle
 }
 
 var globalTxSubmit *TxSubmit
@@ -22,7 +27,7 @@ var globalTxSubmit *TxSubmit
 func Start(n *node.Node) error {
 	cfg := config.GetConfig()
 	txSubmit := &TxSubmit{
-		transactionChan: make(chan []byte, maxOutboundTransactions),
+		transactionChan: make(chan queuedTransaction, maxOutboundTransactions),
 		node:            n,
 	}
 	var err error
@@ -60,9 +65,20 @@ func IsStarted() bool {
 	return globalTxSubmit != nil && globalTxSubmit.transactionChan != nil
 }
 
-func SubmitTx(txRawBytes []byte) {
+func SubmitTx(txRawBytes []byte) error {
 	if globalTxSubmit == nil {
-		panic("txsubmit: SubmitTx called before Start")
+		return fmt.Errorf("txsubmit is not started")
 	}
-	globalTxSubmit.transactionChan <- txRawBytes
+	owned, added, err := globalTxSubmit.node.AddOwnedTransaction(txRawBytes)
+	if err != nil {
+		return fmt.Errorf("failed to track submitted transaction: %w", err)
+	}
+	if !added {
+		return nil
+	}
+	globalTxSubmit.transactionChan <- queuedTransaction{
+		bytes: append([]byte(nil), txRawBytes...),
+		owned: owned,
+	}
+	return nil
 }
