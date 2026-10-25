@@ -90,6 +90,62 @@ func TestOracleStorageRollbackDeletesInvalidStatesInBatches(t *testing.T) {
 	}
 }
 
+func TestCDPUndoHistoryPrunesFinalizedTransactions(t *testing.T) {
+	storage := newTestOracleStorage(t)
+	oldRecord := cdpUndoRecord{
+		Network:         "mainnet",
+		Protocol:        "butane",
+		TransactionHash: "old",
+		Slot:            1,
+	}
+	oldState := &CDPState{
+		Network:  oldRecord.Network,
+		Protocol: oldRecord.Protocol,
+		CDPId:    "old-cdp",
+		Slot:     oldRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		oldRecord,
+		[]*CDPState{oldState},
+	); err != nil {
+		t.Fatalf("failed to apply old CDP transaction: %v", err)
+	}
+
+	newRecord := cdpUndoRecord{
+		Network:         oldRecord.Network,
+		Protocol:        oldRecord.Protocol,
+		TransactionHash: "new",
+		Slot:            cdpRollbackRetentionSlots + 2,
+	}
+	newState := &CDPState{
+		Network:  newRecord.Network,
+		Protocol: newRecord.Protocol,
+		CDPId:    "new-cdp",
+		Slot:     newRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		newRecord,
+		[]*CDPState{newState},
+	); err != nil {
+		t.Fatalf("failed to apply new CDP transaction: %v", err)
+	}
+
+	err := storage.db.View(func(txn *badger.Txn) error {
+		if _, err := txn.Get(
+			[]byte(cdpUndoStateKey(oldRecord)),
+		); err != badger.ErrKeyNotFound {
+			return fmt.Errorf("old undo record lookup returned %v", err)
+		}
+		if _, err := txn.Get([]byte(cdpUndoStateKey(newRecord))); err != nil {
+			return fmt.Errorf("new undo record lookup returned %v", err)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestOracleStorageLoadPoolState(t *testing.T) {
 	storage := newTestOracleStorage(t)
 
