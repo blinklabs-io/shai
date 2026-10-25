@@ -118,9 +118,47 @@ func submitTxApi(txRawBytes []byte, url string) error {
 	if resp.StatusCode == 202 {
 		return nil
 	}
+	if !isDefinitiveSubmissionRejection(resp.StatusCode) {
+		return fmt.Errorf(
+			"ambiguous response: %s: %d: %s",
+			url,
+			resp.StatusCode,
+			respBody,
+		)
+	}
 	return &submissionRejectedError{
 		url:        url,
 		statusCode: resp.StatusCode,
 		body:       respBody,
+	}
+}
+
+func isDefinitiveSubmissionRejection(statusCode int) bool {
+	switch statusCode {
+	case http.StatusBadRequest,
+		http.StatusUnauthorized,
+		http.StatusPaymentRequired,
+		http.StatusForbidden,
+		http.StatusNotFound,
+		http.StatusMethodNotAllowed,
+		http.StatusNotAcceptable,
+		http.StatusProxyAuthRequired,
+		http.StatusGone,
+		http.StatusLengthRequired,
+		http.StatusPreconditionFailed,
+		http.StatusRequestEntityTooLarge,
+		http.StatusRequestURITooLong,
+		http.StatusUnsupportedMediaType,
+		http.StatusRequestedRangeNotSatisfiable,
+		http.StatusExpectationFailed,
+		http.StatusMisdirectedRequest,
+		http.StatusUnprocessableEntity,
+		http.StatusUpgradeRequired,
+		http.StatusPreconditionRequired,
+		http.StatusRequestHeaderFieldsTooLarge,
+		http.StatusUnavailableForLegalReasons:
+		return true
+	default:
+		return false
 	}
 }
