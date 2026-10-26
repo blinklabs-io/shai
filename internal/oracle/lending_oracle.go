@@ -296,7 +296,11 @@ func (o *LendingOracle) handleTransaction(
 	cfg := config.GetConfig()
 
 	// Check for lending UTxOs at monitored addresses
-	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
+	produced, err := producedUTXOs(txEvt, ctx.TransactionHash)
+	if err != nil {
+		return err
+	}
+	for _, utxo := range produced {
 		addr := utxo.Output.Address().String()
 		if !o.isLendingAddress(addr) {
 			continue

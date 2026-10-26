@@ -118,7 +118,7 @@ func TestDjedOracleTracksSpendRollbackAndRestart(t *testing.T) {
 		},
 		Payload: event.TransactionEvent{
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(txHash, 0),
+				mustTestInput(t, txHash, 0),
 			},
 		},
 	}))
@@ -267,7 +267,7 @@ func TestDjedOraclePrunesSpentHistoryBeyondStabilityWindow(t *testing.T) {
 		},
 		Payload: event.TransactionEvent{
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(firstHash, 0),
+				mustTestInput(t, firstHash, 0),
 			},
 		},
 	}))
@@ -545,4 +545,15 @@ func testDjedOutputWithAssets(
 		require.NotNil(t, output.Datum())
 	}
 	return output
+}
+
+func mustTestInput(
+	t *testing.T,
+	hash string,
+	idx int,
+) ledger.TransactionInput {
+	t.Helper()
+	input, err := shelley.NewShelleyTransactionInput(hash, idx)
+	require.NoError(t, err)
+	return input
 }
