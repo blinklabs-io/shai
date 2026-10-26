@@ -26,7 +26,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/dex/butane"
 	"github.com/blinklabs-io/shai/internal/config"
 )
@@ -85,7 +84,7 @@ func TestMainnetButaneProfileTracksPersistsAndSpendsCDP(t *testing.T) {
 			SlotNumber:      profile.InterceptSlot + 1,
 		}},
 		event.TransactionEvent{Inputs: []ledger.TransactionInput{
-			shelley.NewShelleyTransactionInput(oldHash, 0),
+			mustTestInput(t, oldHash, 0),
 		}},
 	)
 	if err != nil {
@@ -171,7 +170,7 @@ func TestButaneRollbackRestoresSpentCDPAcrossRestart(t *testing.T) {
 	spendTransaction := event.TransactionEvent{
 		BlockHash: strings.Repeat("f", 64),
 		Inputs: []ledger.TransactionInput{
-			shelley.NewShelleyTransactionInput(oldHash, 0),
+			mustTestInput(t, oldHash, 0),
 		},
 		Outputs: []ledger.TransactionOutput{
 			newTestButaneCDPOutput(t, liveMainnetButaneCDPAddress),
@@ -276,7 +275,7 @@ func TestButaneRollbackReversesSameSlotTransitionsInBlockOrder(t *testing.T) {
 		tx := event.TransactionEvent{
 			BlockHash: strings.Repeat("b", 64),
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(transition.spentHash, 0),
+				mustTestInput(t, transition.spentHash, 0),
 			},
 			Outputs: []ledger.TransactionOutput{
 				newTestButaneCDPOutput(t, liveMainnetButaneCDPAddress),

@@ -433,7 +433,11 @@ func (o *Oracle) handleCDPTransaction(
 ) error {
 	now := time.Now()
 	produced := make([]*CDPState, 0)
-	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
+	producedOutputs, err := producedUTXOs(txEvt, ctx.TransactionHash)
+	if err != nil {
+		return err
+	}
+	for _, utxo := range producedOutputs {
 		if !o.isPoolAddress(utxo.Output.Address().String()) {
 			continue
 		}
