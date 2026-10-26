@@ -591,7 +591,11 @@ func (o *Oracle) handleOrderTransaction(
 	now := time.Now()
 	var datums map[string][]byte
 	produced := make([]*OrderState, 0)
-	for _, utxo := range producedUTXOs(txEvt, ctx.TransactionHash) {
+	producedOutputs, err := producedUTXOs(txEvt, ctx.TransactionHash)
+	if err != nil {
+		return err
+	}
+	for _, utxo := range producedOutputs {
 		if !o.isOrderAddress(utxo.Output.Address().String()) {
 			continue
 		}

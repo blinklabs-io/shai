@@ -29,7 +29,6 @@ import (
 	"github.com/blinklabs-io/gouroboros/cbor"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
-	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/internal/config"
@@ -235,7 +234,7 @@ func TestGeniusYieldOrderSpendRemovesTrackedOrder(t *testing.T) {
 		Payload: event.TransactionEvent{
 			BlockHash: strings.Repeat("c", 64),
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(mainnetOrderTxHash, 0),
+				mustTestInput(t, mainnetOrderTxHash, 0),
 			},
 		},
 	})
@@ -302,7 +301,7 @@ func TestGeniusYieldOrderSurvivesRestartAndRollsBack(t *testing.T) {
 		},
 		Payload: event.TransactionEvent{
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(mainnetOrderTxHash, 0),
+				mustTestInput(t, mainnetOrderTxHash, 0),
 			},
 		},
 	}); err != nil {
@@ -328,7 +327,7 @@ func TestGeniusYieldRollbackRestoresSpentOrder(t *testing.T) {
 	replacement := event.NewTransactionEventFromTx(tx, false)
 	replacement.BlockHash = strings.Repeat("f", 64)
 	replacement.Inputs = []ledger.TransactionInput{
-		shelley.NewShelleyTransactionInput(mainnetOrderTxHash, 0),
+		mustTestInput(t, mainnetOrderTxHash, 0),
 	}
 	if err := o.HandleChainsyncEvent(event.Event{
 		Context: event.TransactionContext{
@@ -404,7 +403,7 @@ func TestGeniusYieldTransitionKeepsMemoryWhenPersistenceFails(t *testing.T) {
 		},
 		Payload: event.TransactionEvent{
 			Inputs: []ledger.TransactionInput{
-				shelley.NewShelleyTransactionInput(state.TxHash, 0),
+				mustTestInput(t, state.TxHash, 0),
 			},
 		},
 	})
