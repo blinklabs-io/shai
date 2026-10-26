@@ -183,8 +183,8 @@ func (n *Node) acceptConnections() {
 			ouroboros.WithPeerSharing(true),
 			ouroboros.WithTxSubmissionConfig(
 				txsubmission.NewConfig(
-					txsubmission.WithInitFunc(
-						n.txsubmissionServerInit,
+					txsubmission.WithOnInit(
+						n.txsubmissionServerOnInit,
 					),
 				),
 			),
@@ -319,8 +319,8 @@ func (n *Node) createOutboundConnection(peer outboundPeer) error {
 		ouroboros.WithKeepAlive(true),
 		ouroboros.WithTxSubmissionConfig(
 			txsubmission.NewConfig(
-				txsubmission.WithInitFunc(
-					n.txsubmissionServerInit,
+				txsubmission.WithOnInit(
+					n.txsubmissionServerOnInit,
 				),
 				txsubmission.WithRequestTxIdsFunc(
 					n.txsubmissionClientRequestTxIds,
@@ -414,6 +414,7 @@ func (n *Node) reconnectOutboundConnection(peer outboundPeer) {
 
 func (n *Node) connectionManagerConnClosed(
 	connId ouroboros.ConnectionId,
+	_ bool,
 	err error,
 ) {
 	logger := logging.GetLogger()
