@@ -164,6 +164,13 @@ func (gy *GeniusYield) buildMatchTx(
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate fill outputs: %w", err)
 	}
+	for _, fillOutput := range fillOutputs {
+		if !fillOutput.isComplete {
+			return nil, fmt.Errorf(
+				"partial fills are disabled until continuing outputs match the deployed contract",
+			)
+		}
+	}
 
 	// Calculate current slot for TTL
 	currentSlot := unixTimeToSlot(time.Now().Unix())
