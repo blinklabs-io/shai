@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	ouroboros "github.com/blinklabs-io/gouroboros"
 	"github.com/blinklabs-io/gouroboros/ledger"
 	"github.com/blinklabs-io/gouroboros/protocol/txsubmission"
 	"github.com/blinklabs-io/shai/internal/logging"
@@ -14,6 +15,9 @@ import (
 const (
 	txsubmissionMempoolExpiration       = 1 * time.Hour
 	txSubmissionMempoolExpirationPeriod = 1 * time.Minute
+
+	txsubmissionServerLookupAttempts = 100
+	txsubmissionServerLookupInterval = 50 * time.Millisecond
 )
 
 type ntnTransaction struct {
@@ -122,12 +126,32 @@ func (n *Node) AddOutboundTransaction(txBytes []byte) error {
 	return nil
 }
 
-func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
+// txsubmissionServerOnInit starts the TX pull loop for a connection whose
+// peer has sent Init. OnInit only carries the connection ID, and an inbound
+// connection can send Init before it has been registered with the connection
+// manager, so the lookup is retried briefly.
+func (n *Node) txsubmissionServerOnInit(connId ouroboros.ConnectionId) {
 	logger := logging.GetLogger()
 	go func() {
+		var server *txsubmission.Server
+		for range txsubmissionServerLookupAttempts {
+			if oConn := n.connManager.GetConnectionById(connId); oConn != nil {
+				server = oConn.TxSubmission().Server
+				break
+			}
+			time.Sleep(txsubmissionServerLookupInterval)
+		}
+		if server == nil {
+			logger.Error(
+				"txsubmission connection not found",
+				"connId",
+				connId.String(),
+			)
+			return
+		}
 		for {
 			// Request available TX IDs (era and TX hash) and sizes
-			txIds, err := ctx.Server.RequestTxIds(true, 10)
+			txIds, err := server.RequestTxIds(true, 10)
 			if err != nil {
 				logger.Error("failed to request TxIds:", "error:", err)
 				return
@@ -139,7 +163,7 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 					requestTxIds = append(requestTxIds, txId.TxId)
 				}
 				// Request TX content for TxIds from above
-				txs, err := ctx.Server.RequestTxs(requestTxIds)
+				txs, err := server.RequestTxs(requestTxIds)
 				if err != nil {
 					logger.Error("failed to request Txs:", "error:", err)
 					return
@@ -180,7 +204,6 @@ func (n *Node) txsubmissionServerInit(ctx txsubmission.CallbackContext) error {
 			}
 		}
 	}()
-	return nil
 }
 
 func (n *Node) txsubmissionClientRequestTxIds(
