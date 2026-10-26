@@ -16,6 +16,7 @@ package geniusyield
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -61,6 +62,10 @@ const (
 	defaultTakerFee = 500_000
 )
 
+var errPartialFillsUnsupported = errors.New(
+	"partial fills are disabled until continuing outputs match the deployed contract",
+)
+
 // buildMatchTxOpts contains options for building a match transaction
 type buildMatchTxOpts struct {
 	route          *Route
@@ -74,6 +79,21 @@ func (gy *GeniusYield) buildMatchTx(
 	newOrder *dexgy.OrderState,
 	newOrderOutput ledger.TransactionOutput,
 ) ([]byte, error) {
+	if route == nil || newOrder == nil {
+		return nil, fmt.Errorf("missing route or order")
+	}
+	if route.TotalInput < newOrder.OfferedAmount {
+		return nil, errPartialFillsUnsupported
+	}
+	for _, leg := range route.Legs {
+		if leg.Order == nil {
+			return nil, fmt.Errorf("missing order in route")
+		}
+		if leg.OutputAmount < leg.Order.OfferedAmount {
+			return nil, errPartialFillsUnsupported
+		}
+	}
+
 	logger := logging.GetLogger()
 	bursa := wallet.GetWallet()
 
@@ -163,13 +183,6 @@ func (gy *GeniusYield) buildMatchTx(
 	fillOutputs, err := gy.calculateFillOutputs(route, newOrder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to calculate fill outputs: %w", err)
-	}
-	for _, fillOutput := range fillOutputs {
-		if !fillOutput.isComplete {
-			return nil, fmt.Errorf(
-				"partial fills are disabled until continuing outputs match the deployed contract",
-			)
-		}
 	}
 
 	// Calculate current slot for TTL
