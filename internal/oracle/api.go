@@ -15,10 +15,16 @@
 package oracle
 
 import (
+	"container/heap"
+	"context"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +39,13 @@ const (
 	wsPongWait     = 60 * time.Second
 	wsPingPeriod   = (wsPongWait * 9) / 10
 	wsWriteTimeout = 10 * time.Second
+
+	defaultOrderPageSize      = 50
+	maxOrderPageSize          = 200
+	maxOrderCursorLength      = 512
+	maxOrderProtocolLength    = 128
+	maxConcurrentOrderListOps = 4
+	orderListWriteTimeout     = 10 * time.Second
 )
 
 // wsConn wraps a websocket.Conn with a write mutex to serialize writes
@@ -78,6 +91,7 @@ type OracleAPI struct {
 	wsMu          sync.RWMutex
 	stopChan      chan struct{}
 	broadcastOnce sync.Once
+	orderListOps  chan struct{}
 }
 
 // APIHandlerRegistrar registers API handlers on an HTTP mux.
@@ -95,13 +109,15 @@ func NewMultiOracleAPI(oracles []*Oracle) *OracleAPI {
 	filteredOracles := make([]*Oracle, 0, len(oracles))
 	for _, o := range oracles {
 		if o != nil {
+			o.rebuildOrderIndex()
 			filteredOracles = append(filteredOracles, o)
 		}
 	}
 	return &OracleAPI{
-		oracles:  filteredOracles,
-		wsConns:  make(map[*wsConn]bool),
-		stopChan: make(chan struct{}),
+		oracles:      filteredOracles,
+		wsConns:      make(map[*wsConn]bool),
+		stopChan:     make(chan struct{}),
+		orderListOps: make(chan struct{}, maxConcurrentOrderListOps),
 		upgrader: websocket.Upgrader{
 			CheckOrigin: checkWebSocketOrigin,
 		},
@@ -122,7 +138,8 @@ func checkWebSocketOrigin(r *http.Request) bool {
 	}
 
 	originHost := originURL.Hostname()
-	if originHost == "localhost" || originHost == "127.0.0.1" || originHost == "::1" {
+	if originHost == "localhost" || originHost == "127.0.0.1" ||
+		originHost == "::1" {
 		// Allow localhost connections for development.
 		return true
 	}
@@ -357,26 +374,89 @@ func (a *OracleAPI) HandleGetCDP(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(cdp)
 }
 
-// HandleListOrders returns all tracked order-book orders.
-func (a *OracleAPI) HandleListOrders(w http.ResponseWriter, r *http.Request) {
-	orders := a.getAllOrders()
+type orderListResponse struct {
+	Orders     []*OrderState `json:"orders"`
+	Count      int           `json:"count"`
+	NextCursor string        `json:"nextCursor,omitempty"`
+}
 
-	protocol := r.URL.Query().Get("protocol")
-	if protocol != "" {
-		filtered := make([]*OrderState, 0)
-		for _, order := range orders {
-			if order.Protocol == protocol {
-				filtered = append(filtered, order)
-			}
-		}
-		orders = filtered
+type orderListCursor struct {
+	filter string
+	key    orderPageKey
+}
+
+type orderListHeap []orderListEntry
+
+func (h orderListHeap) Len() int { return len(h) }
+func (h orderListHeap) Less(i, j int) bool {
+	return compareOrderPageKeys(h[i].key, h[j].key) > 0
+}
+func (h orderListHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *orderListHeap) Push(value any) {
+	*h = append(*h, value.(orderListEntry))
+}
+func (h *orderListHeap) Pop() any {
+	old := *h
+	last := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return last
+}
+
+// HandleListOrders returns one stable page of tracked order-book orders.
+func (a *OracleAPI) HandleListOrders(w http.ResponseWriter, r *http.Request) {
+	controller := http.NewResponseController(w)
+	if controller.SetWriteDeadline(
+		time.Now().Add(orderListWriteTimeout),
+	) == nil {
+		defer func() { _ = controller.SetWriteDeadline(time.Time{}) }()
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]interface{}{
-		"orders": orders,
-		"count":  len(orders),
-	})
+	protocol := r.URL.Query().Get("protocol")
+	if len(protocol) > maxOrderProtocolLength ||
+		strings.ContainsRune(protocol, '\x00') {
+		a.writeJSON(w, http.StatusBadRequest, apiErrorResponse{
+			Code:  "invalid_protocol",
+			Error: "protocol filter is invalid",
+		})
+		return
+	}
+	limit, err := orderPageLimit(r.URL.Query().Get("limit"))
+	if err != nil {
+		a.writeJSON(w, http.StatusBadRequest, apiErrorResponse{
+			Code:  "invalid_limit",
+			Error: err.Error(),
+		})
+		return
+	}
+	cursorValue := r.URL.Query().Get("cursor")
+	cursor, err := decodeOrderListCursor(cursorValue)
+	if err != nil ||
+		(cursor != nil && (cursor.filter != protocol ||
+			(protocol != "" && cursor.key.protocol != protocol))) {
+		a.writeJSON(w, http.StatusBadRequest, apiErrorResponse{
+			Code:  "invalid_cursor",
+			Error: "cursor is invalid for this order list",
+		})
+		return
+	}
+
+	select {
+	case a.orderListOps <- struct{}{}:
+		defer func() { <-a.orderListOps }()
+	default:
+		w.Header().Set("Retry-After", "1")
+		a.writeJSON(w, http.StatusServiceUnavailable, apiErrorResponse{
+			Code:  "order_list_busy",
+			Error: "order list is busy",
+		})
+		return
+	}
+
+	response, err := a.getOrderPage(r.Context(), protocol, cursor, limit)
+	if err != nil {
+		return
+	}
+	a.writeJSON(w, http.StatusOK, response)
 }
 
 // HandleGetOrder returns a specific order by ID.
@@ -620,15 +700,122 @@ func (a *OracleAPI) getAllCDPs() []*CDPState {
 	return merged
 }
 
-func (a *OracleAPI) getAllOrders() []*OrderState {
+func (a *OracleAPI) getOrderPage(
+	ctx context.Context,
+	protocol string,
+	cursor *orderListCursor,
+	limit int,
+) (orderListResponse, error) {
 	now := time.Now()
-	var merged []*OrderState
-	for _, o := range a.oracles {
-		for _, order := range o.GetAllOrders() {
-			merged = append(merged, orderAt(order, now))
+	candidates := make(orderListHeap, 0, limit+1)
+	for oracleIndex, o := range a.oracles {
+		var after *orderPageKey
+		if cursor != nil {
+			after = &cursor.key
+		}
+		entries, err := o.orderPage(
+			ctx, protocol, after, oracleIndex, limit+1,
+		)
+		if err != nil {
+			return orderListResponse{}, err
+		}
+		for _, entry := range entries {
+			if candidates.Len() < limit+1 {
+				heap.Push(&candidates, entry)
+				continue
+			}
+			if compareOrderPageKeys(entry.key, candidates[0].key) < 0 {
+				heap.Pop(&candidates)
+				heap.Push(&candidates, entry)
+			}
 		}
 	}
-	return merged
+	if err := ctx.Err(); err != nil {
+		return orderListResponse{}, err
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return compareOrderPageKeys(candidates[i].key, candidates[j].key) < 0
+	})
+
+	hasMore := len(candidates) > limit
+	if hasMore {
+		candidates = candidates[:limit]
+	}
+	response := orderListResponse{
+		Orders: make([]*OrderState, 0, len(candidates)),
+		Count:  len(candidates),
+	}
+	for _, entry := range candidates {
+		if err := ctx.Err(); err != nil {
+			return orderListResponse{}, err
+		}
+		response.Orders = append(response.Orders, orderAt(entry.order, now))
+	}
+	if hasMore {
+		response.NextCursor = encodeOrderListCursor(
+			candidates[len(candidates)-1],
+			protocol,
+		)
+	}
+	return response, nil
+}
+
+func orderPageLimit(value string) (int, error) {
+	if value == "" {
+		return defaultOrderPageSize, nil
+	}
+	limit, err := strconv.Atoi(value)
+	if err != nil || limit < 1 || limit > maxOrderPageSize {
+		return 0, fmt.Errorf(
+			"limit must be between 1 and %d",
+			maxOrderPageSize,
+		)
+	}
+	return limit, nil
+}
+
+func encodeOrderListCursor(entry orderListEntry, filter string) string {
+	value := strings.Join([]string{
+		filter,
+		entry.key.protocol,
+		entry.key.network,
+		entry.key.orderID,
+		strconv.Itoa(entry.key.oracleIndex),
+	}, "\x00")
+	return base64.RawURLEncoding.EncodeToString([]byte(value))
+}
+
+func decodeOrderListCursor(value string) (*orderListCursor, error) {
+	if value == "" {
+		return nil, nil
+	}
+	if len(value) > maxOrderCursorLength {
+		return nil, fmt.Errorf("cursor is too long")
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	if err != nil {
+		return nil, err
+	}
+	parts := strings.Split(string(decoded), "\x00")
+	if len(parts) != 5 || parts[1] == "" || parts[3] == "" {
+		return nil, fmt.Errorf("cursor has an invalid shape")
+	}
+	oracleIndex, err := strconv.Atoi(parts[4])
+	if err != nil || oracleIndex < 0 {
+		return nil, fmt.Errorf("cursor has an invalid oracle index")
+	}
+	return &orderListCursor{
+		filter: parts[0],
+		key: orderPageKey{
+			orderIndexKey: orderIndexKey{
+				protocol: parts[1],
+				network:  parts[2],
+				orderID:  parts[3],
+			},
+			oracleIndex: oracleIndex,
+		},
+	}, nil
 }
 
 func (a *OracleAPI) getOrderState(orderId string) (*OrderState, bool) {

@@ -106,6 +106,13 @@ Order-book profiles (order state tracking):
   published as pool state, since a resting order locks only the offered asset
   and has no second reserve.
 
+`GET /api/v1/orders` returns orders in a stable order, with 50 entries by
+default. The `limit` query parameter accepts values from 1 through 200. When a
+response includes `nextCursor`, pass it unchanged as the `cursor` query
+parameter to read the next page. The optional `protocol` filter must remain the
+same across a cursor sequence. `count` is the number of orders in the current
+page.
+
 Spectrum batching profiles (matcher bot):
 - `spectrum` - Spectrum DEX on mainnet
 - `teddyswap` - TeddySwap on preview/mainnet

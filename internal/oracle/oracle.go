@@ -79,6 +79,9 @@ type Oracle struct {
 	cdps    map[string]*CDPState
 	cdpsMu  sync.RWMutex
 	orders  map[string]*OrderState
+	// orderIndex is kept in protocol, network, and order ID order under
+	// ordersMu so API pages never need to scan or sort the complete order set.
+	orderIndex orderIndexTree
 	// orderUtxos maps a tracked order UTxO reference to its order key, so a
 	// spent input can be resolved without rescanning the order set.
 	orderUtxos              map[string]string
@@ -706,7 +709,7 @@ func (o *Oracle) handleOrderTransaction(
 	}
 	for i, state := range spent {
 		delete(o.orderUtxos, spentRefs[i])
-		delete(o.orders, state.OrderId)
+		o.deleteOrderLocked(state.OrderId)
 	}
 	for _, state := range produced {
 		if previous, ok := o.orders[state.OrderId]; ok {
@@ -715,7 +718,7 @@ func (o *Oracle) handleOrderTransaction(
 				orderUtxoRef(previous.TxHash, previous.TxIndex),
 			)
 		}
-		o.orders[state.OrderId] = state
+		o.putOrderLocked(state)
 		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
 		logger.Debug(
 			"order state updated",
@@ -1009,6 +1012,7 @@ func (o *Oracle) replaceOrderStates(
 		o.orders[state.OrderId] = state
 		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
 	}
+	o.rebuildOrderIndexLocked()
 }
 
 // firstRolledBackSlot returns the first slot invalidated by a chain-sync
@@ -1089,6 +1093,7 @@ func (o *Oracle) loadPersistedStates() error {
 		o.orders[state.OrderId] = state
 		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
 	}
+	o.rebuildOrderIndexLocked()
 	o.ordersMu.Unlock()
 
 	if o.mempoolMgr == nil {
