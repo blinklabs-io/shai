@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -28,30 +29,126 @@ type ntnTransaction struct {
 
 type txsubmissionMempool struct {
 	sync.Mutex
-	Transactions        map[string]*TxsubmissionMempoolTransaction
-	newTransactionFuncs []MempoolNewTransactionFunc
+	Transactions            map[string]*TxsubmissionMempoolTransaction
+	newTransactionFuncs     []MempoolNewTransactionFunc
+	removedTransactionFuncs []MempoolRemovedTransactionFunc
+	eventQueues             map[string]*mempoolEventQueue
+	addResults              map[string]*mempoolAddResult
+}
+
+type mempoolEventQueue struct {
+	events   []mempoolLifecycleEvent
+	draining bool
+}
+
+type mempoolLifecycleEvent struct {
+	tx               TxsubmissionMempoolTransaction
+	removalReason    MempoolRemovalReason
+	addedCallbacks   []MempoolNewTransactionFunc
+	removedCallbacks []MempoolRemovedTransactionFunc
+	addResult        *mempoolAddResult
+	done             chan struct{}
+}
+
+type mempoolAddResult struct {
+	done       chan struct{}
+	err        error
+	submitting bool
+}
+
+// OwnedTransactionHandle identifies one locally admitted transaction generation.
+type OwnedTransactionHandle struct {
+	hash       string
+	generation *mempoolAddResult
 }
 
 type MempoolNewTransactionFunc func(TxsubmissionMempoolTransaction) error
 
+// MempoolTransactionSource identifies where a transaction entered the node.
+type MempoolTransactionSource uint8
+
+const (
+	// MempoolTransactionSourceObserved is an unvalidated inbound transaction.
+	MempoolTransactionSourceObserved MempoolTransactionSource = iota
+	// MempoolTransactionSourceOwned is originated or accepted by this process.
+	MempoolTransactionSourceOwned
+)
+
+func (s MempoolTransactionSource) callbackEligible() bool {
+	return s == MempoolTransactionSourceOwned
+}
+
+// MempoolRemovalReason identifies why a transaction left the local mempool.
+type MempoolRemovalReason string
+
+const (
+	// MempoolRemovalReasonConfirmed means the transaction appeared on-chain.
+	MempoolRemovalReasonConfirmed MempoolRemovalReason = "confirmed"
+	// MempoolRemovalReasonExpired means the transaction was not recently seen.
+	MempoolRemovalReasonExpired MempoolRemovalReason = "expired"
+	// MempoolRemovalReasonRejected means local submission failed.
+	MempoolRemovalReasonRejected MempoolRemovalReason = "rejected"
+)
+
+// MempoolRemovedTransactionFunc receives a removed transaction and its reason.
+type MempoolRemovedTransactionFunc func(
+	TxsubmissionMempoolTransaction,
+	MempoolRemovalReason,
+)
+
 func (t *txsubmissionMempool) AddNewTransactionFunc(
 	newTransactionFunc MempoolNewTransactionFunc,
 ) {
+	t.Lock()
+	defer t.Unlock()
 	t.newTransactionFuncs = append(t.newTransactionFuncs, newTransactionFunc)
 }
 
-func (t *txsubmissionMempool) removeExpired() {
-	logger := logging.GetLogger()
+func (t *txsubmissionMempool) AddRemovedTransactionFunc(
+	removedTransactionFunc MempoolRemovedTransactionFunc,
+) {
 	t.Lock()
 	defer t.Unlock()
-	expiredBefore := time.Now().Add(-txsubmissionMempoolExpiration)
+	t.removedTransactionFuncs = append(
+		t.removedTransactionFuncs,
+		removedTransactionFunc,
+	)
+}
+
+func (t *txsubmissionMempool) removeExpired() {
+	t.removeExpiredAt(time.Now())
+	t.scheduleRemoveExpired()
+}
+
+func (t *txsubmissionMempool) removeExpiredAt(now time.Time) {
+	t.Lock()
+	expiredBefore := now.Add(-txsubmissionMempoolExpiration)
+	startDrains := make([]string, 0)
 	for txHash, tx := range t.Transactions {
 		if tx.LastSeen.Before(expiredBefore) {
+			if result := t.addResults[txHash]; result != nil && result.submitting {
+				continue
+			}
 			delete(t.Transactions, txHash)
-			logger.Debug("removed expired transaction:", "txHash", txHash)
+			delete(t.addResults, txHash)
+			if tx.Source.callbackEligible() {
+				if t.enqueueEventLocked(mempoolLifecycleEvent{
+					tx:            cloneMempoolTransaction(*tx),
+					removalReason: MempoolRemovalReasonExpired,
+					removedCallbacks: append(
+						[]MempoolRemovedTransactionFunc(nil),
+						t.removedTransactionFuncs...,
+					),
+				}) {
+					startDrains = append(startDrains, tx.Hash)
+				}
+			}
 		}
 	}
-	t.scheduleRemoveExpired()
+	t.Unlock()
+	for _, txHash := range startDrains {
+		go t.drainEvents(txHash)
+	}
 }
 
 func (t *txsubmissionMempool) scheduleRemoveExpired() {
@@ -61,34 +158,176 @@ func (t *txsubmissionMempool) scheduleRemoveExpired() {
 func (t *txsubmissionMempool) addTransaction(
 	tx *TxsubmissionMempoolTransaction,
 ) error {
+	_, _, err := t.addTransactionWithWait(tx, false)
+	return err
+}
+
+func (t *txsubmissionMempool) addTransactionWithWait(
+	tx *TxsubmissionMempoolTransaction,
+	wait bool,
+) (bool, *mempoolAddResult, error) {
+	if !tx.Source.callbackEligible() {
+		return false, nil, nil
+	}
 	logger := logging.GetLogger()
 	t.Lock()
-	defer t.Unlock()
 	// Update last seen for existing TX
 	if mempoolTx, ok := t.Transactions[tx.Hash]; ok {
 		mempoolTx.LastSeen = time.Now()
+		result := t.addResults[tx.Hash]
+		t.Unlock()
 		logger.Debug("updated last seen for transaction:", "txHash", tx.Hash)
-		return nil
+		if wait && result != nil {
+			<-result.done
+			return false, result, result.err
+		}
+		return false, result, nil
 	}
 	// Add transaction record
-	t.Transactions[tx.Hash] = tx
-	// Call registered new transaction handlers
-	for _, newTransactionFunc := range t.newTransactionFuncs {
-		if err := newTransactionFunc(*tx); err != nil {
-			return err
-		}
+	stored := cloneMempoolTransaction(*tx)
+	t.Transactions[tx.Hash] = &stored
+	if t.addResults == nil {
+		t.addResults = make(map[string]*mempoolAddResult)
 	}
-	logger.Debug("added transaction to mempool:", "txHash", tx.Hash)
-	return nil
+	result := &mempoolAddResult{done: make(chan struct{})}
+	t.addResults[tx.Hash] = result
+	startDrain := t.enqueueEventLocked(mempoolLifecycleEvent{
+		tx: cloneMempoolTransaction(stored),
+		addedCallbacks: append(
+			[]MempoolNewTransactionFunc(nil),
+			t.newTransactionFuncs...,
+		),
+		addResult: result,
+	})
+	t.Unlock()
+	if startDrain {
+		go t.drainEvents(tx.Hash)
+	}
+	if wait {
+		<-result.done
+		return true, result, result.err
+	}
+	return true, result, nil
 }
 
-func (t *txsubmissionMempool) removeTransaction(hash string) {
-	logger := logging.GetLogger()
+func (t *txsubmissionMempool) removeTransaction(
+	hash string,
+	reason MempoolRemovalReason,
+) {
+	t.removeTransactionGeneration(hash, nil, reason)
+}
+
+func (t *txsubmissionMempool) removeTransactionGeneration(
+	hash string,
+	expected *mempoolAddResult,
+	reason MempoolRemovalReason,
+) {
 	t.Lock()
-	defer t.Unlock()
-	if _, ok := t.Transactions[hash]; ok {
-		delete(t.Transactions, hash)
-		logger.Debug("removed transaction from mempool:", "txHash", hash)
+	tx, ok := t.Transactions[hash]
+	if !ok || (expected != nil && t.addResults[hash] != expected) {
+		t.Unlock()
+		return
+	}
+	delete(t.Transactions, hash)
+	delete(t.addResults, hash)
+	startDrain := false
+	var done chan struct{}
+	if tx.Source.callbackEligible() {
+		done = make(chan struct{})
+		startDrain = t.enqueueEventLocked(mempoolLifecycleEvent{
+			tx:            cloneMempoolTransaction(*tx),
+			removalReason: reason,
+			removedCallbacks: append(
+				[]MempoolRemovedTransactionFunc(nil),
+				t.removedTransactionFuncs...,
+			),
+			done: done,
+		})
+	}
+	t.Unlock()
+	if startDrain {
+		go t.drainEvents(hash)
+	}
+	if done != nil {
+		<-done
+	}
+}
+
+func cloneMempoolTransaction(
+	tx TxsubmissionMempoolTransaction,
+) TxsubmissionMempoolTransaction {
+	tx.Cbor = append([]byte(nil), tx.Cbor...)
+	return tx
+}
+
+func (t *txsubmissionMempool) enqueueEventLocked(
+	event mempoolLifecycleEvent,
+) bool {
+	if t.eventQueues == nil {
+		t.eventQueues = make(map[string]*mempoolEventQueue)
+	}
+	queue := t.eventQueues[event.tx.Hash]
+	if queue == nil {
+		queue = &mempoolEventQueue{}
+		t.eventQueues[event.tx.Hash] = queue
+	}
+	queue.events = append(queue.events, event)
+	if queue.draining {
+		return false
+	}
+	queue.draining = true
+	return true
+}
+
+func (t *txsubmissionMempool) drainEvents(txHash string) {
+	for {
+		t.Lock()
+		queue := t.eventQueues[txHash]
+		if queue == nil || len(queue.events) == 0 {
+			delete(t.eventQueues, txHash)
+			t.Unlock()
+			return
+		}
+		event := queue.events[0]
+		queue.events[0] = mempoolLifecycleEvent{}
+		queue.events = queue.events[1:]
+		t.Unlock()
+
+		var callbackErr error
+		for _, callback := range event.addedCallbacks {
+			if err := callback(event.tx); err != nil {
+				callbackErr = errors.Join(callbackErr, err)
+				logging.GetLogger().Error(
+					"mempool add callback failed",
+					"txHash", event.tx.Hash,
+					"error", err,
+				)
+			}
+		}
+		for _, callback := range event.removedCallbacks {
+			callback(event.tx, event.removalReason)
+		}
+		if event.addResult != nil {
+			event.addResult.err = callbackErr
+			close(event.addResult.done)
+		}
+		if event.done != nil {
+			close(event.done)
+		}
+		if len(event.addedCallbacks) > 0 {
+			logging.GetLogger().Debug(
+				"added transaction to mempool:",
+				"txHash", event.tx.Hash,
+			)
+		}
+		if len(event.removedCallbacks) == 0 {
+			continue
+		}
+		logging.GetLogger().Debug(
+			"removed transaction from mempool:",
+			"txHash", event.tx.Hash,
+			"reason", event.removalReason,
+		)
 	}
 }
 
@@ -97,32 +336,149 @@ type TxsubmissionMempoolTransaction struct {
 	Type     uint
 	Cbor     []byte
 	LastSeen time.Time
+	Source   MempoolTransactionSource
 }
 
-func (n *Node) AddOutboundTransaction(txBytes []byte) error {
-	// Determine transaction type (era)
+func newMempoolTransaction(
+	txBytes []byte,
+	source MempoolTransactionSource,
+) (*TxsubmissionMempoolTransaction, error) {
 	txType, err := ledger.DetermineTransactionType(txBytes)
 	if err != nil {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"could not parse transaction to determine type: %w",
 			err,
 		)
 	}
 	tx, err := ledger.NewTransactionFromCbor(txType, txBytes)
 	if err != nil {
-		return fmt.Errorf("failed to parse transaction CBOR: %w", err)
+		return nil, fmt.Errorf("failed to parse transaction CBOR: %w", err)
+	}
+	return &TxsubmissionMempoolTransaction{
+		Hash:     tx.Hash().String(),
+		Type:     txType,
+		Cbor:     append([]byte(nil), txBytes...),
+		LastSeen: time.Now(),
+		Source:   source,
+	}, nil
+}
+
+// AddOwnedTransaction records an originated or accepted transaction.
+func (n *Node) AddOwnedTransaction(
+	txBytes []byte,
+) (*OwnedTransactionHandle, bool, error) {
+	tx, err := newMempoolTransaction(
+		txBytes,
+		MempoolTransactionSourceOwned,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	added, generation, err := n.txsubmissionMempool.addTransactionWithWait(
+		tx,
+		true,
+	)
+	if err != nil {
+		if added {
+			n.txsubmissionMempool.removeTransactionGeneration(
+				tx.Hash,
+				generation,
+				MempoolRemovalReasonRejected,
+			)
+		}
+		return nil, false, err
+	}
+	return &OwnedTransactionHandle{
+		hash:       tx.Hash,
+		generation: generation,
+	}, added, nil
+}
+
+// BeginOwnedTransactionSubmission pins a current generation during delivery.
+func (n *Node) BeginOwnedTransactionSubmission(
+	handle *OwnedTransactionHandle,
+) bool {
+	if handle == nil || handle.generation == nil {
+		return false
+	}
+	n.txsubmissionMempool.Lock()
+	defer n.txsubmissionMempool.Unlock()
+	current := n.txsubmissionMempool.addResults[handle.hash]
+	if current == nil || current != handle.generation || current.submitting {
+		return false
+	}
+	current.submitting = true
+	return true
+}
+
+// EndOwnedTransactionSubmission releases a delivered or ambiguous generation.
+func (n *Node) EndOwnedTransactionSubmission(
+	handle *OwnedTransactionHandle,
+) {
+	if handle == nil || handle.generation == nil {
+		return
+	}
+	n.txsubmissionMempool.Lock()
+	defer n.txsubmissionMempool.Unlock()
+	if n.txsubmissionMempool.addResults[handle.hash] != handle.generation {
+		return
+	}
+	handle.generation.submitting = false
+	if tx := n.txsubmissionMempool.Transactions[handle.hash]; tx != nil {
+		tx.LastSeen = time.Now()
+	}
+}
+
+// RejectOwnedTransaction releases a definitively rejected generation.
+func (n *Node) RejectOwnedTransaction(handle *OwnedTransactionHandle) {
+	if handle == nil || handle.generation == nil {
+		return
+	}
+	n.txsubmissionMempool.removeTransactionGeneration(
+		handle.hash,
+		handle.generation,
+		MempoolRemovalReasonRejected,
+	)
+}
+
+func (n *Node) AddOutboundTransaction(txBytes []byte) error {
+	tx, err := newMempoolTransaction(
+		txBytes,
+		MempoolTransactionSourceOwned,
+	)
+	if err != nil {
+		return err
+	}
+	n.connTransactionChansMutex.Lock()
+	if len(n.connTransactionChans) == 0 {
+		n.connTransactionChansMutex.Unlock()
+		return errors.New("no outbound transaction peers available")
+	}
+	if _, _, err := n.txsubmissionMempool.addTransactionWithWait(
+		tx,
+		true,
+	); err != nil {
+		n.connTransactionChansMutex.Unlock()
+		return err
 	}
 	tmpTx := ntnTransaction{
-		Hash: tx.Hash().String(),
-		Type: txType,
-		Cbor: txBytes[:],
+		Hash: tx.Hash,
+		Type: tx.Type,
+		Cbor: append([]byte(nil), tx.Cbor...),
 	}
 	// Re-broadcast TX to each connection's TX chan
-	n.connTransactionChansMutex.Lock()
+	delivered := 0
 	for _, txChan := range n.connTransactionChans {
-		txChan <- tmpTx
+		select {
+		case txChan <- tmpTx:
+			delivered++
+		default:
+		}
 	}
 	n.connTransactionChansMutex.Unlock()
+	if delivered == 0 {
+		return errors.New("no outbound transaction peer accepted the transaction")
+	}
 	return nil
 }
 
@@ -188,6 +544,7 @@ func (n *Node) txsubmissionServerOnInit(connId ouroboros.ConnectionId) {
 							Type:     uint(txBody.EraId),
 							Cbor:     txBody.TxBody,
 							LastSeen: time.Now(),
+							Source:   MempoolTransactionSourceObserved,
 						},
 					)
 					if err != nil {

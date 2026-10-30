@@ -75,10 +75,11 @@ type OracleConfig struct {
 
 // Singleton config instance with default values
 var globalConfig = &Config{
-	Network:       "mainnet",
-	Profiles:      []string{"spectrum", "teddyswap"},
-	ListenPort:    3000,
-	ListenPortNtc: 3099,
+	Network:          "mainnet",
+	Profiles:         []string{"spectrum", "teddyswap"},
+	ListenPort:       3000,
+	ListenAddressNtc: "127.0.0.1",
+	ListenPortNtc:    3099,
 	Logging: LoggingConfig{
 		Level: "info",
 	},

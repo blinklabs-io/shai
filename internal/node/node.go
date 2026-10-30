@@ -146,6 +146,12 @@ func (n *Node) AddMempoolNewTransactionFunc(
 	n.txsubmissionMempool.AddNewTransactionFunc(newTransactionFunc)
 }
 
+func (n *Node) AddMempoolRemovedTransactionFunc(
+	removedTransactionFunc MempoolRemovedTransactionFunc,
+) {
+	n.txsubmissionMempool.AddRemovedTransactionFunc(removedTransactionFunc)
+}
+
 func (n *Node) acceptConnections() {
 	cfg := config.GetConfig()
 	logger := logging.GetLogger()
