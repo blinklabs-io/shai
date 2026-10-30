@@ -6,7 +6,7 @@ require (
 	github.com/Salvionied/apollo/v2 v2.1.4
 	github.com/blinklabs-io/adder v0.46.0
 	github.com/blinklabs-io/bursa v0.20.0
-	github.com/blinklabs-io/dingo v0.86.0
+	github.com/blinklabs-io/dingo v0.87.1
 	github.com/blinklabs-io/gouroboros v0.213.11
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
 	github.com/dgraph-io/badger/v4 v4.9.6
@@ -44,7 +44,7 @@ require (
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.6 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
