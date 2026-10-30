@@ -15,16 +15,20 @@
 package oracle
 
 import (
+	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
 	"math"
+	"math/big"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/blinklabs-io/adder/event"
 	"github.com/blinklabs-io/gouroboros/ledger"
+	ledger_common "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
 	"github.com/blinklabs-io/shai/internal/config"
 	"github.com/blinklabs-io/shai/internal/indexer"
@@ -51,24 +55,51 @@ type CDPParser interface {
 	CDPIdForOutput(txHash string, txIndex uint32) string
 }
 
+// OrderParser parses order-book datums that are tracked separately from AMM
+// pool states. An order keeps its identity across partial fills, so the parser
+// derives the order key from the datum rather than from the UTxO it sits in.
+type OrderParser interface {
+	Protocol() string
+	ParseOrderDatum(
+		datum []byte,
+		txHash string,
+		txIndex uint32,
+		slot uint64,
+		timestamp time.Time,
+	) (*OrderState, error)
+}
+
 // Oracle tracks pool states from on-chain data
 type Oracle struct {
-	idx           *indexer.Indexer
-	profile       *config.Profile
-	parser        PoolParser
-	pools         map[string]*PoolState
-	poolsMu       sync.RWMutex
-	cdps          map[string]*CDPState
-	cdpsMu        sync.RWMutex
-	poolAddresses map[string]struct{} // Set for O(1) lookup
-	storage       *OracleStorage
-	stopChan      chan struct{}
-	subscribers   []chan *PriceUpdate
-	subMu         sync.RWMutex
-	stopped       bool
-	dropCount     atomic.Uint64
-	mempoolMgr    *MempoolStateManager
-	activity      *ActivityTracker
+	idx     *indexer.Indexer
+	profile *config.Profile
+	parser  PoolParser
+	pools   map[string]*PoolState
+	poolsMu sync.RWMutex
+	cdps    map[string]*CDPState
+	cdpsMu  sync.RWMutex
+	orders  map[string]*OrderState
+	// orderIndex is kept in protocol, network, and order ID order under
+	// ordersMu so API pages never need to scan or sort the complete order set.
+	orderIndex orderIndexTree
+	// orderUtxos maps a tracked order UTxO reference to its order key, so a
+	// spent input can be resolved without rescanning the order set.
+	orderUtxos              map[string]string
+	ordersMu                sync.RWMutex
+	poolAddresses           map[string]struct{} // Set for O(1) lookup
+	orderAddresses          map[string]struct{}
+	orderPaymentCredentials map[string]struct{}
+	// orderNFTPolicy is the minting policy of the NFT that identifies a
+	// genuine order UTxO, when the profile declares one.
+	orderNFTPolicy *ledger_common.Blake2b224
+	storage        *OracleStorage
+	stopChan       chan struct{}
+	subscribers    []chan *PriceUpdate
+	subMu          sync.RWMutex
+	stopped        bool
+	dropCount      atomic.Uint64
+	mempoolMgr     *MempoolStateManager
+	activity       *ActivityTracker
 }
 
 // New creates a new Oracle instance
@@ -82,15 +113,19 @@ func New(
 		panic(err)
 	}
 	o := &Oracle{
-		idx:           idx,
-		profile:       profile,
-		parser:        parser,
-		pools:         make(map[string]*PoolState),
-		cdps:          make(map[string]*CDPState),
-		poolAddresses: make(map[string]struct{}),
-		stopChan:      make(chan struct{}),
-		mempoolMgr:    NewMempoolStateManager(),
-		activity:      activity,
+		idx:                     idx,
+		profile:                 profile,
+		parser:                  parser,
+		pools:                   make(map[string]*PoolState),
+		cdps:                    make(map[string]*CDPState),
+		orders:                  make(map[string]*OrderState),
+		orderUtxos:              make(map[string]string),
+		poolAddresses:           make(map[string]struct{}),
+		orderAddresses:          make(map[string]struct{}),
+		orderPaymentCredentials: make(map[string]struct{}),
+		stopChan:                make(chan struct{}),
+		mempoolMgr:              NewMempoolStateManager(),
+		activity:                activity,
 	}
 
 	o.addProfileAddresses()
@@ -107,6 +142,25 @@ func (o *Oracle) addProfileAddresses() {
 	case config.SyntheticsProfileConfig:
 		for _, addr := range profileConfig.CDPAddresses {
 			o.poolAddresses[addr.Address] = struct{}{}
+		}
+	case config.OrderbookProfileConfig:
+		for _, addr := range profileConfig.OrderAddresses {
+			o.orderAddresses[addr.Address] = struct{}{}
+		}
+		for _, credential := range profileConfig.OrderPaymentCredentials {
+			o.orderPaymentCredentials[credential] = struct{}{}
+		}
+		if profileConfig.OrderNFTPolicy != "" {
+			policy, err := hex.DecodeString(profileConfig.OrderNFTPolicy)
+			if err != nil || len(policy) != ledger_common.Blake2b224Size {
+				panic(fmt.Sprintf(
+					"profile %s declares an invalid order NFT policy %q",
+					o.profile.Name,
+					profileConfig.OrderNFTPolicy,
+				))
+			}
+			policyId := ledger_common.NewBlake2b224(policy)
+			o.orderNFTPolicy = &policyId
 		}
 	}
 }
@@ -139,7 +193,8 @@ func (o *Oracle) Start() error {
 		"Oracle started",
 		"profile", o.profile.Name,
 		"protocol", o.parser.Protocol(),
-		"addresses", len(o.poolAddresses),
+		"addresses", len(o.poolAddresses)+len(o.orderAddresses),
+		"paymentCredentials", len(o.orderPaymentCredentials),
 	)
 
 	return nil
@@ -289,6 +344,15 @@ func (o *Oracle) handleTransaction(
 	cdpParser, hasCDPParser := o.parser.(CDPParser)
 	if hasCDPParser && o.isSyntheticsProfile() {
 		o.deleteSpentCDPStates(logger, cdpParser, transactionInputs(txEvt))
+	}
+	if orderParser, ok := o.parser.(OrderParser); ok && o.isOrderbookProfile() {
+		return o.handleOrderTransaction(
+			logger,
+			orderParser,
+			cfg.Network,
+			txEvt,
+			ctx,
+		)
 	}
 
 	// Check for tracked UTxOs at monitored addresses.
@@ -516,6 +580,244 @@ func (o *Oracle) deleteCDPStateByID(cdpId string) (*CDPState, bool) {
 	return state, true
 }
 
+// handleOrderTransaction applies one confirmed transaction to the tracked
+// order set: every order UTxO it spends leaves the set, and every order UTxO
+// it produces enters it. Spends are applied first because a partial fill
+// spends an order and recreates it under the same key in the same transaction.
+func (o *Oracle) handleOrderTransaction(
+	logger *slog.Logger,
+	parser OrderParser,
+	network string,
+	txEvt event.TransactionEvent,
+	ctx event.TransactionContext,
+) error {
+	now := time.Now()
+	var datums map[string][]byte
+	produced := make([]*OrderState, 0)
+	producedOutputs, err := producedUTXOs(txEvt, ctx.TransactionHash)
+	if err != nil {
+		return err
+	}
+	for _, utxo := range producedOutputs {
+		if !o.isOrderAddress(utxo.Output.Address().String()) {
+			continue
+		}
+		if datums == nil {
+			datums = witnessDatums(txEvt)
+		}
+		// A script address can be paid to by anyone, so the output's own
+		// order NFT is what distinguishes a genuine order from an
+		// arbitrary UTxO parked at the order script's payment credential.
+		nftName, ok := o.outputOrderNFTName(utxo.Output)
+		if !ok {
+			logger.Debug(
+				"skipping order address output without an order NFT",
+				"txHash", ctx.TransactionHash,
+				"outputIndex", utxo.Id.Index(),
+			)
+			continue
+		}
+		datumCbor := outputDatumCbor(utxo.Output, datums)
+		if datumCbor == nil {
+			continue
+		}
+		state, err := parser.ParseOrderDatum(
+			datumCbor,
+			ctx.TransactionHash,
+			utxo.Id.Index(),
+			ctx.SlotNumber,
+			now,
+		)
+		if err != nil {
+			logger.Debug(
+				"skipping invalid order datum",
+				"error", err,
+				"txHash", ctx.TransactionHash,
+				"outputIndex", utxo.Id.Index(),
+			)
+			continue
+		}
+		if state == nil {
+			continue
+		}
+		// The order key is derived from the datum, which the producer of
+		// the output chooses. Requiring it to name the NFT the output
+		// actually holds stops a forged output from overwriting the state
+		// of a genuine order that carries that NFT.
+		if nftName != nil && !bytes.Equal(state.NFT, nftName) {
+			logger.Debug(
+				"skipping order whose datum does not name its order NFT",
+				"txHash", ctx.TransactionHash,
+				"outputIndex", utxo.Id.Index(),
+			)
+			continue
+		}
+		state.Protocol = parser.Protocol()
+		state.Network = network
+		state.BlockHash = txEvt.BlockHash
+		state.UpdatedAt = now
+		produced = append(produced, state)
+	}
+
+	o.ordersMu.Lock()
+	defer o.ordersMu.Unlock()
+	if o.orders == nil {
+		o.orders = make(map[string]*OrderState)
+	}
+	if o.orderUtxos == nil {
+		o.orderUtxos = make(map[string]string)
+	}
+	spent := make([]*OrderState, 0)
+	spentRefs := make([]string, 0)
+	spentIds := make(map[string]struct{})
+	for _, input := range transactionInputs(txEvt) {
+		ref := orderUtxoRef(input.Id().String(), input.Index())
+		orderId, ok := o.orderUtxos[ref]
+		if !ok {
+			continue
+		}
+		if _, seen := spentIds[orderId]; seen {
+			continue
+		}
+		state := o.orders[orderId]
+		if state == nil {
+			return fmt.Errorf("order state %s is missing", orderId)
+		}
+		spent = append(spent, state)
+		spentRefs = append(spentRefs, ref)
+		spentIds[orderId] = struct{}{}
+	}
+	if len(spent) == 0 && len(produced) == 0 {
+		return nil
+	}
+	if o.storage == nil {
+		return errors.New("oracle storage is required for order transaction")
+	}
+	applied, err := o.storage.ApplyOrderTransaction(orderUndoRecord{
+		Network:         network,
+		Protocol:        parser.Protocol(),
+		TransactionHash: ctx.TransactionHash,
+		TransactionIdx:  ctx.TransactionIdx,
+		Slot:            ctx.SlotNumber,
+		Spent:           spent,
+	}, produced)
+	if err != nil {
+		return fmt.Errorf("failed to persist order transaction: %w", err)
+	}
+	if !applied {
+		return nil
+	}
+	for i, state := range spent {
+		delete(o.orderUtxos, spentRefs[i])
+		o.deleteOrderLocked(state.OrderId)
+	}
+	for _, state := range produced {
+		if previous, ok := o.orders[state.OrderId]; ok {
+			delete(
+				o.orderUtxos,
+				orderUtxoRef(previous.TxHash, previous.TxIndex),
+			)
+		}
+		o.putOrderLocked(state)
+		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
+		logger.Debug(
+			"order state updated",
+			"orderId", state.OrderId,
+			"protocol", state.Protocol,
+			"slot", state.Slot,
+		)
+	}
+	return nil
+}
+
+// outputDatumCbor returns the datum bytes for an output. Order outputs carry
+// their datum by hash rather than inline, so the hash is resolved against the
+// transaction's Plutus witness data.
+func outputDatumCbor(
+	output ledger.TransactionOutput,
+	datums map[string][]byte,
+) []byte {
+	if datum := output.Datum(); datum != nil {
+		return datum.Cbor()
+	}
+	hash := output.DatumHash()
+	if hash == nil {
+		return nil
+	}
+	return datums[hash.String()]
+}
+
+// witnessDatums indexes a transaction's supplemental Plutus datums by hash.
+func witnessDatums(txEvt event.TransactionEvent) map[string][]byte {
+	witnesses := txEvt.Witnesses
+	if witnesses == nil && txEvt.Transaction != nil {
+		witnesses = txEvt.Transaction.Witnesses()
+	}
+	if witnesses == nil {
+		return map[string][]byte{}
+	}
+	plutusData := witnesses.PlutusData()
+	datums := make(map[string][]byte, len(plutusData))
+	for _, datum := range plutusData {
+		datums[datum.Hash().String()] = datum.Cbor()
+	}
+	return datums
+}
+
+func orderUtxoRef(txHash string, txIndex uint32) string {
+	return fmt.Sprintf("%s#%d", txHash, txIndex)
+}
+
+func (o *Oracle) isOrderbookProfile() bool {
+	return o.profile != nil && o.profile.Type == config.ProfileTypeOrderbook
+}
+
+// isOrderAddress reports whether an address holds order UTxOs for this
+// profile. Orders sit at base addresses that combine the order script's
+// payment credential with the maker's own staking credential, so an exact
+// address set cannot enumerate them.
+func (o *Oracle) isOrderAddress(addr string) bool {
+	if _, ok := o.orderAddresses[addr]; ok {
+		return true
+	}
+	if len(o.orderPaymentCredentials) == 0 {
+		return false
+	}
+	parsed, err := ledger_common.NewAddress(addr)
+	if err != nil {
+		return false
+	}
+	if parsed.Type()&ledger_common.AddressTypeScriptBit == 0 {
+		return false
+	}
+	_, ok := o.orderPaymentCredentials[parsed.PaymentKeyHash().String()]
+	return ok
+}
+
+// outputOrderNFTName returns the token name of the order NFT the output
+// carries. A profile that declares no order NFT policy accepts any output at
+// an order address, and reports a nil name so the datum is not cross-checked.
+func (o *Oracle) outputOrderNFTName(
+	output ledger.TransactionOutput,
+) ([]byte, bool) {
+	if o.orderNFTPolicy == nil {
+		return nil, true
+	}
+	assets := output.Assets()
+	if assets == nil {
+		return nil, false
+	}
+	names := assets.Assets(*o.orderNFTPolicy)
+	if len(names) != 1 {
+		return nil, false
+	}
+	amount := assets.Asset(*o.orderNFTPolicy, names[0])
+	if amount == nil || amount.Cmp(big.NewInt(1)) != 0 {
+		return nil, false
+	}
+	return names[0], true
+}
+
 func (o *Oracle) isSyntheticsProfile() bool {
 	return o.profile != nil && o.profile.Type == config.ProfileTypeSynthetics
 }
@@ -666,6 +968,23 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 		}
 	}
 
+	if parser, ok := o.parser.(OrderParser); ok && o.isOrderbookProfile() {
+		states, err := o.storage.RollbackOrderStates(
+			config.GetConfig().Network,
+			parser.Protocol(),
+			firstInvalidSlot,
+		)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("rollback order states: %w", err))
+		} else {
+			o.replaceOrderStates(
+				config.GetConfig().Network,
+				parser.Protocol(),
+				states,
+			)
+		}
+	}
+
 	if len(errs) > 0 {
 		return fmt.Errorf(
 			"failed to persist oracle rollback: %w",
@@ -674,6 +993,26 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 
 	return nil
+}
+
+func (o *Oracle) replaceOrderStates(
+	network string,
+	protocol string,
+	states []*OrderState,
+) {
+	o.ordersMu.Lock()
+	defer o.ordersMu.Unlock()
+	for id, state := range o.orders {
+		if state.Network == network && state.Protocol == protocol {
+			delete(o.orderUtxos, orderUtxoRef(state.TxHash, state.TxIndex))
+			delete(o.orders, id)
+		}
+	}
+	for _, state := range states {
+		o.orders[state.OrderId] = state
+		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
+	}
+	o.rebuildOrderIndexLocked()
 }
 
 // firstRolledBackSlot returns the first slot invalidated by a chain-sync
@@ -700,6 +1039,10 @@ func (o *Oracle) loadPersistedStates() error {
 		return err
 	}
 	cdpStates, err := o.storage.LoadAllCDPStates()
+	if err != nil {
+		return err
+	}
+	orderStates, err := o.storage.LoadAllOrderStates()
 	if err != nil {
 		return err
 	}
@@ -739,6 +1082,20 @@ func (o *Oracle) loadPersistedStates() error {
 	}
 	o.cdpsMu.Unlock()
 
+	o.ordersMu.Lock()
+	if o.orders == nil {
+		o.orders = make(map[string]*OrderState)
+	}
+	if o.orderUtxos == nil {
+		o.orderUtxos = make(map[string]string)
+	}
+	for _, state := range orderStates {
+		o.orders[state.OrderId] = state
+		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
+	}
+	o.rebuildOrderIndexLocked()
+	o.ordersMu.Unlock()
+
 	if o.mempoolMgr == nil {
 		o.mempoolMgr = NewMempoolStateManager()
 	}
@@ -751,6 +1108,7 @@ func (o *Oracle) loadPersistedStates() error {
 		"loaded persisted oracle states",
 		"pools", len(states),
 		"cdps", len(cdpStates),
+		"orders", len(orderStates),
 		"swaps", len(activityState.Swaps),
 	)
 
@@ -815,6 +1173,34 @@ func (o *Oracle) GetAllCDPs() []*CDPState {
 		cdps = append(cdps, state)
 	}
 	return cdps
+}
+
+// GetOrderState returns the current state of an order.
+func (o *Oracle) GetOrderState(orderId string) (*OrderState, bool) {
+	o.ordersMu.RLock()
+	defer o.ordersMu.RUnlock()
+
+	state, ok := o.orders[orderId]
+	return state, ok
+}
+
+// GetAllOrders returns all tracked order states.
+func (o *Oracle) GetAllOrders() []*OrderState {
+	o.ordersMu.RLock()
+	defer o.ordersMu.RUnlock()
+
+	orders := make([]*OrderState, 0, len(o.orders))
+	for _, state := range o.orders {
+		orders = append(orders, state)
+	}
+	return orders
+}
+
+// OrderCount returns the number of tracked orders.
+func (o *Oracle) OrderCount() int {
+	o.ordersMu.RLock()
+	defer o.ordersMu.RUnlock()
+	return len(o.orders)
 }
 
 // CDPCount returns the number of tracked CDPs.
