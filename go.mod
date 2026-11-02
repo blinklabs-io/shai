@@ -3,11 +3,11 @@ module github.com/blinklabs-io/shai
 go 1.26.10
 
 require (
-	github.com/Salvionied/apollo/v2 v2.1.4
+	github.com/Salvionied/apollo/v2 v2.2.1
 	github.com/blinklabs-io/adder v0.46.0
-	github.com/blinklabs-io/bursa v0.20.0
+	github.com/blinklabs-io/bursa v0.21.0
 	github.com/blinklabs-io/dingo v0.87.1
-	github.com/blinklabs-io/gouroboros v0.213.11
+	github.com/blinklabs-io/gouroboros v0.215.0
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
