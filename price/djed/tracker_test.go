@@ -135,8 +135,12 @@ func TestTrackerSelectsNewestCurrentlyValidObservation(t *testing.T) {
 	future.Slot = 20
 	future.ValidFrom = now.Add(time.Second)
 	tracker := NewTracker()
-	tracker.observations[OutputRef{TxHash: valid.TxHash}] = trackedObservation{observation: valid}
-	tracker.observations[OutputRef{TxHash: future.TxHash}] = trackedObservation{observation: future}
+	tracker.observations[OutputRef{TxHash: valid.TxHash}] = trackedObservation{
+		observation: valid,
+	}
+	tracker.observations[OutputRef{TxHash: future.TxHash}] = trackedObservation{
+		observation: future,
+	}
 
 	current, err := tracker.Current(now)
 	require.NoError(t, err)
