@@ -298,7 +298,6 @@ func TestOracleActivityRedeliveredSwapIsNotDoubleCounted(t *testing.T) {
 	require.Equal(t, uint64(1), volume.SwapCount)
 	require.Equal(t, uint64(100), volume.VolumeX)
 	require.Equal(t, uint64(200), volume.VolumeY)
-
 }
 
 // TestOracleRollbackRemovesPersistedActivityWithoutTracker covers a rollback on
