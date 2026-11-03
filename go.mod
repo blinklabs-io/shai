@@ -5,7 +5,7 @@ go 1.26.10
 require (
 	github.com/Salvionied/apollo/v2 v2.2.1
 	github.com/blinklabs-io/adder v0.46.0
-	github.com/blinklabs-io/bursa v0.21.0
+	github.com/blinklabs-io/bursa v0.21.1
 	github.com/blinklabs-io/dingo v0.87.1
 	github.com/blinklabs-io/gouroboros v0.216.2
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
@@ -31,7 +31,7 @@ require (
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
-	github.com/blinklabs-io/go-bip39 v0.2.0 // indirect
+	github.com/blinklabs-io/go-bip39 v0.2.1 // indirect
 	github.com/blinklabs-io/plutigo v0.10.0 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1 // indirect
 	github.com/btcsuite/btcd/btcutil v1.2.0 // indirect
