@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -339,11 +340,14 @@ func (s *OracleStorage) ApplyOrderTransaction(
 			return err
 		}
 		if record.Slot > orderRollbackRetentionSlots {
+			maxCount, maxSize := s.deleteBudget()
 			if err := pruneOrderUndoRecords(
 				txn,
 				record.Network,
 				record.Protocol,
 				record.Slot-orderRollbackRetentionSlots,
+				maxCount,
+				maxSize,
 			); err != nil {
 				return err
 			}
@@ -362,30 +366,57 @@ func pruneOrderUndoRecords(
 	network string,
 	protocol string,
 	beforeSlot uint64,
+	maxCount,
+	maxSize int64,
 ) error {
 	opts := badger.DefaultIteratorOptions
-	opts.Prefix = []byte(orderUndoKeyPrefix + network + ":" + protocol + ":")
+	prefix := []byte(orderUndoKeyPrefix + network + ":" + protocol + ":")
+	opts.Prefix = prefix
+	opts.PrefetchValues = false
 	it := txn.NewIterator(opts)
-	defer it.Close()
+	var (
+		keys  [][]byte
+		count int64
+		size  int64
+	)
 	for it.Rewind(); it.Valid(); it.Next() {
-		item := it.Item()
-		var record orderUndoRecord
-		if err := item.Value(func(value []byte) error {
-			return json.Unmarshal(value, &record)
-		}); err != nil {
-			return fmt.Errorf(
-				"unmarshal order undo record %s: %w",
-				item.Key(),
-				err,
-			)
+		key := it.Item().KeyCopy(nil)
+		slot, err := undoSlotFromKey(key, prefix)
+		if err != nil {
+			it.Close()
+			return err
 		}
-		if record.Slot < beforeSlot {
-			if err := txn.Delete(item.KeyCopy(nil)); err != nil {
-				return err
-			}
+		if slot >= beforeSlot {
+			break
+		}
+		entry := int64(len(key)) + deleteEntryOverhead
+		if count+1 > maxCount || size+entry > maxSize {
+			break
+		}
+		count++
+		size += entry
+		keys = append(keys, key)
+	}
+	it.Close()
+	for _, key := range keys {
+		if err := txn.Delete(key); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func undoSlotFromKey(key, prefix []byte) (uint64, error) {
+	slotStart := len(prefix)
+	slotEnd := slotStart + 20
+	if len(key) <= slotEnd || key[slotEnd] != ':' {
+		return 0, fmt.Errorf("invalid undo key %q", key)
+	}
+	slot, err := strconv.ParseUint(string(key[slotStart:slotEnd]), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid undo key %q: %w", key, err)
+	}
+	return slot, nil
 }
 
 // RollbackOrderStates reverses journaled order transitions at or after the
@@ -398,57 +429,22 @@ func (s *OracleStorage) RollbackOrderStates(
 	s.orderMu.Lock()
 	defer s.orderMu.Unlock()
 
-	var undoRecords []struct {
-		key    string
-		record orderUndoRecord
-	}
-	err := s.db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.Prefix = []byte(
-			orderUndoKeyPrefix + network + ":" + protocol + ":",
+	for {
+		undoRecords, done, err := s.loadNewestOrderRollbackSlot(
+			network,
+			protocol,
+			firstInvalidSlot,
 		)
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-			key := string(item.KeyCopy(nil))
-			if err := item.Value(func(value []byte) error {
-				var record orderUndoRecord
-				if err := json.Unmarshal(value, &record); err != nil {
-					return fmt.Errorf("unmarshal order undo record %s: %w", key, err)
-				}
-				if record.Slot >= firstInvalidSlot {
-					undoRecords = append(undoRecords, struct {
-						key    string
-						record orderUndoRecord
-					}{key: key, record: record})
-				}
-				return nil
-			}); err != nil {
-				return err
+		if err != nil {
+			return nil, fmt.Errorf("load order rollback state: %w", err)
+		}
+		if done {
+			break
+		}
+		for _, entry := range undoRecords {
+			if err := s.rollbackOrderUndoRecord(entry.key, entry.record); err != nil {
+				return nil, err
 			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("load order rollback state: %w", err)
-	}
-
-	sort.Slice(undoRecords, func(i, j int) bool {
-		if undoRecords[i].record.Slot != undoRecords[j].record.Slot {
-			return undoRecords[i].record.Slot > undoRecords[j].record.Slot
-		}
-		if undoRecords[i].record.TransactionIdx !=
-			undoRecords[j].record.TransactionIdx {
-			return undoRecords[i].record.TransactionIdx >
-				undoRecords[j].record.TransactionIdx
-		}
-		return undoRecords[i].record.TransactionHash >
-			undoRecords[j].record.TransactionHash
-	})
-	for _, entry := range undoRecords {
-		if err := s.rollbackOrderUndoRecord(entry.key, entry.record); err != nil {
-			return nil, err
 		}
 	}
 	if err := s.deleteInvalidOrderStates(network, protocol, firstInvalidSlot); err != nil {
@@ -462,6 +458,79 @@ func (s *OracleStorage) RollbackOrderStates(
 		return states[i].OrderId < states[j].OrderId
 	})
 	return states, nil
+}
+
+type orderUndoEntry struct {
+	key    string
+	record orderUndoRecord
+}
+
+// loadNewestOrderRollbackSlot loads only the newest invalid slot. Cardano
+// bounds the transitions within a block, so rollback memory stays bounded
+// independently of the number of slots retained in the journal.
+func (s *OracleStorage) loadNewestOrderRollbackSlot(
+	network string,
+	protocol string,
+	firstInvalidSlot uint64,
+) ([]orderUndoEntry, bool, error) {
+	prefix := []byte(orderUndoKeyPrefix + network + ":" + protocol + ":")
+	seek := append(append([]byte(nil), prefix...), 0xff)
+	var entries []orderUndoEntry
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = prefix
+		opts.Reverse = true
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		var newestSlot uint64
+		for it.Seek(seek); it.Valid(); it.Next() {
+			item := it.Item()
+			key := item.KeyCopy(nil)
+			slot, err := undoSlotFromKey(key, prefix)
+			if err != nil {
+				return err
+			}
+			if slot < firstInvalidSlot {
+				break
+			}
+			if len(entries) == 0 {
+				newestSlot = slot
+			} else if slot != newestSlot {
+				break
+			}
+
+			var record orderUndoRecord
+			if err := item.Value(func(value []byte) error {
+				return json.Unmarshal(value, &record)
+			}); err != nil {
+				return fmt.Errorf("unmarshal order undo record %s: %w", key, err)
+			}
+			if orderUndoKey(record) != string(key) {
+				return fmt.Errorf("order undo record %s has mismatched identity", key)
+			}
+			entries = append(entries, orderUndoEntry{
+				key:    string(key),
+				record: record,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if len(entries) == 0 {
+		return nil, true, nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].record.TransactionIdx != entries[j].record.TransactionIdx {
+			return entries[i].record.TransactionIdx >
+				entries[j].record.TransactionIdx
+		}
+		return entries[i].record.TransactionHash >
+			entries[j].record.TransactionHash
+	})
+	return entries, false, nil
 }
 
 func (s *OracleStorage) rollbackOrderUndoRecord(
