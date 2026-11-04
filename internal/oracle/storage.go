@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -397,11 +398,14 @@ func (s *OracleStorage) ApplyCDPTransaction(
 			return err
 		}
 		if record.Slot > cdpRollbackRetentionSlots {
+			maxCount, maxSize := s.deleteBudget()
 			if err := pruneCDPUndoRecords(
 				txn,
 				record.Network,
 				record.Protocol,
 				record.Slot-cdpRollbackRetentionSlots,
+				maxCount,
+				maxSize,
 			); err != nil {
 				return err
 			}
@@ -420,32 +424,59 @@ func pruneCDPUndoRecords(
 	network string,
 	protocol string,
 	beforeSlot uint64,
+	maxCount,
+	maxSize int64,
 ) error {
 	opts := badger.DefaultIteratorOptions
-	opts.Prefix = []byte(
+	prefix := []byte(
 		cdpUndoStateKeyPrefix + network + ":" + protocol + ":",
 	)
+	opts.Prefix = prefix
+	opts.PrefetchValues = false
 	it := txn.NewIterator(opts)
-	defer it.Close()
+	var (
+		keys  [][]byte
+		count int64
+		size  int64
+	)
 	for it.Rewind(); it.Valid(); it.Next() {
-		item := it.Item()
-		var record cdpUndoRecord
-		if err := item.Value(func(value []byte) error {
-			return json.Unmarshal(value, &record)
-		}); err != nil {
-			return fmt.Errorf(
-				"unmarshal CDP undo record %s: %w",
-				item.Key(),
-				err,
-			)
+		key := it.Item().KeyCopy(nil)
+		slot, err := undoSlotFromKey(key, prefix)
+		if err != nil {
+			it.Close()
+			return err
 		}
-		if record.Slot < beforeSlot {
-			if err := txn.Delete(item.KeyCopy(nil)); err != nil {
-				return err
-			}
+		if slot >= beforeSlot {
+			break
+		}
+		entry := int64(len(key)) + deleteEntryOverhead
+		if count+1 > maxCount || size+entry > maxSize {
+			break
+		}
+		count++
+		size += entry
+		keys = append(keys, key)
+	}
+	it.Close()
+	for _, key := range keys {
+		if err := txn.Delete(key); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func undoSlotFromKey(key, prefix []byte) (uint64, error) {
+	slotStart := len(prefix)
+	slotEnd := slotStart + 20
+	if len(key) <= slotEnd || key[slotEnd] != ':' {
+		return 0, fmt.Errorf("invalid undo key %q", key)
+	}
+	slot, err := strconv.ParseUint(string(key[slotStart:slotEnd]), 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid undo key %q: %w", key, err)
+	}
+	return slot, nil
 }
 
 // RollbackCDPStates reverses journaled CDP transitions at or after the first
@@ -459,56 +490,22 @@ func (s *OracleStorage) RollbackCDPStates(
 	s.cdpMu.Lock()
 	defer s.cdpMu.Unlock()
 
-	var undoRecords []struct {
-		key    string
-		record cdpUndoRecord
-	}
-	err := s.db.View(func(txn *badger.Txn) error {
-		undoPrefix := []byte(cdpUndoStateKeyPrefix + network + ":" + protocol + ":")
-		undoOpts := badger.DefaultIteratorOptions
-		undoOpts.Prefix = undoPrefix
-		undoIt := txn.NewIterator(undoOpts)
-		defer undoIt.Close()
-		for undoIt.Rewind(); undoIt.Valid(); undoIt.Next() {
-			item := undoIt.Item()
-			key := string(item.KeyCopy(nil))
-			if err := item.Value(func(value []byte) error {
-				var record cdpUndoRecord
-				if err := json.Unmarshal(value, &record); err != nil {
-					return fmt.Errorf("unmarshal CDP undo record %s: %w", key, err)
-				}
-				if record.Slot >= firstInvalidSlot {
-					undoRecords = append(undoRecords, struct {
-						key    string
-						record cdpUndoRecord
-					}{key: key, record: record})
-				}
-				return nil
-			}); err != nil {
-				return err
+	for {
+		undoRecords, done, err := s.loadNewestCDPRollbackSlot(
+			network,
+			protocol,
+			firstInvalidSlot,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("load CDP rollback state: %w", err)
+		}
+		if done {
+			break
+		}
+		for _, entry := range undoRecords {
+			if err := s.rollbackCDPUndoRecord(entry.key, entry.record); err != nil {
+				return nil, err
 			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("load CDP rollback state: %w", err)
-	}
-
-	sort.Slice(undoRecords, func(i, j int) bool {
-		if undoRecords[i].record.Slot != undoRecords[j].record.Slot {
-			return undoRecords[i].record.Slot > undoRecords[j].record.Slot
-		}
-		if undoRecords[i].record.TransactionIdx !=
-			undoRecords[j].record.TransactionIdx {
-			return undoRecords[i].record.TransactionIdx >
-				undoRecords[j].record.TransactionIdx
-		}
-		return undoRecords[i].record.TransactionHash >
-			undoRecords[j].record.TransactionHash
-	})
-	for _, entry := range undoRecords {
-		if err := s.rollbackCDPUndoRecord(entry.key, entry.record); err != nil {
-			return nil, err
 		}
 	}
 	if err := s.deleteInvalidCDPStates(network, protocol, firstInvalidSlot); err != nil {
@@ -524,6 +521,73 @@ func (s *OracleStorage) RollbackCDPStates(
 		return result[i].CDPId < result[j].CDPId
 	})
 	return result, nil
+}
+
+type cdpUndoEntry struct {
+	key    string
+	record cdpUndoRecord
+}
+
+// loadNewestCDPRollbackSlot loads only the newest invalid slot. Cardano bounds
+// the transitions within a block, so rollback memory stays bounded independently
+// of the number of slots retained in the journal.
+func (s *OracleStorage) loadNewestCDPRollbackSlot(
+	network string,
+	protocol string,
+	firstInvalidSlot uint64,
+) ([]cdpUndoEntry, bool, error) {
+	prefix := []byte(cdpUndoStateKeyPrefix + network + ":" + protocol + ":")
+	var entries []cdpUndoEntry
+	err := s.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = prefix
+		opts.Reverse = true
+		it := txn.NewIterator(opts)
+		defer it.Close()
+
+		var newestSlot uint64
+		for it.Seek(append(prefix, 0xff)); it.Valid(); it.Next() {
+			item := it.Item()
+			key := item.KeyCopy(nil)
+			slot, err := undoSlotFromKey(key, prefix)
+			if err != nil {
+				return err
+			}
+			if slot < firstInvalidSlot {
+				break
+			}
+			if len(entries) == 0 {
+				newestSlot = slot
+			} else if slot != newestSlot {
+				break
+			}
+
+			var record cdpUndoRecord
+			if err := item.Value(func(value []byte) error {
+				return json.Unmarshal(value, &record)
+			}); err != nil {
+				return fmt.Errorf("unmarshal CDP undo record %s: %w", key, err)
+			}
+			entries = append(entries, cdpUndoEntry{
+				key:    string(key),
+				record: record,
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if len(entries) == 0 {
+		return nil, true, nil
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].record.TransactionIdx != entries[j].record.TransactionIdx {
+			return entries[i].record.TransactionIdx > entries[j].record.TransactionIdx
+		}
+		return entries[i].record.TransactionHash > entries[j].record.TransactionHash
+	})
+	return entries, false, nil
 }
 
 // rollbackCDPUndoRecord applies one journal entry atomically. Removing the

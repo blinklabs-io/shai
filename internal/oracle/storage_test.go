@@ -90,6 +90,69 @@ func TestOracleStorageRollbackDeletesInvalidStatesInBatches(t *testing.T) {
 	}
 }
 
+func TestOracleStorageRollbackCDPStatesSkipsRetainedUndo(t *testing.T) {
+	storage := newTestOracleStorage(t)
+	retainedRecord := cdpUndoRecord{
+		Network:         "mainnet",
+		Protocol:        "butane",
+		TransactionHash: "retained",
+		Slot:            99,
+	}
+	retainedState := &CDPState{
+		Network:  retainedRecord.Network,
+		Protocol: retainedRecord.Protocol,
+		CDPId:    "retained-cdp",
+		Slot:     retainedRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		retainedRecord,
+		[]*CDPState{retainedState},
+	); err != nil {
+		t.Fatalf("failed to apply retained CDP transaction: %v", err)
+	}
+
+	rollbackRecord := cdpUndoRecord{
+		Network:         retainedRecord.Network,
+		Protocol:        retainedRecord.Protocol,
+		TransactionHash: "rollback",
+		TransactionIdx:  1,
+		Slot:            100,
+		Spent:           []*CDPState{retainedState},
+	}
+	replacement := &CDPState{
+		Network:  rollbackRecord.Network,
+		Protocol: rollbackRecord.Protocol,
+		CDPId:    "replacement-cdp",
+		Slot:     rollbackRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		rollbackRecord,
+		[]*CDPState{replacement},
+	); err != nil {
+		t.Fatalf("failed to apply rollback CDP transaction: %v", err)
+	}
+	if err := storage.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(cdpUndoStateKey(retainedRecord)), []byte("{"))
+	}); err != nil {
+		t.Fatalf("failed to corrupt retained undo record: %v", err)
+	}
+
+	states, err := storage.RollbackCDPStates("mainnet", "butane", 100)
+	if err != nil {
+		t.Fatalf("failed to roll back CDP states: %v", err)
+	}
+	if len(states) != 1 || states[0].CDPId != retainedState.CDPId {
+		t.Fatalf("expected restored state %q, got %+v", retainedState.CDPId, states)
+	}
+	if _, err := storage.LoadCDPState(
+		replacement.Network,
+		replacement.Protocol,
+		replacement.CDPId,
+	); err == nil {
+		t.Fatal("replacement CDP state remained after rollback")
+	}
+}
+
 func TestCDPUndoHistoryPrunesFinalizedTransactions(t *testing.T) {
 	storage := newTestOracleStorage(t)
 	oldRecord := cdpUndoRecord{
@@ -109,6 +172,17 @@ func TestCDPUndoHistoryPrunesFinalizedTransactions(t *testing.T) {
 		[]*CDPState{oldState},
 	); err != nil {
 		t.Fatalf("failed to apply old CDP transaction: %v", err)
+	}
+	boundaryRecord := cdpUndoRecord{
+		Network:         oldRecord.Network,
+		Protocol:        oldRecord.Protocol,
+		TransactionHash: "boundary",
+		Slot:            2,
+	}
+	if err := storage.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(cdpUndoStateKey(boundaryRecord)), []byte("{"))
+	}); err != nil {
+		t.Fatalf("failed to seed retained boundary record: %v", err)
 	}
 
 	newRecord := cdpUndoRecord{
@@ -139,11 +213,123 @@ func TestCDPUndoHistoryPrunesFinalizedTransactions(t *testing.T) {
 		if _, err := txn.Get([]byte(cdpUndoStateKey(newRecord))); err != nil {
 			return fmt.Errorf("new undo record lookup returned %v", err)
 		}
+		if _, err := txn.Get([]byte(cdpUndoStateKey(boundaryRecord))); err != nil {
+			return fmt.Errorf("boundary undo record lookup returned %v", err)
+		}
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestOracleStorageCDPUndoPruneStaysWithinTransactionLimit(t *testing.T) {
+	const retained = 2_000
+	storage := openSmallBatchActivityStorage(t)
+	batch := storage.db.NewWriteBatch()
+	defer batch.Cancel()
+	for i := 1; i <= retained; i++ {
+		record := cdpUndoRecord{
+			Network:         "mainnet",
+			Protocol:        "butane",
+			TransactionHash: fmt.Sprintf("%064x", i),
+			Slot:            uint64(i),
+		}
+		data, err := json.Marshal(record)
+		if err != nil {
+			t.Fatalf("failed to marshal seeded undo record: %v", err)
+		}
+		if err := batch.Set([]byte(cdpUndoStateKey(record)), data); err != nil {
+			t.Fatalf("failed to seed undo record: %v", err)
+		}
+	}
+	if err := batch.Flush(); err != nil {
+		t.Fatalf("failed to flush seeded undo records: %v", err)
+	}
+
+	cutoff := uint64(retained + 1)
+	currentSlot := cdpRollbackRetentionSlots + cutoff
+	remaining := retained
+	for attempt := range 20 {
+		record := cdpUndoRecord{
+			Network:         "mainnet",
+			Protocol:        "butane",
+			TransactionHash: fmt.Sprintf("new-%d", attempt),
+			Slot:            currentSlot,
+		}
+		state := &CDPState{
+			Network:  record.Network,
+			Protocol: record.Protocol,
+			CDPId:    fmt.Sprintf("new-cdp-%d", attempt),
+			Slot:     currentSlot,
+		}
+		applied, err := storage.ApplyCDPTransaction(record, []*CDPState{state})
+		if err != nil {
+			t.Fatalf(
+				"failed to apply transition while pruning backlog: %v",
+				err,
+			)
+		}
+		if !applied {
+			t.Fatal("expected unique transition to be applied")
+		}
+		if attempt == 0 {
+			if _, err := storage.LoadCDPState(
+				record.Network, record.Protocol, state.CDPId,
+			); err != nil {
+				t.Fatalf("new CDP state was not durable: %v", err)
+			}
+		}
+		next := countCDPUndoRecordsBeforeSlot(
+			t, storage, record.Network, record.Protocol, cutoff,
+		)
+		if next >= remaining {
+			t.Fatalf("prune made no progress: %d records remain", next)
+		}
+		if attempt == 0 && next == 0 {
+			t.Fatal("prune exceeded its transaction budget")
+		}
+		remaining = next
+		if remaining == 0 {
+			return
+		}
+	}
+	t.Fatalf("pruning did not drain %d expired undo records", remaining)
+}
+
+func countCDPUndoRecordsBeforeSlot(
+	t *testing.T,
+	storage *OracleStorage,
+	network,
+	protocol string,
+	cutoff uint64,
+) int {
+	t.Helper()
+	count := 0
+	err := storage.db.View(func(txn *badger.Txn) error {
+		opts := badger.DefaultIteratorOptions
+		opts.Prefix = []byte(
+			cdpUndoStateKeyPrefix + network + ":" + protocol + ":",
+		)
+		it := txn.NewIterator(opts)
+		defer it.Close()
+		for it.Rewind(); it.Valid(); it.Next() {
+			var record cdpUndoRecord
+			if err := it.Item().Value(func(value []byte) error {
+				return json.Unmarshal(value, &record)
+			}); err != nil {
+				return err
+			}
+			if record.Slot < cutoff {
+				count++
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("failed to count expired undo records: %v", err)
+	}
+	return count
 }
 
 func TestOracleStorageLoadPoolState(t *testing.T) {
