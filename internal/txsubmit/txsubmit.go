@@ -14,21 +14,27 @@ const (
 
 type TxSubmit struct {
 	node            *node.Node
-	transactionChan chan []byte
+	transactionChan chan queuedTransaction
+}
+
+type queuedTransaction struct {
+	bytes []byte
+	owned *node.OwnedTransactionHandle
 }
 
 var globalTxSubmit *TxSubmit
 
 func Start(n *node.Node) error {
 	cfg := config.GetConfig()
-	globalTxSubmit = &TxSubmit{
-		transactionChan: make(chan []byte, maxOutboundTransactions),
+	txSubmit := &TxSubmit{
+		transactionChan: make(chan queuedTransaction, maxOutboundTransactions),
 		node:            n,
 	}
+	var err error
 	if len(cfg.Topology.Hosts) > 0 {
-		return globalTxSubmit.startNtn()
+		err = txSubmit.startNtn()
 	} else if cfg.Submit.Url != "" {
-		return globalTxSubmit.startApi(cfg.Submit.Url)
+		err = txSubmit.startApi(cfg.Submit.Url)
 		/*
 			} else if cfg.Submit.SocketPath != "" {
 				return submitTxNtC(txRawBytes)
@@ -46,13 +52,33 @@ func Start(n *node.Node) error {
 				Port:    network.BootstrapPeers[0].Port,
 			},
 		}
-		return globalTxSubmit.startNtn()
+		err = txSubmit.startNtn()
 	}
+	if err != nil {
+		return err
+	}
+	globalTxSubmit = txSubmit
+	return nil
 }
 
-func SubmitTx(txRawBytes []byte) {
+func IsStarted() bool {
+	return globalTxSubmit != nil && globalTxSubmit.transactionChan != nil
+}
+
+func SubmitTx(txRawBytes []byte) error {
 	if globalTxSubmit == nil {
-		panic("txsubmit: SubmitTx called before Start")
+		return fmt.Errorf("txsubmit is not started")
 	}
-	globalTxSubmit.transactionChan <- txRawBytes
+	owned, added, err := globalTxSubmit.node.AddOwnedTransaction(txRawBytes)
+	if err != nil {
+		return fmt.Errorf("failed to track submitted transaction: %w", err)
+	}
+	if !added {
+		return nil
+	}
+	globalTxSubmit.transactionChan <- queuedTransaction{
+		bytes: append([]byte(nil), txRawBytes...),
+		owned: owned,
+	}
+	return nil
 }
