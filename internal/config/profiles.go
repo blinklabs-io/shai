@@ -32,6 +32,7 @@ const (
 	ProfileTypeSynthetics
 	ProfileTypeLending
 	ProfileTypeDjed
+	ProfileTypeGeniusYield
 	ProfileTypeBonds
 )
 
@@ -90,6 +91,23 @@ type LendingProfileConfig struct {
 	MarketAddresses []ProfileConfigAddress  // Market contract addresses to monitor
 	OracleAddresses []ProfileConfigAddress  // Oracle feed addresses
 	InputRefs       []ProfileConfigInputRef // Reference inputs if needed
+}
+
+// GeniusYieldProfileConfig contains configuration for Genius Yield order-book
+// DEX batching.
+type GeniusYieldProfileConfig struct {
+	Protocol           string
+	OrderScriptHash    string
+	OrderNFTPolicy     string
+	OrderAddresses     []ProfileConfigAddress
+	InputRefs          []ProfileConfigInputRef
+	MakerFeeFlat       uint64
+	MakerFeePercent    float64
+	MakerFeePercentMax uint64
+	TakerFee           uint64
+	MatcherReward      uint64
+	MaxSlippageBps     uint64
+	EnableMultiHop     bool
 }
 
 // BondsProfileConfig contains configuration for liquidity bonds protocols
@@ -359,6 +377,30 @@ var Profiles = map[string]map[string]Profile{
 				Protocol:              "butane",
 				CDPPaymentCredentials: butane.GetCDPPaymentCredentials(),
 				CDPNFTPolicy:          butane.SyntheticPolicyId,
+			},
+		},
+		"geniusyield": {
+			Name:          "geniusyield",
+			Type:          ProfileTypeGeniusYield,
+			InterceptSlot: 107999998, // ~Nov 9 2023 (epoch 447)
+			InterceptHash: "9ade9e2cbbf075b7653df58c29ebb4d8910119b7ac452c9512ef2f211d25d2ff",
+			Config: GeniusYieldProfileConfig{
+				Protocol:        "geniusyield",
+				OrderScriptHash: "443796e89785a60a2df3a6673f95345fd1c034b1facfe367af1615fe",
+				OrderNFTPolicy:  "fae686ea8f21d567841d703dea4d4221c2af071a6f2b433ff07c0af2",
+				OrderAddresses: []ProfileConfigAddress{
+					{
+						Address: "addr1w9zr09hgj7z6vz3d7wnxw0u4x30arsp5k8avlcm84utptls8uqd0z",
+					},
+				},
+				InputRefs:          []ProfileConfigInputRef{},
+				MakerFeeFlat:       1000000,
+				MakerFeePercent:    0.003,
+				MakerFeePercentMax: 10000000,
+				TakerFee:           500000,
+				MatcherReward:      1500000,
+				MaxSlippageBps:     500,
+				EnableMultiHop:     true,
 			},
 		},
 		// Optim Finance - Liquidity Bonds and OADA staked ADA derivatives

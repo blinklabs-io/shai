@@ -144,10 +144,17 @@ func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {
 			BlockHash:   e.BlockHash,
 			BlockNumber: blockCtx.BlockNumber,
 		}
-		// Determine block type, since adder doesn't provide this information
-		blockType, err := ledger.DetermineBlockType(e.BlockCbor)
-		if err != nil {
-			return err
+		// Prefer the decoded block's type; fall back to the CBOR header when
+		// the event carries no decoded block.
+		var blockType uint
+		if e.Block != nil {
+			blockType = uint(e.Block.Type())
+		} else {
+			var err error
+			blockType, err = ledger.DetermineBlockType(e.BlockCbor)
+			if err != nil {
+				return err
+			}
 		}
 		// Add to recent blocks
 		n.chainsyncClientState.AddBlock(
@@ -159,7 +166,10 @@ func (n *Node) chainsyncClientHandleEvent(evt event.Event) error {
 		)
 	case event.TransactionEvent:
 		eventCtx := evt.Context.(event.TransactionContext)
-		n.txsubmissionMempool.removeTransaction(eventCtx.TransactionHash)
+		n.txsubmissionMempool.removeTransaction(
+			eventCtx.TransactionHash,
+			MempoolRemovalReasonConfirmed,
+		)
 	}
 	return nil
 }
