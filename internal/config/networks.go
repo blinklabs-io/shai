@@ -7,8 +7,9 @@ type Network struct {
 
 var Networks = map[string]Network{
 	"preprod": {
-		ShelleyOffsetSlot: 0,
-		ShelleyOffsetTime: 1654041600,
+		// Shelley began at slot 86400 after four 20-second Byron epochs.
+		ShelleyOffsetSlot: 86400,
+		ShelleyOffsetTime: 1655769600,
 	},
 	"preview": {
 		ShelleyOffsetSlot: 0,

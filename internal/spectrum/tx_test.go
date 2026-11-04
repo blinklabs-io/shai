@@ -24,6 +24,55 @@ import (
 	"github.com/blinklabs-io/shai/internal/config"
 )
 
+func TestUnixTimeToSlotUsesShelleyAnchor(t *testing.T) {
+	cfg := config.GetConfig()
+	originalNetwork := cfg.Network
+	t.Cleanup(func() {
+		cfg.Network = originalNetwork
+	})
+
+	tests := []struct {
+		name     string
+		network  string
+		unixTime int64
+		want     uint64
+	}{
+		{
+			name:     "preprod Shelley transition",
+			network:  "preprod",
+			unixTime: 1655769600,
+			want:     86400,
+		},
+		{
+			name:     "preprod after Shelley transition",
+			network:  "preprod",
+			unixTime: 1655769630,
+			want:     86430,
+		},
+		{
+			name:     "preview Shelley start",
+			network:  "preview",
+			unixTime: 1666656030,
+			want:     30,
+		},
+		{
+			name:     "mainnet Shelley anchor",
+			network:  "mainnet",
+			unixTime: 1596491121,
+			want:     4924830,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg.Network = test.network
+			if got := unixTimeToSlot(test.unixTime); got != test.want {
+				t.Fatalf("unixTimeToSlot(%d) = %d, want %d", test.unixTime, got, test.want)
+			}
+		})
+	}
+}
+
 func TestSwapTxChainContextFixedMaxTxFee(t *testing.T) {
 	chainContext, err := newSwapTxChainContext()
 	if err != nil {

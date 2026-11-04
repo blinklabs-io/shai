@@ -19,12 +19,12 @@ github.com/bits-and-blooms/bitset v1.25.0 h1:0Ro0qF4abCkM6SqWPVj29sFhAbMPAZpaDD7
 github.com/bits-and-blooms/bitset v1.25.0/go.mod h1:7hO7Gc7Pp1vODcmWvKMRA9BNmbv6a/7QIWpPxHddWR8=
 github.com/blinklabs-io/adder v0.46.0 h1:wa7d1ESXW/IvVdYNo8aZCOQfCFka0hkYfxJ+8t+QFbc=
 github.com/blinklabs-io/adder v0.46.0/go.mod h1:FtY6Zck1159oajXb1ZRDaENFZB8y/ZDGYw//IeyAZKc=
-github.com/blinklabs-io/bursa v0.21.0 h1:UvMZe1c/fe0OysgUcNsaMME6lA0LQ5ImwAmzTuAvyWc=
-github.com/blinklabs-io/bursa v0.21.0/go.mod h1:fpo8nsxDYc/Ga5i44Jm5dHWzKfx2RkftdNFR7YQMLdo=
+github.com/blinklabs-io/bursa v0.21.1 h1:GIjeP5Urix3yVUJu64tN9xq6BsnRjcua9mk3EE4YKzo=
+github.com/blinklabs-io/bursa v0.21.1/go.mod h1:AW6rpzJ+FuJhjPThVyZZtDU2ht1F4GzIIl6+eF8M0/A=
 github.com/blinklabs-io/dingo v0.87.1 h1:72w7WCo1EaZzJV3HS512kfqjPSewtWCKGviekgPtDVw=
 github.com/blinklabs-io/dingo v0.87.1/go.mod h1:ZABci/xGFWBRN1+K6FsXAOR0LZJ7aDPN/ibhAd/qJ4k=
-github.com/blinklabs-io/go-bip39 v0.2.0 h1:rHYih+JzqaFVuP+UfvByKTAdJPeYtlvZu49yUGrZUk8=
-github.com/blinklabs-io/go-bip39 v0.2.0/go.mod h1:9Bp7a+XDc/KTPOqNnS7T/v1vH2lDXpmjM0GArwvOQL4=
+github.com/blinklabs-io/go-bip39 v0.2.1 h1:kE44ZAhBJ75ITHFpKT+LS+Sg4iXwo2xENRdW+y2/sLo=
+github.com/blinklabs-io/go-bip39 v0.2.1/go.mod h1:QvidBC8rXEWuylfpTNA2WbbeIDJmYvq9D6xdjFmK/Io=
 github.com/blinklabs-io/gouroboros v0.216.2 h1:J4zz3+Rz41PPU/vlhGQiaANbOl4AhvGpFSJUDOlHlMg=
 github.com/blinklabs-io/gouroboros v0.216.2/go.mod h1:QeShbrBfFhu3hTjXJ7f8VawHDM03znQRWZXPfoNa1qU=
 github.com/blinklabs-io/ouroboros-mock v0.21.1 h1:eWOCYM6K6R10yZbB6y/sTA99wi8oO4LbxsAp1jcLZvI=
