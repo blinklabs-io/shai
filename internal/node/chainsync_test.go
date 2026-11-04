@@ -57,3 +57,33 @@ func TestChainsyncClientHandleBlockEventUsesDecodedBlockType(t *testing.T) {
 		n.chainsyncClientState.recentBlocks[0].Cbor,
 	)
 }
+
+func TestChainsyncClientHandleBlockEventNilBlock(t *testing.T) {
+	blocks, err := fixtures.GenerateConwayChain(
+		1,
+		common.Blake2b256{},
+		100,
+		1,
+		1,
+	)
+	require.NoError(t, err)
+	block := blocks[0]
+
+	newEvt := func(cbor []byte) event.Event {
+		be := event.NewBlockEvent(block, true)
+		be.Block = nil
+		be.BlockCbor = cbor
+		return event.New(
+			event.TypeBlock,
+			time.Time{},
+			event.NewBlockContext(block, 0),
+			be,
+		)
+	}
+
+	t.Run("returns error instead of panicking", func(t *testing.T) {
+		n := &Node{chainsyncClientState: &chainsyncClientState{}}
+		require.Error(t, n.chainsyncClientHandleEvent(newEvt([]byte{0xff})))
+		require.Empty(t, n.chainsyncClientState.recentBlocks)
+	})
+}
