@@ -136,13 +136,9 @@ func New(
 func (o *Oracle) addProfileAddresses() {
 	switch profileConfig := o.profile.Config.(type) {
 	case config.OracleProfileConfig:
-		for _, addr := range profileConfig.PoolAddresses {
-			o.poolAddresses[addr.Address] = struct{}{}
-		}
+		o.addPoolAddresses(profileConfig.PoolAddresses)
 	case config.SyntheticsProfileConfig:
-		for _, addr := range profileConfig.CDPAddresses {
-			o.poolAddresses[addr.Address] = struct{}{}
-		}
+		o.addPoolAddresses(profileConfig.CDPAddresses)
 	case config.OrderbookProfileConfig:
 		for _, addr := range profileConfig.OrderAddresses {
 			o.orderAddresses[addr.Address] = struct{}{}
@@ -162,6 +158,15 @@ func (o *Oracle) addProfileAddresses() {
 			policyId := ledger_common.NewBlake2b224(policy)
 			o.orderNFTPolicy = &policyId
 		}
+	case config.BondsProfileConfig:
+		o.addPoolAddresses(profileConfig.BondAddresses)
+		o.addPoolAddresses(profileConfig.OADAAddresses)
+	}
+}
+
+func (o *Oracle) addPoolAddresses(addresses []config.ProfileConfigAddress) {
+	for _, addr := range addresses {
+		o.poolAddresses[addr.Address] = struct{}{}
 	}
 }
 

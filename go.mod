@@ -3,11 +3,11 @@ module github.com/blinklabs-io/shai
 go 1.26.10
 
 require (
-	github.com/Salvionied/apollo/v2 v2.1.4
+	github.com/Salvionied/apollo/v2 v2.2.1
 	github.com/blinklabs-io/adder v0.46.0
-	github.com/blinklabs-io/bursa v0.20.0
-	github.com/blinklabs-io/dingo v0.86.0
-	github.com/blinklabs-io/gouroboros v0.213.11
+	github.com/blinklabs-io/bursa v0.21.1
+	github.com/blinklabs-io/dingo v0.87.1
+	github.com/blinklabs-io/gouroboros v0.216.2
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
@@ -31,9 +31,9 @@ require (
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
-	github.com/blinklabs-io/go-bip39 v0.2.0 // indirect
-	github.com/blinklabs-io/plutigo v0.9.10 // indirect
-	github.com/btcsuite/btcd/btcec/v2 v2.5.0 // indirect
+	github.com/blinklabs-io/go-bip39 v0.2.1 // indirect
+	github.com/blinklabs-io/plutigo v0.10.0 // indirect
+	github.com/btcsuite/btcd/btcec/v2 v2.5.1 // indirect
 	github.com/btcsuite/btcd/btcutil v1.2.0 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0 // indirect
 	github.com/btcsuite/btcd/chainhash/v2 v2.0.0 // indirect
@@ -44,7 +44,7 @@ require (
 	github.com/decred/dcrd/crypto/blake256 v1.1.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.1 // indirect
 	github.com/dgraph-io/ristretto/v2 v2.2.0 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.6 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
