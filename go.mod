@@ -6,8 +6,8 @@ require (
 	github.com/Salvionied/apollo/v2 v2.2.1
 	github.com/blinklabs-io/adder v0.46.0
 	github.com/blinklabs-io/bursa v0.21.1
-	github.com/blinklabs-io/dingo v0.87.1
-	github.com/blinklabs-io/gouroboros v0.216.2
+	github.com/blinklabs-io/dingo v0.90.3
+	github.com/blinklabs-io/gouroboros v0.216.3
 	github.com/blinklabs-io/ouroboros-mock v0.21.1
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
@@ -31,7 +31,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
-	github.com/Microsoft/go-winio v0.6.2 // indirect
+	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/Salvionied/apollo v1.5.0
 	github.com/SundaeSwap-finance/kugo v1.3.1 // indirect
 	github.com/SundaeSwap-finance/ogmigo/v6 v6.2.1 // indirect
@@ -39,7 +39,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
 	github.com/blinklabs-io/go-bip39 v0.2.1 // indirect
-	github.com/blinklabs-io/plutigo v0.10.0 // indirect
+	github.com/blinklabs-io/plutigo v0.10.1-0.20261028105303-aad79706cb8c // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1 // indirect
 	github.com/btcsuite/btcd/btcutil v1.2.0 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0 // indirect
@@ -58,7 +58,7 @@ require (
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/jinzhu/copier v0.4.0 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
-	github.com/klauspost/compress v1.20.1 // indirect
+	github.com/klauspost/compress v1.20.3 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
