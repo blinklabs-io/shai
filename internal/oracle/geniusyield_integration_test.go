@@ -116,7 +116,7 @@ func orderNFTName(t *testing.T, output ledger.TransactionOutput) []byte {
 // Both properties are asserted here so the oracle's matching and datum
 // resolution are pinned to how the chain actually stores these orders.
 func TestMainnetGeniusYieldProfileTracksRealOrder(t *testing.T) {
-	profile := config.Profiles["mainnet"]["geniusyield"]
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
 	o := New(nil, &profile, NewGeniusYieldParser())
 	o.storage = newTestOracleStorage(t)
 
@@ -210,7 +210,7 @@ func TestMainnetGeniusYieldProfileTracksRealOrder(t *testing.T) {
 }
 
 func TestGeniusYieldOrderSpendRemovesTrackedOrder(t *testing.T) {
-	profile := config.Profiles["mainnet"]["geniusyield"]
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
 	o := New(nil, &profile, NewGeniusYieldParser())
 	o.storage = newTestOracleStorage(t)
 
@@ -254,7 +254,7 @@ func TestGeniusYieldOrderSpendRemovesTrackedOrder(t *testing.T) {
 }
 
 func TestGeniusYieldOrderSurvivesRestartAndRollsBack(t *testing.T) {
-	profile := config.Profiles["mainnet"]["geniusyield"]
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
 	storage := newTestOracleStorage(t)
 	o := New(nil, &profile, NewGeniusYieldParser())
 	o.storage = storage
@@ -310,7 +310,7 @@ func TestGeniusYieldOrderSurvivesRestartAndRollsBack(t *testing.T) {
 }
 
 func TestGeniusYieldRollbackRestoresSpentOrder(t *testing.T) {
-	profile := config.Profiles["mainnet"]["geniusyield"]
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
 	storage := newTestOracleStorage(t)
 	o := New(nil, &profile, NewGeniusYieldParser())
 	o.storage = storage
@@ -383,7 +383,7 @@ func TestGeniusYieldRollbackRestoresSpentOrder(t *testing.T) {
 }
 
 func TestGeniusYieldTransitionKeepsMemoryWhenPersistenceFails(t *testing.T) {
-	profile := config.Profiles["mainnet"]["geniusyield"]
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
 	state := &OrderState{
 		Network:  "mainnet",
 		Protocol: "geniusyield",
@@ -421,7 +421,7 @@ func TestGeniusYieldTransitionKeepsMemoryWhenPersistenceFails(t *testing.T) {
 }
 
 func TestOrderAPIServesTrackedOrder(t *testing.T) {
-	profile := config.Profiles["mainnet"]["geniusyield"]
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
 	o := New(nil, &profile, NewGeniusYieldParser())
 	o.storage = newTestOracleStorage(t)
 
@@ -628,7 +628,7 @@ func newTestOrderOutput(
 // the order key comes from the datum, so accepting one without the NFT lets a
 // forged output displace the genuine order that carries it.
 func TestGeniusYieldOrderWithoutItsNFTIsIgnored(t *testing.T) {
-	profile := config.Profiles["mainnet"]["geniusyield"]
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
 	o := New(nil, &profile, NewGeniusYieldParser())
 	o.storage = newTestOracleStorage(t)
 
