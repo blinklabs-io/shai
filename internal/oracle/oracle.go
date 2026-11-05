@@ -974,14 +974,20 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 
 	if parser, ok := o.parser.(OrderParser); ok && o.isOrderbookProfile() {
-		changes, err := o.storage.RollbackOrderStates(
-			config.GetConfig().Network,
-			parser.Protocol(),
-			firstInvalidSlot,
-		)
-		o.applyOrderRollback(changes)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("rollback order states: %w", err))
+		for {
+			changes, done, err := o.storage.RollbackOrderStates(
+				config.GetConfig().Network,
+				parser.Protocol(),
+				firstInvalidSlot,
+			)
+			o.applyOrderRollback(changes)
+			if err != nil {
+				errs = append(errs, fmt.Errorf("rollback order states: %w", err))
+				break
+			}
+			if done {
+				break
+			}
 		}
 	}
 

@@ -447,55 +447,51 @@ func undoSlotFromKey(key, prefix []byte) (uint64, error) {
 	return slot, nil
 }
 
-// RollbackOrderStates reverses journaled order transitions at or after the
-// first invalid slot.
+// RollbackOrderStates reverses one bounded batch of order transitions at or
+// after the first invalid slot. Returned changes are already durable even when
+// a later record in the batch fails; done reports that no invalid state remains.
 func (s *OracleStorage) RollbackOrderStates(
 	network string,
 	protocol string,
 	firstInvalidSlot uint64,
-) (orderRollbackDelta, error) {
+) (orderRollbackDelta, bool, error) {
 	s.orderMu.Lock()
 	defer s.orderMu.Unlock()
 	changes := make(orderRollbackDelta)
 
-	for {
-		undoRecords, done, err := s.loadNewestOrderRollbackSlot(
-			network,
-			protocol,
-			firstInvalidSlot,
-		)
-		if err != nil {
-			return changes, fmt.Errorf("load order rollback state: %w", err)
-		}
-		if done {
-			break
-		}
+	undoRecords, undoDone, err := s.loadNewestOrderRollbackSlot(
+		network,
+		protocol,
+		firstInvalidSlot,
+	)
+	if err != nil {
+		return changes, false, fmt.Errorf("load order rollback state: %w", err)
+	}
+	if !undoDone {
 		for _, entry := range undoRecords {
 			entryChanges, err := s.rollbackOrderUndoRecord(entry.key, entry.record)
 			if err != nil {
-				return changes, err
+				return changes, false, err
 			}
 			for orderID, state := range entryChanges {
 				changes[orderID] = state
 			}
 		}
+		return changes, false, nil
 	}
-	for {
-		removed, done, err := s.deleteInvalidOrderStateBatch(
-			network,
-			protocol,
-			firstInvalidSlot,
-		)
-		for _, orderID := range removed {
-			changes[orderID] = nil
-		}
-		if err != nil {
-			return changes, err
-		}
-		if done {
-			return changes, nil
-		}
+
+	removed, done, err := s.deleteInvalidOrderStateBatch(
+		network,
+		protocol,
+		firstInvalidSlot,
+	)
+	for _, orderID := range removed {
+		changes[orderID] = nil
 	}
+	if err != nil {
+		return changes, false, err
+	}
+	return changes, done, nil
 }
 
 type orderUndoEntry struct {

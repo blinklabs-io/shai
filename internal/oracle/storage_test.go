@@ -58,6 +58,31 @@ func newClosedTestOracleStorage(t *testing.T) *OracleStorage {
 	return &OracleStorage{db: db}
 }
 
+func rollbackAllOrderStates(
+	storage *OracleStorage,
+	network,
+	protocol string,
+	firstInvalidSlot uint64,
+) (orderRollbackDelta, error) {
+	allChanges := make(orderRollbackDelta)
+	for {
+		changes, done, err := storage.RollbackOrderStates(
+			network,
+			protocol,
+			firstInvalidSlot,
+		)
+		for orderID, state := range changes {
+			allChanges[orderID] = state
+		}
+		if err != nil {
+			return allChanges, err
+		}
+		if done {
+			return allChanges, nil
+		}
+	}
+}
+
 func TestOrderUndoHistoryPrunesFinalizedTransactions(t *testing.T) {
 	storage := newTestOracleStorage(t)
 	oldRecord := orderUndoRecord{
@@ -291,7 +316,8 @@ func TestOrderRollbackReadsOnlyInvalidUndoSuffix(t *testing.T) {
 		t.Fatalf("failed to apply second order transition: %v", err)
 	}
 
-	changes, err := storage.RollbackOrderStates(
+	changes, err := rollbackAllOrderStates(
+		storage,
 		first.Network,
 		first.Protocol,
 		first.Slot,
@@ -363,7 +389,8 @@ func TestOrderRollbackPersistsProgressBeforeCorruptRecord(t *testing.T) {
 		t.Fatalf("failed to seed corrupt undo record: %v", err)
 	}
 
-	changes, err := storage.RollbackOrderStates(
+	changes, err := rollbackAllOrderStates(
+		storage,
 		oldest.Network,
 		oldest.Protocol,
 		oldest.Slot,
@@ -394,7 +421,8 @@ func TestOrderRollbackPersistsProgressBeforeCorruptRecord(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("failed to remove corrupt undo record: %v", err)
 	}
-	changes, err = storage.RollbackOrderStates(
+	changes, err = rollbackAllOrderStates(
+		storage,
 		oldest.Network,
 		oldest.Protocol,
 		oldest.Slot,
@@ -453,7 +481,12 @@ func TestOrderRollbackReturnsOnlyChangedStates(t *testing.T) {
 		t.Fatalf("failed to apply rolled-back order: %v", err)
 	}
 
-	changes, err := storage.RollbackOrderStates("mainnet", "geniusyield", 10)
+	changes, err := rollbackAllOrderStates(
+		storage,
+		"mainnet",
+		"geniusyield",
+		10,
+	)
 	if err != nil {
 		t.Fatalf("failed to roll back order: %v", err)
 	}
@@ -508,7 +541,12 @@ func TestOrderRollbackIndexesLegacyStates(t *testing.T) {
 		t.Fatalf("failed to index legacy orders: %v", err)
 	}
 
-	changes, err := storage.RollbackOrderStates("mainnet", "geniusyield", 10)
+	changes, err := rollbackAllOrderStates(
+		storage,
+		"mainnet",
+		"geniusyield",
+		10,
+	)
 	if err != nil {
 		t.Fatalf("failed to roll back legacy order: %v", err)
 	}
@@ -528,6 +566,84 @@ func TestOrderRollbackIndexesLegacyStates(t *testing.T) {
 		invalid.OrderId,
 	); err == nil {
 		t.Fatal("invalid legacy order remained after rollback")
+	}
+}
+
+func TestOrderRollbackBatchesInvalidStateChanges(t *testing.T) {
+	const invalidCount = 250
+	storage := newTestOracleStorage(t)
+	oracle := &Oracle{
+		orders:     make(map[string]*OrderState),
+		orderUtxos: make(map[string]string),
+	}
+	batch := storage.db.NewWriteBatch()
+	defer batch.Cancel()
+	for i := range invalidCount {
+		state := &OrderState{
+			Network:  "mainnet",
+			Protocol: "geniusyield",
+			OrderId:  fmt.Sprintf("invalid-%03d", i),
+			TxHash:   fmt.Sprintf("tx-%03d", i),
+			Slot:     10,
+		}
+		data, err := json.Marshal(state)
+		if err != nil {
+			t.Fatalf("failed to marshal invalid order: %v", err)
+		}
+		if err := batch.Set(
+			[]byte(orderStateKey(state.Network, state.Protocol, state.OrderId)),
+			data,
+		); err != nil {
+			t.Fatalf("failed to seed invalid order: %v", err)
+		}
+		if err := batch.Set([]byte(orderStateSlotKey(
+			state.Network,
+			state.Protocol,
+			state.Slot,
+			state.OrderId,
+		)), nil); err != nil {
+			t.Fatalf("failed to seed invalid order index: %v", err)
+		}
+		oracle.putOrderLocked(state)
+		oracle.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
+	}
+	if err := batch.Flush(); err != nil {
+		t.Fatalf("failed to flush invalid orders: %v", err)
+	}
+
+	totalChanges := 0
+	batches := 0
+	for {
+		changes, done, err := storage.RollbackOrderStates(
+			"mainnet",
+			"geniusyield",
+			10,
+		)
+		if err != nil {
+			t.Fatalf("failed to roll back invalid orders: %v", err)
+		}
+		if len(changes) > orderRollbackDeleteBatchSize {
+			t.Fatalf(
+				"rollback returned %d changes in one batch, want at most %d",
+				len(changes),
+				orderRollbackDeleteBatchSize,
+			)
+		}
+		oracle.applyOrderRollback(changes)
+		totalChanges += len(changes)
+		batches++
+		if done {
+			break
+		}
+	}
+	if batches != 3 {
+		t.Fatalf("rollback completed in %d batches, want 3", batches)
+	}
+	if totalChanges != invalidCount {
+		t.Fatalf("rollback applied %d changes, want %d", totalChanges, invalidCount)
+	}
+	if oracle.OrderCount() != 0 {
+		t.Fatalf("%d invalid orders remained in memory", oracle.OrderCount())
 	}
 }
 
