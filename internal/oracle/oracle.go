@@ -974,19 +974,14 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	}
 
 	if parser, ok := o.parser.(OrderParser); ok && o.isOrderbookProfile() {
-		states, err := o.storage.RollbackOrderStates(
+		changes, err := o.storage.RollbackOrderStates(
 			config.GetConfig().Network,
 			parser.Protocol(),
 			firstInvalidSlot,
 		)
+		o.applyOrderRollback(changes)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("rollback order states: %w", err))
-		} else {
-			o.replaceOrderStates(
-				config.GetConfig().Network,
-				parser.Protocol(),
-				states,
-			)
 		}
 	}
 
@@ -1000,24 +995,32 @@ func (o *Oracle) handleRollback(evt event.RollbackEvent) error {
 	return nil
 }
 
-func (o *Oracle) replaceOrderStates(
-	network string,
-	protocol string,
-	states []*OrderState,
-) {
+func (o *Oracle) applyOrderRollback(changes orderRollbackDelta) {
+	if len(changes) == 0 {
+		return
+	}
 	o.ordersMu.Lock()
 	defer o.ordersMu.Unlock()
-	for id, state := range o.orders {
-		if state.Network == network && state.Protocol == protocol {
-			delete(o.orderUtxos, orderUtxoRef(state.TxHash, state.TxIndex))
-			delete(o.orders, id)
-		}
+	if o.orders == nil {
+		o.orders = make(map[string]*OrderState)
 	}
-	for _, state := range states {
-		o.orders[state.OrderId] = state
+	if o.orderUtxos == nil {
+		o.orderUtxos = make(map[string]string)
+	}
+	for orderID, state := range changes {
+		if previous := o.orders[orderID]; previous != nil {
+			delete(
+				o.orderUtxos,
+				orderUtxoRef(previous.TxHash, previous.TxIndex),
+			)
+		}
+		if state == nil {
+			o.deleteOrderLocked(orderID)
+			continue
+		}
+		o.putOrderLocked(state)
 		o.orderUtxos[orderUtxoRef(state.TxHash, state.TxIndex)] = state.OrderId
 	}
-	o.rebuildOrderIndexLocked()
 }
 
 // firstRolledBackSlot returns the first slot invalidated by a chain-sync
@@ -1050,6 +1053,11 @@ func (o *Oracle) loadPersistedStates() error {
 	orderStates, err := o.storage.LoadAllOrderStates()
 	if err != nil {
 		return err
+	}
+	if o.isOrderbookProfile() {
+		if err := o.storage.ensureOrderStateIndexes(orderStates); err != nil {
+			return err
+		}
 	}
 	activityState, err := o.storage.LoadActivityState()
 	if err != nil {

@@ -32,6 +32,7 @@ import (
 	"github.com/blinklabs-io/shai/common"
 	"github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/internal/config"
+	"github.com/dgraph-io/badger/v4"
 )
 
 // Mainnet order 9e0b60d328b5b2d5b2c4a5fbf33cfe72f261ed41374c61793631ebd1ac3d2fb0#0,
@@ -379,6 +380,82 @@ func TestGeniusYieldRollbackRestoresSpentOrder(t *testing.T) {
 			stored.TxHash,
 			mainnetOrderTxHash,
 		)
+	}
+}
+
+func TestGeniusYieldRollbackAppliesPersistedProgressBeforeError(t *testing.T) {
+	profile := config.Profiles["mainnet"]["geniusyield-orderbook"]
+	storage := newTestOracleStorage(t)
+	o := New(nil, &profile, NewGeniusYieldParser())
+	o.storage = storage
+	network := config.GetConfig().Network
+
+	oldestRecord := orderUndoRecord{
+		Network:         network,
+		Protocol:        "geniusyield",
+		TransactionHash: "oldest",
+		Slot:            10,
+	}
+	oldest := &OrderState{
+		Network:  network,
+		Protocol: oldestRecord.Protocol,
+		OrderId:  "oldest",
+		TxHash:   oldestRecord.TransactionHash,
+		Slot:     oldestRecord.Slot,
+	}
+	newestRecord := orderUndoRecord{
+		Network:         network,
+		Protocol:        oldestRecord.Protocol,
+		TransactionHash: "newest",
+		Slot:            12,
+	}
+	newest := &OrderState{
+		Network:  network,
+		Protocol: newestRecord.Protocol,
+		OrderId:  "newest",
+		TxHash:   newestRecord.TransactionHash,
+		Slot:     newestRecord.Slot,
+	}
+	for _, transition := range []struct {
+		record orderUndoRecord
+		state  *OrderState
+	}{
+		{record: oldestRecord, state: oldest},
+		{record: newestRecord, state: newest},
+	} {
+		if _, err := storage.ApplyOrderTransaction(
+			transition.record,
+			[]*OrderState{transition.state},
+		); err != nil {
+			t.Fatalf("failed to apply order transition: %v", err)
+		}
+		o.putOrderLocked(transition.state)
+		o.orderUtxos[orderUtxoRef(
+			transition.state.TxHash,
+			transition.state.TxIndex,
+		)] = transition.state.OrderId
+	}
+	corrupt := orderUndoRecord{
+		Network:         network,
+		Protocol:        oldestRecord.Protocol,
+		TransactionHash: "corrupt",
+		Slot:            11,
+	}
+	if err := storage.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(orderUndoKey(corrupt)), []byte("{"))
+	}); err != nil {
+		t.Fatalf("failed to seed corrupt undo record: %v", err)
+	}
+
+	err := o.handleRollback(event.RollbackEvent{SlotNumber: 9})
+	if err == nil {
+		t.Fatal("expected corrupt undo record to stop rollback")
+	}
+	if _, ok := o.GetOrderState(newest.OrderId); ok {
+		t.Fatal("persisted rollback progress was not applied in memory")
+	}
+	if current, ok := o.GetOrderState(oldest.OrderId); !ok || current != oldest {
+		t.Fatal("older order changed before its undo record was processed")
 	}
 }
 

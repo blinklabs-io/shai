@@ -32,6 +32,7 @@ const (
 	poolStateKeyPrefix           = "oracle_pool_"
 	cdpStateKeyPrefix            = "oracle_cdp_"
 	orderStateKeyPrefix          = "oracle_order_"
+	orderStateSlotKeyPrefix      = "oracle_slot_order_"
 	orderUndoKeyPrefix           = "oracle_undo_order_"
 	orderRollbackDeleteBatchSize = 100
 	// The Cardano mainnet stability window is 3k/f = 129,600 slots.
@@ -53,6 +54,8 @@ type orderUndoRecord struct {
 	Spent           []*OrderState `json:"spent"`
 	Produced        []string      `json:"produced"`
 }
+
+type orderRollbackDelta map[string]*OrderState
 
 // NewOracleStorage creates a new OracleStorage instance
 func NewOracleStorage() (*OracleStorage, error) {
@@ -283,6 +286,12 @@ func (s *OracleStorage) ApplyOrderTransaction(
 				state.OrderId,
 			)
 		}
+		if state.Slot != record.Slot {
+			return false, fmt.Errorf(
+				"produced order %s has mismatched slot",
+				state.OrderId,
+			)
+		}
 		data, err := json.Marshal(state)
 		if err != nil {
 			return false, fmt.Errorf(
@@ -327,11 +336,30 @@ func (s *OracleStorage) ApplyOrderTransaction(
 			))); err != nil {
 				return err
 			}
+			if err := txn.Delete([]byte(orderStateSlotKey(
+				record.Network,
+				record.Protocol,
+				state.Slot,
+				state.OrderId,
+			))); err != nil {
+				return err
+			}
 		}
 		for _, state := range produced {
 			if err := txn.Set(
 				[]byte(orderStateKey(record.Network, record.Protocol, state.OrderId)),
 				encodedStates[state.OrderId],
+			); err != nil {
+				return err
+			}
+			if err := txn.Set(
+				[]byte(orderStateSlotKey(
+					record.Network,
+					record.Protocol,
+					state.Slot,
+					state.OrderId,
+				)),
+				nil,
 			); err != nil {
 				return err
 			}
@@ -425,9 +453,10 @@ func (s *OracleStorage) RollbackOrderStates(
 	network string,
 	protocol string,
 	firstInvalidSlot uint64,
-) ([]*OrderState, error) {
+) (orderRollbackDelta, error) {
 	s.orderMu.Lock()
 	defer s.orderMu.Unlock()
+	changes := make(orderRollbackDelta)
 
 	for {
 		undoRecords, done, err := s.loadNewestOrderRollbackSlot(
@@ -436,28 +465,37 @@ func (s *OracleStorage) RollbackOrderStates(
 			firstInvalidSlot,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("load order rollback state: %w", err)
+			return changes, fmt.Errorf("load order rollback state: %w", err)
 		}
 		if done {
 			break
 		}
 		for _, entry := range undoRecords {
-			if err := s.rollbackOrderUndoRecord(entry.key, entry.record); err != nil {
-				return nil, err
+			entryChanges, err := s.rollbackOrderUndoRecord(entry.key, entry.record)
+			if err != nil {
+				return changes, err
+			}
+			for orderID, state := range entryChanges {
+				changes[orderID] = state
 			}
 		}
 	}
-	if err := s.deleteInvalidOrderStates(network, protocol, firstInvalidSlot); err != nil {
-		return nil, err
+	for {
+		removed, done, err := s.deleteInvalidOrderStateBatch(
+			network,
+			protocol,
+			firstInvalidSlot,
+		)
+		for _, orderID := range removed {
+			changes[orderID] = nil
+		}
+		if err != nil {
+			return changes, err
+		}
+		if done {
+			return changes, nil
+		}
 	}
-	states, err := s.loadOrderStates(network, protocol)
-	if err != nil {
-		return nil, err
-	}
-	sort.Slice(states, func(i, j int) bool {
-		return states[i].OrderId < states[j].OrderId
-	})
-	return states, nil
 }
 
 type orderUndoEntry struct {
@@ -536,7 +574,8 @@ func (s *OracleStorage) loadNewestOrderRollbackSlot(
 func (s *OracleStorage) rollbackOrderUndoRecord(
 	key string,
 	record orderUndoRecord,
-) error {
+) (orderRollbackDelta, error) {
+	changes := make(orderRollbackDelta, len(record.Produced)+len(record.Spent))
 	err := s.db.Update(func(txn *badger.Txn) error {
 		for _, orderId := range record.Produced {
 			if err := txn.Delete([]byte(orderStateKey(
@@ -546,6 +585,15 @@ func (s *OracleStorage) rollbackOrderUndoRecord(
 			))); err != nil {
 				return err
 			}
+			if err := txn.Delete([]byte(orderStateSlotKey(
+				record.Network,
+				record.Protocol,
+				record.Slot,
+				orderId,
+			))); err != nil {
+				return err
+			}
+			changes[orderId] = nil
 		}
 		for _, state := range record.Spent {
 			if state == nil || state.OrderId == "" {
@@ -568,104 +616,123 @@ func (s *OracleStorage) rollbackOrderUndoRecord(
 			); err != nil {
 				return err
 			}
+			if err := txn.Set(
+				[]byte(orderStateSlotKey(
+					record.Network,
+					record.Protocol,
+					state.Slot,
+					state.OrderId,
+				)),
+				nil,
+			); err != nil {
+				return err
+			}
+			changes[state.OrderId] = state
 		}
 		return txn.Delete([]byte(key))
 	})
 	if err != nil {
-		return fmt.Errorf("persist order rollback entry %s: %w", key, err)
+		return nil, fmt.Errorf("persist order rollback entry %s: %w", key, err)
 	}
-	return nil
+	return changes, nil
 }
 
-func (s *OracleStorage) deleteInvalidOrderStates(
+func (s *OracleStorage) deleteInvalidOrderStateBatch(
 	network string,
 	protocol string,
 	firstInvalidSlot uint64,
-) error {
-	keys := make([]string, 0, orderRollbackDeleteBatchSize)
-	err := s.db.View(func(txn *badger.Txn) error {
+) ([]string, bool, error) {
+	prefix := []byte(orderStateSlotKeyPrefix + network + ":" + protocol + ":")
+	seek := []byte(fmt.Sprintf("%s%020d:", prefix, firstInvalidSlot))
+	removed := make([]string, 0, orderRollbackDeleteBatchSize)
+	done := false
+	err := s.db.Update(func(txn *badger.Txn) error {
 		opts := badger.DefaultIteratorOptions
-		opts.Prefix = []byte(
-			orderStateKeyPrefix + network + ":" + protocol + ":",
-		)
+		opts.Prefix = prefix
+		opts.PrefetchValues = false
 		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
+		indexKeys := make([][]byte, 0, orderRollbackDeleteBatchSize)
+		orderIDs := make([]string, 0, orderRollbackDeleteBatchSize)
+		for it.Seek(seek); it.Valid() && len(indexKeys) < orderRollbackDeleteBatchSize; it.Next() {
+			indexKey := it.Item().KeyCopy(nil)
+			orderID, err := orderIDFromStateSlotKey(indexKey, prefix)
+			if err != nil {
+				it.Close()
+				return err
+			}
+			indexKeys = append(indexKeys, indexKey)
+			orderIDs = append(orderIDs, orderID)
+		}
+		done = !it.Valid()
+		it.Close()
+
+		for i, indexKey := range indexKeys {
+			orderID := orderIDs[i]
+			stateKey := []byte(orderStateKey(network, protocol, orderID))
+			item, err := txn.Get(stateKey)
+			if err == badger.ErrKeyNotFound {
+				if err := txn.Delete(indexKey); err != nil {
+					return err
+				}
+				continue
+			}
+			if err != nil {
+				return err
+			}
 			var state OrderState
 			if err := item.Value(func(value []byte) error {
 				return json.Unmarshal(value, &state)
 			}); err != nil {
-				return fmt.Errorf(
-					"unmarshal order state %s: %w",
-					item.Key(),
-					err,
-				)
+				return fmt.Errorf("unmarshal order state %s: %w", stateKey, err)
 			}
-			if state.Slot >= firstInvalidSlot {
-				keys = append(keys, string(item.KeyCopy(nil)))
+			if state.Slot < firstInvalidSlot ||
+				orderStateSlotKey(network, protocol, state.Slot, orderID) != string(indexKey) {
+				if err := txn.Delete(indexKey); err != nil {
+					return err
+				}
+				continue
 			}
+			if err := txn.Delete(stateKey); err != nil {
+				return err
+			}
+			if err := txn.Delete(indexKey); err != nil {
+				return err
+			}
+			removed = append(removed, orderID)
 		}
 		return nil
 	})
 	if err != nil {
-		return fmt.Errorf("load invalid order states: %w", err)
+		return nil, false, fmt.Errorf("delete invalid order states: %w", err)
 	}
-	for len(keys) > 0 {
-		batchSize := min(orderRollbackDeleteBatchSize, len(keys))
-		batch := keys[:batchSize]
+	return removed, done, nil
+}
+
+func (s *OracleStorage) ensureOrderStateIndexes(states []*OrderState) error {
+	for len(states) > 0 {
+		batchSize := min(orderRollbackDeleteBatchSize, len(states))
+		batch := states[:batchSize]
 		if err := s.db.Update(func(txn *badger.Txn) error {
-			for _, key := range batch {
-				if err := txn.Delete([]byte(key)); err != nil {
+			for _, state := range batch {
+				if state == nil || state.Network == "" || state.Protocol == "" || state.OrderId == "" {
+					return fmt.Errorf("cannot index incomplete order state")
+				}
+				if err := txn.Set([]byte(orderStateSlotKey(
+					state.Network,
+					state.Protocol,
+					state.Slot,
+					state.OrderId,
+				)), nil); err != nil {
 					return err
 				}
 			}
 			return nil
 		}); err != nil {
-			return fmt.Errorf("delete invalid order states: %w", err)
+			return fmt.Errorf("index persisted order states: %w", err)
 		}
-		keys = keys[batchSize:]
+		states = states[batchSize:]
 	}
 	return nil
-}
-
-func (s *OracleStorage) loadOrderStates(
-	network string,
-	protocol string,
-) ([]*OrderState, error) {
-	logger := logging.GetLogger()
-	states := make([]*OrderState, 0)
-	err := s.db.View(func(txn *badger.Txn) error {
-		opts := badger.DefaultIteratorOptions
-		opts.Prefix = []byte(
-			orderStateKeyPrefix + network + ":" + protocol + ":",
-		)
-		it := txn.NewIterator(opts)
-		defer it.Close()
-		for it.Rewind(); it.Valid(); it.Next() {
-			item := it.Item()
-			if err := item.Value(func(value []byte) error {
-				var state OrderState
-				if err := json.Unmarshal(value, &state); err != nil {
-					logger.Warn(
-						"failed to unmarshal order state",
-						"key", string(item.Key()),
-						"error", err,
-					)
-					return nil
-				}
-				states = append(states, &state)
-				return nil
-			}); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("load order states after rollback: %w", err)
-	}
-	return states, nil
 }
 
 // LoadCDPState loads a single CDP state by network, protocol, and CDP ID.
@@ -819,6 +886,34 @@ func cdpStateKey(network, protocol, cdpId string) string {
 // orderStateKey generates the storage key for an order state.
 func orderStateKey(network, protocol, orderId string) string {
 	return orderStateKeyPrefix + network + ":" + protocol + ":" + orderId
+}
+
+func orderStateSlotKey(
+	network,
+	protocol string,
+	slot uint64,
+	orderId string,
+) string {
+	return fmt.Sprintf(
+		"%s%s:%s:%020d:%s",
+		orderStateSlotKeyPrefix,
+		network,
+		protocol,
+		slot,
+		orderId,
+	)
+}
+
+func orderIDFromStateSlotKey(key, prefix []byte) (string, error) {
+	slotStart := len(prefix)
+	orderIDStart := slotStart + 21
+	if len(key) <= orderIDStart || key[orderIDStart-1] != ':' {
+		return "", fmt.Errorf("invalid order state slot key %q", key)
+	}
+	if _, err := strconv.ParseUint(string(key[slotStart:orderIDStart-1]), 10, 64); err != nil {
+		return "", fmt.Errorf("invalid order state slot key %q: %w", key, err)
+	}
+	return string(key[orderIDStart:]), nil
 }
 
 func orderUndoKey(record orderUndoRecord) string {

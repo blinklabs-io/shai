@@ -291,7 +291,7 @@ func TestOrderRollbackReadsOnlyInvalidUndoSuffix(t *testing.T) {
 		t.Fatalf("failed to apply second order transition: %v", err)
 	}
 
-	states, err := storage.RollbackOrderStates(
+	changes, err := storage.RollbackOrderStates(
 		first.Network,
 		first.Protocol,
 		first.Slot,
@@ -299,8 +299,9 @@ func TestOrderRollbackReadsOnlyInvalidUndoSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to roll back order transitions: %v", err)
 	}
-	if len(states) != 0 {
-		t.Fatalf("expected no order states after rollback, got %d", len(states))
+	if len(changes) != 2 || changes[firstState.OrderId] != nil ||
+		changes[secondState.OrderId] != nil {
+		t.Fatalf("unexpected order rollback changes: %+v", changes)
 	}
 	if err := storage.db.View(func(txn *badger.Txn) error {
 		if _, err := txn.Get([]byte(orderUndoKey(retained))); err != nil {
@@ -362,12 +363,16 @@ func TestOrderRollbackPersistsProgressBeforeCorruptRecord(t *testing.T) {
 		t.Fatalf("failed to seed corrupt undo record: %v", err)
 	}
 
-	if _, err := storage.RollbackOrderStates(
+	changes, err := storage.RollbackOrderStates(
 		oldest.Network,
 		oldest.Protocol,
 		oldest.Slot,
-	); err == nil {
+	)
+	if err == nil {
 		t.Fatal("expected corrupt undo record to stop rollback")
+	}
+	if len(changes) != 1 || changes[newestState.OrderId] != nil {
+		t.Fatalf("unexpected persisted rollback changes: %+v", changes)
 	}
 	if _, err := storage.LoadOrderState(
 		newest.Network,
@@ -389,7 +394,7 @@ func TestOrderRollbackPersistsProgressBeforeCorruptRecord(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("failed to remove corrupt undo record: %v", err)
 	}
-	states, err := storage.RollbackOrderStates(
+	changes, err = storage.RollbackOrderStates(
 		oldest.Network,
 		oldest.Protocol,
 		oldest.Slot,
@@ -397,8 +402,132 @@ func TestOrderRollbackPersistsProgressBeforeCorruptRecord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to resume order rollback: %v", err)
 	}
-	if len(states) != 0 {
-		t.Fatalf("expected no order states after resumed rollback, got %d", len(states))
+	if len(changes) != 1 || changes[oldestState.OrderId] != nil {
+		t.Fatalf("unexpected resumed rollback changes: %+v", changes)
+	}
+}
+
+func TestOrderRollbackReturnsOnlyChangedStates(t *testing.T) {
+	const retainedCount = 2_000
+	storage := newTestOracleStorage(t)
+	batch := storage.db.NewWriteBatch()
+	defer batch.Cancel()
+	for i := range retainedCount {
+		state := &OrderState{
+			Network:  "mainnet",
+			Protocol: "geniusyield",
+			OrderId:  fmt.Sprintf("retained-%04d", i),
+			Slot:     9,
+		}
+		data, err := json.Marshal(state)
+		if err != nil {
+			t.Fatalf("failed to marshal retained order: %v", err)
+		}
+		if err := batch.Set(
+			[]byte(orderStateKey(state.Network, state.Protocol, state.OrderId)),
+			data,
+		); err != nil {
+			t.Fatalf("failed to seed retained order: %v", err)
+		}
+	}
+	if err := batch.Flush(); err != nil {
+		t.Fatalf("failed to flush retained orders: %v", err)
+	}
+
+	rollbackRecord := orderUndoRecord{
+		Network:         "mainnet",
+		Protocol:        "geniusyield",
+		TransactionHash: "rollback",
+		Slot:            10,
+	}
+	invalid := &OrderState{
+		Network:  rollbackRecord.Network,
+		Protocol: rollbackRecord.Protocol,
+		OrderId:  "invalid",
+		Slot:     rollbackRecord.Slot,
+	}
+	if _, err := storage.ApplyOrderTransaction(
+		rollbackRecord,
+		[]*OrderState{invalid},
+	); err != nil {
+		t.Fatalf("failed to apply rolled-back order: %v", err)
+	}
+
+	changes, err := storage.RollbackOrderStates("mainnet", "geniusyield", 10)
+	if err != nil {
+		t.Fatalf("failed to roll back order: %v", err)
+	}
+	if len(changes) != 1 || changes[invalid.OrderId] != nil {
+		t.Fatalf(
+			"rollback returned %d changes for one invalid order",
+			len(changes),
+		)
+	}
+	if _, err := storage.LoadOrderState(
+		"mainnet",
+		"geniusyield",
+		"retained-1999",
+	); err != nil {
+		t.Fatalf("retained order was not preserved: %v", err)
+	}
+}
+
+func TestOrderRollbackIndexesLegacyStates(t *testing.T) {
+	storage := newTestOracleStorage(t)
+	retained := &OrderState{
+		Network:  "mainnet",
+		Protocol: "geniusyield",
+		OrderId:  "retained",
+		Slot:     9,
+	}
+	invalid := &OrderState{
+		Network:  retained.Network,
+		Protocol: retained.Protocol,
+		OrderId:  "invalid",
+		Slot:     10,
+	}
+	for _, state := range []*OrderState{retained, invalid} {
+		data, err := json.Marshal(state)
+		if err != nil {
+			t.Fatalf("failed to marshal legacy order: %v", err)
+		}
+		if err := storage.db.Update(func(txn *badger.Txn) error {
+			return txn.Set(
+				[]byte(orderStateKey(state.Network, state.Protocol, state.OrderId)),
+				data,
+			)
+		}); err != nil {
+			t.Fatalf("failed to seed legacy order: %v", err)
+		}
+	}
+	states, err := storage.LoadAllOrderStates()
+	if err != nil {
+		t.Fatalf("failed to load legacy orders: %v", err)
+	}
+	if err := storage.ensureOrderStateIndexes(states); err != nil {
+		t.Fatalf("failed to index legacy orders: %v", err)
+	}
+
+	changes, err := storage.RollbackOrderStates("mainnet", "geniusyield", 10)
+	if err != nil {
+		t.Fatalf("failed to roll back legacy order: %v", err)
+	}
+	if len(changes) != 1 || changes[invalid.OrderId] != nil {
+		t.Fatalf("unexpected legacy rollback changes: %+v", changes)
+	}
+	if _, err := storage.LoadOrderState(
+		retained.Network,
+		retained.Protocol,
+		retained.OrderId,
+	); err != nil {
+		t.Fatalf("retained legacy order was not preserved: %v", err)
+	}
+	if _, err := storage.LoadOrderState(
+		invalid.Network,
+		invalid.Protocol,
+		invalid.OrderId,
+	); err == nil {
+		t.Fatal("invalid legacy order remained after rollback")
 	}
 }
 
