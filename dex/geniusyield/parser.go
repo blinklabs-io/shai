@@ -110,14 +110,13 @@ func (p *Parser) ParseOrderDatum(
 
 	orderId := GenerateOrderId(orderDatum.NFT)
 
-	var startTime, endTime *time.Time
-	if orderDatum.Start.IsPresent {
-		t := time.UnixMilli(orderDatum.Start.Time)
-		startTime = &t
+	startTime, err := parseOrderTime("start", orderDatum.Start)
+	if err != nil {
+		return nil, err
 	}
-	if orderDatum.End.IsPresent {
-		t := time.UnixMilli(orderDatum.End.Time)
-		endTime = &t
+	endTime, err := parseOrderTime("end", orderDatum.End)
+	if err != nil {
+		return nil, err
 	}
 
 	state := &OrderState{
@@ -153,6 +152,22 @@ func (p *Parser) ParseOrderDatum(
 	state.IsActive = state.ActiveAt(timestamp)
 
 	return state, nil
+}
+
+func parseOrderTime(name string, value OptionalPOSIX) (*time.Time, error) {
+	if !value.IsPresent {
+		return nil, nil
+	}
+	t := time.UnixMilli(value.Time)
+	if _, err := t.MarshalJSON(); err != nil {
+		return nil, fmt.Errorf(
+			"invalid Genius Yield %s time %d: %w",
+			name,
+			value.Time,
+			err,
+		)
+	}
+	return &t, nil
 }
 
 // ActiveAt reports whether the order can be filled at the supplied time.

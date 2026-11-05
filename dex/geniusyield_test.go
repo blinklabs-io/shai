@@ -16,6 +16,9 @@ package dex
 
 import (
 	"encoding/hex"
+	"encoding/json"
+	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -642,6 +645,97 @@ func TestGeniusYieldParserRejectsNonPositivePrice(t *testing.T) {
 	}
 }
 
+func TestGeniusYieldParserRejectsUnpersistableTimestamps(t *testing.T) {
+	tests := []struct {
+		name      string
+		startTime *int64
+		endTime   *int64
+		wantError string
+	}{
+		{
+			name:      "start after JSON range",
+			startTime: int64Ptr(math.MaxInt64),
+			wantError: "invalid Genius Yield start time",
+		},
+		{
+			name:      "end before JSON range",
+			endTime:   int64Ptr(math.MinInt64),
+			wantError: "invalid Genius Yield end time",
+		},
+	}
+
+	parser := NewGeniusYieldParser()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state, err := parser.ParseOrderDatum(
+				newTestGeniusYieldDatumWithTimes(
+					t,
+					1,
+					1,
+					1,
+					tt.startTime,
+					tt.endTime,
+				),
+				"tx",
+				0,
+				0,
+				time.Unix(0, 0),
+			)
+			if err == nil || !strings.Contains(err.Error(), tt.wantError) {
+				t.Fatalf(
+					"ParseOrderDatum() = (%#v, %v), want %q error",
+					state,
+					err,
+					tt.wantError,
+				)
+			}
+		})
+	}
+}
+
+func TestGeniusYieldParserAcceptsPersistableTimestampBoundaries(t *testing.T) {
+	start := time.Date(0, time.January, 1, 0, 0, 0, 0, time.Local)
+	end := time.Date(
+		9999,
+		time.December,
+		31,
+		23,
+		59,
+		59,
+		999_000_000,
+		time.Local,
+	)
+	startMillis := start.UnixMilli()
+	endMillis := end.UnixMilli()
+
+	state, err := NewGeniusYieldParser().ParseOrderDatum(
+		newTestGeniusYieldDatumWithTimes(
+			t,
+			1,
+			1,
+			1,
+			&startMillis,
+			&endMillis,
+		),
+		"tx",
+		0,
+		0,
+		time.Unix(0, 0),
+	)
+	if err != nil {
+		t.Fatalf("ParseOrderDatum() returned error: %v", err)
+	}
+	if state.StartTime == nil || !state.StartTime.Equal(start) {
+		t.Fatalf("StartTime = %v, want %v", state.StartTime, start)
+	}
+	if state.EndTime == nil || !state.EndTime.Equal(end) {
+		t.Fatalf("EndTime = %v, want %v", state.EndTime, end)
+	}
+	if _, err := json.Marshal(state); err != nil {
+		t.Fatalf("json.Marshal() returned error for valid boundaries: %v", err)
+	}
+}
+
 func TestGeniusYieldOrderIsActive(t *testing.T) {
 	now := time.Now()
 	past := now.Add(-time.Hour)
@@ -788,6 +882,24 @@ func newTestGeniusYieldDatum(
 	priceDenom int64,
 	offeredAmount uint64,
 ) []byte {
+	return newTestGeniusYieldDatumWithTimes(
+		t,
+		priceNum,
+		priceDenom,
+		offeredAmount,
+		nil,
+		nil,
+	)
+}
+
+func newTestGeniusYieldDatumWithTimes(
+	t *testing.T,
+	priceNum int64,
+	priceDenom int64,
+	offeredAmount uint64,
+	startTime *int64,
+	endTime *int64,
+) []byte {
 	t.Helper()
 
 	ownerKey := make([]byte, 28)
@@ -795,10 +907,9 @@ func newTestGeniusYieldDatum(
 		0,
 		cbor.IndefLengthList{ownerKey},
 	)
-	stakingCred := cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
 	ownerAddr := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		paymentCred,
-		stakingCred,
+		cbor.NewConstructorEncoder(1, cbor.IndefLengthList{}),
 	})
 	offeredAsset := cbor.NewConstructorEncoder(0, cbor.IndefLengthList{
 		[]byte{},
@@ -827,20 +938,30 @@ func newTestGeniusYieldDatum(
 		askedAsset,
 		price,
 		[]byte{0x01},
-		cbor.NewConstructorEncoder(1, cbor.IndefLengthList{}),
-		cbor.NewConstructorEncoder(1, cbor.IndefLengthList{}),
+		optionalPOSIXTime(startTime),
+		optionalPOSIXTime(endTime),
 		uint64(0),
 		uint64(0),
 		uint64(0),
 		containedFee,
 		uint64(0),
 	})
-
 	cborData, err := cbor.Encode(&datum)
 	if err != nil {
 		t.Fatalf("failed to encode datum: %v", err)
 	}
 	return cborData
+}
+
+func optionalPOSIXTime(value *int64) cbor.ConstructorEncoder {
+	if value == nil {
+		return cbor.NewConstructorEncoder(1, cbor.IndefLengthList{})
+	}
+	return cbor.NewConstructorEncoder(0, cbor.IndefLengthList{*value})
+}
+
+func int64Ptr(value int64) *int64 {
+	return &value
 }
 
 // mainnetOrderDatumHex is the datum of Genius Yield partial order
