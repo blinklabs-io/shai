@@ -29,8 +29,8 @@ import (
 	"github.com/Salvionied/apollo/serialization/Value"
 
 	"github.com/blinklabs-io/gouroboros/cbor"
+	dexgy "github.com/blinklabs-io/shai/batch/geniusyield/orderdatum"
 	"github.com/blinklabs-io/shai/common"
-	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/internal/config"
 )
 

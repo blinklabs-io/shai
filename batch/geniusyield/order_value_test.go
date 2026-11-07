@@ -22,7 +22,7 @@ import (
 	"github.com/blinklabs-io/gouroboros/ledger/babbage"
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
-	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
+	dexgy "github.com/blinklabs-io/shai/batch/geniusyield/orderdatum"
 	"github.com/stretchr/testify/require"
 )
 

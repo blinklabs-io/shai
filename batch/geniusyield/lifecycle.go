@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/blinklabs-io/gouroboros/ledger"
-	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
+	dexgy "github.com/blinklabs-io/shai/batch/geniusyield/orderdatum"
 	"github.com/blinklabs-io/shai/internal/node"
 )
 

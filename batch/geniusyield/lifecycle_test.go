@@ -12,8 +12,8 @@ import (
 	lcommon "github.com/blinklabs-io/gouroboros/ledger/common"
 	"github.com/blinklabs-io/gouroboros/ledger/mary"
 	"github.com/blinklabs-io/gouroboros/ledger/shelley"
+	dexgy "github.com/blinklabs-io/shai/batch/geniusyield/orderdatum"
 	"github.com/blinklabs-io/shai/common"
-	dexgy "github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/internal/node"
 )
 
