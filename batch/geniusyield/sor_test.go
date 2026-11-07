@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/blinklabs-io/shai/common"
 	dexgy "github.com/blinklabs-io/shai/batch/geniusyield/orderdatum"
+	"github.com/blinklabs-io/shai/common"
 )
 
 func TestNewSmartOrderRouter(t *testing.T) {

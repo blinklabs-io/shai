@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blinklabs-io/shai/common"
 	dexgy "github.com/blinklabs-io/shai/batch/geniusyield/orderdatum"
+	"github.com/blinklabs-io/shai/common"
 )
 
 // TradingPair represents a pair of assets that can be traded
