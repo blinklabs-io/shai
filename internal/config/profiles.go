@@ -369,8 +369,10 @@ var Profiles = map[string]map[string]Profile{
 			},
 		},
 		"butane": {
-			Name:          "butane",
-			Type:          ProfileTypeSynthetics,
+			Name: "butane",
+			Type: ProfileTypeSynthetics,
+			// Mainnet block at this slot, produced 2024-06-06; the hash is the
+			// block hash a chain explorer reports for that slot.
 			InterceptSlot: 126083269,
 			InterceptHash: "64818ae4aab96778eae64cc140b13875f42b9b9f432e755f89dafaeadc1c8ee3",
 			Config: SyntheticsProfileConfig{
