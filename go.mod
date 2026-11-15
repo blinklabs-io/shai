@@ -8,7 +8,7 @@ require (
 	github.com/blinklabs-io/bursa v0.21.1
 	github.com/blinklabs-io/dingo v0.90.3
 	github.com/blinklabs-io/gouroboros v0.218.0
-	github.com/blinklabs-io/ouroboros-mock v0.21.1
+	github.com/blinklabs-io/ouroboros-mock v0.21.2
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
 	github.com/kelseyhightower/envconfig v1.4.0
