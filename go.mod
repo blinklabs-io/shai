@@ -6,15 +6,15 @@ require (
 	github.com/Salvionied/apollo/v2 v2.2.1
 	github.com/blinklabs-io/adder v0.46.0
 	github.com/blinklabs-io/bursa v0.21.1
-	github.com/blinklabs-io/dingo v0.90.3
-	github.com/blinklabs-io/gouroboros v0.218.0
-	github.com/blinklabs-io/ouroboros-mock v0.21.1
+	github.com/blinklabs-io/dingo v0.92.4
+	github.com/blinklabs-io/gouroboros v0.219.0
+	github.com/blinklabs-io/ouroboros-mock v0.21.2
 	github.com/dgraph-io/badger/v4 v4.9.6
 	github.com/gorilla/websocket v1.5.3
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/stretchr/testify v1.12.1
 	go.uber.org/automaxprocs v1.6.0
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
 	golang.org/x/sys v0.49.0
 	gopkg.in/yaml.v2 v2.4.0
 )
@@ -39,7 +39,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
 	github.com/blinklabs-io/go-bip39 v0.2.1 // indirect
-	github.com/blinklabs-io/plutigo v0.11.4 // indirect
+	github.com/blinklabs-io/plutigo v0.12.1 // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.5.1 // indirect
 	github.com/btcsuite/btcd/btcutil v1.2.0 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.2.0 // indirect
