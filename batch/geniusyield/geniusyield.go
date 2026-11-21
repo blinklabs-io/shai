@@ -360,7 +360,6 @@ func (gy *GeniusYield) tryMatchOrder(
 		order.OfferedAmount, // How much they're offering
 		maxSlippage,
 	)
-
 	if err != nil {
 		return err
 	}
