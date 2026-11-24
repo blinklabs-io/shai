@@ -395,6 +395,7 @@ func (h orderListHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
 func (h *orderListHeap) Push(value any) {
 	*h = append(*h, value.(orderListEntry))
 }
+
 func (h *orderListHeap) Pop() any {
 	old := *h
 	last := old[len(old)-1]

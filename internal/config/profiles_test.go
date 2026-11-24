@@ -3,6 +3,11 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/blinklabs-io/gouroboros/ledger/common"
+
+	"github.com/blinklabs-io/shai/dex"
+	"github.com/blinklabs-io/shai/dex/geniusyield"
 )
 
 func TestMainnetCSwapProfileIsWired(t *testing.T) {
@@ -190,4 +195,44 @@ func requireProfile(t *testing.T, network string, name string) Profile {
 		t.Fatalf("missing %s profile", name)
 	}
 	return profile
+}
+
+func TestMainnetGeniusYieldIdentifiersAgree(t *testing.T) {
+	t.Parallel()
+
+	if _, ok := dex.Locator(geniusyield.ProtocolName); ok {
+		t.Fatal("geniusyield must not have a pool locator")
+	}
+
+	cfg, ok := Profiles["mainnet"]["geniusyield"].Config.(GeniusYieldProfileConfig)
+	if !ok {
+		t.Fatal("missing mainnet geniusyield batch profile")
+	}
+	if cfg.OrderScriptHash != geniusyield.OrderScriptHash {
+		t.Fatalf(
+			"OrderScriptHash = %s, want %s",
+			cfg.OrderScriptHash,
+			geniusyield.OrderScriptHash,
+		)
+	}
+	if cfg.OrderNFTPolicy != geniusyield.OrderNFTPolicy {
+		t.Fatalf(
+			"OrderNFTPolicy = %s, want %s",
+			cfg.OrderNFTPolicy,
+			geniusyield.OrderNFTPolicy,
+		)
+	}
+	if len(cfg.OrderAddresses) != 1 {
+		t.Fatalf("got %d order addresses, want 1", len(cfg.OrderAddresses))
+	}
+	addr, err := common.NewAddress(cfg.OrderAddresses[0].Address)
+	if err != nil {
+		t.Fatalf("order address does not decode: %v", err)
+	}
+	if got := addr.PaymentKeyHash().String(); got != geniusyield.OrderScriptHash {
+		t.Fatalf("order address payment credential = %s, want %s", got, geniusyield.OrderScriptHash)
+	}
+	if addr.Type() != common.AddressTypeScriptNone {
+		t.Fatalf("order address type = %d, want enterprise script", addr.Type())
+	}
 }

@@ -395,11 +395,14 @@ var Profiles = map[string]map[string]Profile{
 			InterceptHash: "9ade9e2cbbf075b7653df58c29ebb4d8910119b7ac452c9512ef2f211d25d2ff",
 			Config: GeniusYieldProfileConfig{
 				Protocol:        "geniusyield",
-				OrderScriptHash: "443796e89785a60a2df3a6673f95345fd1c034b1facfe367af1615fe",
-				OrderNFTPolicy:  "fae686ea8f21d567841d703dea4d4221c2af071a6f2b433ff07c0af2",
+				OrderScriptHash: geniusyield.OrderScriptHash,
+				OrderNFTPolicy:  geniusyield.OrderNFTPolicy,
+				// Enterprise form of the order script's payment
+				// credential, which is what the batcher compares against
+				// the payment part of each maker's base address.
 				OrderAddresses: []ProfileConfigAddress{
 					{
-						Address: "addr1w9zr09hgj7z6vz3d7wnxw0u4x30arsp5k8avlcm84utptls8uqd0z",
+						Address: "addr1w8kllanr6dlut7t480zzytsd52l7pz4y3kcgxlfvx2ddavcshakwd",
 					},
 				},
 				InputRefs:          []ProfileConfigInputRef{},
