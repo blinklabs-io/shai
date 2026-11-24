@@ -144,7 +144,6 @@ func TestConfirmationReconcilesOrder(t *testing.T) {
 	if _, ok := gy.pendingTransactions[txHash]; ok {
 		t.Fatal("confirmed transaction remained pending")
 	}
-
 }
 
 func TestConfirmedOrderMustRemainUnreservedBeforeMatching(t *testing.T) {

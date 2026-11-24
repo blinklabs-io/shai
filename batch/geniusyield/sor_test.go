@@ -272,7 +272,6 @@ func TestSORFindRoute(t *testing.T) {
 		1500000,           // Want to spend 1.5 ADA
 		1000,              // 10% max slippage
 	)
-
 	if err != nil {
 		t.Fatalf("failed to find route: %v", err)
 	}
@@ -447,7 +446,6 @@ func TestSORGetQuote(t *testing.T) {
 		tokenAsset,
 		3000000, // 3 ADA
 	)
-
 	if err != nil {
 		t.Fatalf("failed to get quote: %v", err)
 	}
@@ -487,7 +485,6 @@ func TestSORGetBestPrice(t *testing.T) {
 		common.Lovelace(),
 		tokenAsset,
 	)
-
 	if err != nil {
 		t.Fatalf("failed to get best price: %v", err)
 	}
