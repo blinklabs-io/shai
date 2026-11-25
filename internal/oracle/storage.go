@@ -33,8 +33,6 @@ const (
 	cdpStateKeyPrefix          = "oracle_cdp_"
 	cdpUndoStateKeyPrefix      = "oracle_undo_cdp_"
 	cdpRollbackDeleteBatchSize = 100
-	// The Cardano mainnet stability window is 3k/f = 129,600 slots.
-	cdpRollbackRetentionSlots uint64 = 129_600
 )
 
 // OracleStorage handles persistence of oracle data
@@ -397,19 +395,6 @@ func (s *OracleStorage) ApplyCDPTransaction(
 		if err := txn.Set([]byte(undoKey), undoData); err != nil {
 			return err
 		}
-		if record.Slot > cdpRollbackRetentionSlots {
-			maxCount, maxSize := s.deleteBudget()
-			if err := pruneCDPUndoRecords(
-				txn,
-				record.Network,
-				record.Protocol,
-				record.Slot-cdpRollbackRetentionSlots,
-				maxCount,
-				maxSize,
-			); err != nil {
-				return err
-			}
-		}
 		applied = true
 		return nil
 	})
@@ -417,53 +402,6 @@ func (s *OracleStorage) ApplyCDPTransaction(
 		return false, fmt.Errorf("apply CDP transaction: %w", err)
 	}
 	return applied, nil
-}
-
-func pruneCDPUndoRecords(
-	txn *badger.Txn,
-	network string,
-	protocol string,
-	beforeSlot uint64,
-	maxCount,
-	maxSize int64,
-) error {
-	opts := badger.DefaultIteratorOptions
-	prefix := []byte(
-		cdpUndoStateKeyPrefix + network + ":" + protocol + ":",
-	)
-	opts.Prefix = prefix
-	opts.PrefetchValues = false
-	it := txn.NewIterator(opts)
-	var (
-		keys  [][]byte
-		count int64
-		size  int64
-	)
-	for it.Rewind(); it.Valid(); it.Next() {
-		key := it.Item().KeyCopy(nil)
-		slot, err := undoSlotFromKey(key, prefix)
-		if err != nil {
-			it.Close()
-			return err
-		}
-		if slot >= beforeSlot {
-			break
-		}
-		entry := int64(len(key)) + deleteEntryOverhead
-		if count+1 > maxCount || size+entry > maxSize {
-			break
-		}
-		count++
-		size += entry
-		keys = append(keys, key)
-	}
-	it.Close()
-	for _, key := range keys {
-		if err := txn.Delete(key); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func undoSlotFromKey(key, prefix []byte) (uint64, error) {
