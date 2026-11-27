@@ -4,7 +4,7 @@ go 1.26.11
 
 require (
 	github.com/Salvionied/apollo/v2 v2.2.1
-	github.com/blinklabs-io/adder v0.46.0
+	github.com/blinklabs-io/adder v0.47.0
 	github.com/blinklabs-io/bursa v0.25.0
 	github.com/blinklabs-io/dingo v0.94.2
 	github.com/blinklabs-io/gouroboros v0.221.0
@@ -20,9 +20,17 @@ require (
 )
 
 require (
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/maestro-org/go-sdk v1.2.1 // indirect
+	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/ncruces/go-strftime v1.1.0 // indirect
+	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/tyler-smith/go-bip39 v1.1.0 // indirect
 	golang.org/x/text v0.44.0 // indirect
+	modernc.org/libc v1.80.1 // indirect
+	modernc.org/mathutil v1.7.1 // indirect
+	modernc.org/memory v1.12.1 // indirect
+	modernc.org/sqlite v1.62.0 // indirect
 )
 
 //replace github.com/blinklabs-io/gouroboros => ../gouroboros
@@ -33,8 +41,8 @@ require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/Microsoft/go-winio v0.6.4 // indirect
 	github.com/Salvionied/apollo v1.5.0
-	github.com/SundaeSwap-finance/kugo v1.3.1 // indirect
-	github.com/SundaeSwap-finance/ogmigo/v6 v6.2.1 // indirect
+	github.com/SundaeSwap-finance/kugo v1.3.2 // indirect
+	github.com/SundaeSwap-finance/ogmigo/v6 v6.2.2 // indirect
 	github.com/aws/aws-sdk-go v1.55.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
@@ -65,7 +73,7 @@ require (
 	github.com/prometheus/client_model v0.6.3 // indirect
 	github.com/prometheus/common v0.72.0 // indirect
 	github.com/prometheus/procfs v0.22.0 // indirect
-	github.com/spf13/pflag v1.0.10 // indirect
+	github.com/spf13/pflag v1.1.0 // indirect
 	github.com/utxorpc/go-codegen v0.19.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
