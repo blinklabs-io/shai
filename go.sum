@@ -25,12 +25,12 @@ github.com/blinklabs-io/dingo v0.94.2 h1:dCvI6zrrKKOEGAzEWHFv1Dt0mtFXLfncUfUE297
 github.com/blinklabs-io/dingo v0.94.2/go.mod h1:9fSNww97/rwmm1quUAOqI0FzcBbeO+t/oCyeLYtU/xw=
 github.com/blinklabs-io/go-bip39 v0.2.1 h1:kE44ZAhBJ75ITHFpKT+LS+Sg4iXwo2xENRdW+y2/sLo=
 github.com/blinklabs-io/go-bip39 v0.2.1/go.mod h1:QvidBC8rXEWuylfpTNA2WbbeIDJmYvq9D6xdjFmK/Io=
-github.com/blinklabs-io/gouroboros v0.220.2 h1:qv3yM4lvkB0XICj3pqIQSxzPJFIRV8Iw1OTB02Nw1nU=
-github.com/blinklabs-io/gouroboros v0.220.2/go.mod h1:+IHbQl3Z6vUlc0XQw5bvmLlykWaZClDbCxsft2UYVHY=
+github.com/blinklabs-io/gouroboros v0.221.0 h1:O2fWwo6TbuHIoPXzoZ7Wzvsr+pNjlhkx6ZxasMdA/ew=
+github.com/blinklabs-io/gouroboros v0.221.0/go.mod h1:3KyCOoIi4MIly6sGwdETs1cg1dRYmOdOj18+hXrtqCs=
 github.com/blinklabs-io/ouroboros-mock v0.21.3 h1:eEBdhzciAGruK1ivvIfwO33MDMDJ8kzKWXX+y/jmZvo=
 github.com/blinklabs-io/ouroboros-mock v0.21.3/go.mod h1:Fy+eAnw14pb0XH1mgloQJGFSM+5frcojTyIe59RHWgs=
-github.com/blinklabs-io/plutigo v0.12.1 h1:f/08GoOhfcOdO0mo+8twwXW2e/7Oy99ez5+6Df4zZ5o=
-github.com/blinklabs-io/plutigo v0.12.1/go.mod h1:Wa4E+G/V8aTbF1rLGVcOAI1uYug47OW/Gtx7Oy+82BY=
+github.com/blinklabs-io/plutigo v0.13.0 h1:+yC0Uy/HkeD3mIFufweKL0YEtrkDwXKkcJa61ujzJ28=
+github.com/blinklabs-io/plutigo v0.13.0/go.mod h1:BOR44zd7mNB2ptWa8DDpV2+lMrzrLNh7D504ZgUKJCI=
 github.com/btcsuite/btcd v0.20.1-beta/go.mod h1:wVuoA8VJLEcwgqHBwHmzLRazpKxTv13Px/pDuV7OomQ=
 github.com/btcsuite/btcd/btcec/v2 v2.5.1 h1:zDnj4h0PTlFz69xIhoGGXYkkkYxPgTv/AfjBxQQLlnE=
 github.com/btcsuite/btcd/btcec/v2 v2.5.1/go.mod h1:jCw+V1Y+1y1AruEuF21h2wkWXiPBlAPE78UJHxwqdDk=
@@ -100,8 +100,8 @@ github.com/jrick/logrotate v1.0.0/go.mod h1:LNinyqDIJnpAur+b8yyulnQw/wDuN1+BYKlT
 github.com/kelseyhightower/envconfig v1.4.0 h1:Im6hONhd3pLkfDFsbRgu68RDNkGF1r3dvMUtDTo2cv8=
 github.com/kelseyhightower/envconfig v1.4.0/go.mod h1:cccZRl6mQpaq41TPp5QxidR+Sa3axMbJDNb//FQX6Gg=
 github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23/go.mod h1:J+Gs4SYgM6CZQHDETBtE9HaSEkGmuNXF86RwHhHUvq4=
-github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTfY5j4=
-github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
+github.com/klauspost/compress v1.20.4 h1:dD0v/bvxtjCBqQu6sx1TNWkalEY5lNTIe+HY9w8TeNI=
+github.com/klauspost/compress v1.20.4/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
