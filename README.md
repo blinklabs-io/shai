@@ -98,9 +98,26 @@ Oracle profiles (price tracking):
 - `vyfi` - VyFi pools
 - `cswap` - CSWAP pools
 
-Spectrum batching profiles (matcher bot):
+Order-book profiles (order state tracking):
+- `geniusyield-orderbook` - Genius Yield partial orders. Orders are located by
+  the order script's payment credential, because each maker's order sits at a
+  base address that adds the maker's own staking credential. Order state is served
+  from `GET /api/v1/orders` and `GET /api/v1/orders/{orderId}`; it is not
+  published as pool state, since a resting order locks only the offered asset
+  and has no second reserve.
+
+`GET /api/v1/orders` returns orders in a stable order, with 50 entries by
+default. The `limit` query parameter accepts values from 1 through 200. When a
+response includes `nextCursor`, pass it unchanged as the `cursor` query
+parameter to read the next page. The optional `protocol` filter must remain the
+same across a cursor sequence. `count` is the number of orders in the current
+page.
+
+Batching profiles (matcher bots):
 - `spectrum` - Spectrum DEX on mainnet
 - `teddyswap` - TeddySwap on preview/mainnet
+- `geniusyield` - Genius Yield matching and wallet-funded transaction
+  submission
 
 Testnet oracle coverage:
 - `NETWORK=preprod PROFILES=minswap-v2` enables the Minswap V2 preprod pool contract.

@@ -4,6 +4,7 @@ import (
 	"slices"
 
 	"github.com/blinklabs-io/shai/dex"
+	"github.com/blinklabs-io/shai/dex/geniusyield"
 	"github.com/blinklabs-io/shai/price/djed"
 )
 
@@ -28,6 +29,7 @@ const (
 	ProfileTypeSynthetics
 	ProfileTypeLending
 	ProfileTypeDjed
+	ProfileTypeOrderbook
 	ProfileTypeGeniusYield
 	ProfileTypeBonds
 )
@@ -74,6 +76,20 @@ type OracleProfileConfig struct {
 type SyntheticsProfileConfig struct {
 	Protocol     string                 // Protocol name (e.g., "indigo")
 	CDPAddresses []ProfileConfigAddress // CDP contract addresses to monitor
+}
+
+// OrderbookProfileConfig contains configuration for order-book protocols.
+type OrderbookProfileConfig struct {
+	Protocol string // Protocol name (e.g., "geniusyield")
+	// OrderAddresses are exact order addresses to monitor.
+	OrderAddresses []ProfileConfigAddress
+	// OrderPaymentCredentials are hex-encoded payment credentials whose
+	// addresses hold order UTxOs, whatever staking part they carry.
+	OrderPaymentCredentials []string
+	// OrderNFTPolicy is the hex-encoded minting policy of the NFT that
+	// identifies a genuine order UTxO. Anyone can pay to a script address,
+	// so an output at an order address without this NFT is not an order.
+	OrderNFTPolicy string
 }
 
 // LendingProfileConfig contains configuration for lending protocols.
@@ -359,6 +375,19 @@ var Profiles = map[string]map[string]Profile{
 				},
 			},
 		},
+		"geniusyield-orderbook": {
+			Name: "geniusyield-orderbook",
+			// Parent of the block holding the earliest transaction at the
+			// partial order script.
+			InterceptSlot: 110212426,
+			InterceptHash: "d0e0542025876bc633fe75a898a3922d10f7b18a15093ee6cf4972d1733de9c3",
+			Type:          ProfileTypeOrderbook,
+			Config: OrderbookProfileConfig{
+				Protocol:                "geniusyield",
+				OrderPaymentCredentials: geniusyield.GetOrderPaymentCredentials(),
+				OrderNFTPolicy:          geniusyield.OrderNFTPolicy,
+			},
+		},
 		"geniusyield": {
 			Name:          "geniusyield",
 			Type:          ProfileTypeGeniusYield,
@@ -366,11 +395,14 @@ var Profiles = map[string]map[string]Profile{
 			InterceptHash: "9ade9e2cbbf075b7653df58c29ebb4d8910119b7ac452c9512ef2f211d25d2ff",
 			Config: GeniusYieldProfileConfig{
 				Protocol:        "geniusyield",
-				OrderScriptHash: "443796e89785a60a2df3a6673f95345fd1c034b1facfe367af1615fe",
-				OrderNFTPolicy:  "fae686ea8f21d567841d703dea4d4221c2af071a6f2b433ff07c0af2",
+				OrderScriptHash: geniusyield.OrderScriptHash,
+				OrderNFTPolicy:  geniusyield.OrderNFTPolicy,
+				// Enterprise form of the order script's payment
+				// credential, which is what the batcher compares against
+				// the payment part of each maker's base address.
 				OrderAddresses: []ProfileConfigAddress{
 					{
-						Address: "addr1w9zr09hgj7z6vz3d7wnxw0u4x30arsp5k8avlcm84utptls8uqd0z",
+						Address: "addr1w8kllanr6dlut7t480zzytsd52l7pz4y3kcgxlfvx2ddavcshakwd",
 					},
 				},
 				InputRefs:          []ProfileConfigInputRef{},
