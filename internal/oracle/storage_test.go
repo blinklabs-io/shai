@@ -15,6 +15,8 @@
 package oracle
 
 import (
+	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -39,6 +41,189 @@ func newTestOracleStorage(t *testing.T) *OracleStorage {
 		}
 	})
 	return storage
+}
+
+func TestOracleStorageRollbackDeletesInvalidStatesInBatches(t *testing.T) {
+	storage := newTestOracleStorage(t)
+	const stateCount = cdpRollbackDeleteBatchSize + 1
+	requireStates := make([]*CDPState, 0, stateCount)
+	for i := 0; i < stateCount; i++ {
+		requireStates = append(requireStates, &CDPState{
+			CDPId:        fmt.Sprintf("cdp-%03d", i),
+			Network:      "mainnet",
+			Protocol:     "butane",
+			Slot:         100,
+			MintedAmount: 1,
+		})
+	}
+	if err := storage.db.Update(func(txn *badger.Txn) error {
+		for _, state := range requireStates {
+			data, err := json.Marshal(state)
+			if err != nil {
+				return err
+			}
+			if err := txn.Set(
+				[]byte(cdpStateKey(state.Network, state.Protocol, state.CDPId)),
+				data,
+			); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("failed to seed CDP states: %v", err)
+	}
+
+	states, err := storage.RollbackCDPStates("mainnet", "butane", 100)
+	if err != nil {
+		t.Fatalf("failed to roll back CDP states: %v", err)
+	}
+	if len(states) != 0 {
+		t.Fatalf("expected no CDP states after rollback, got %d", len(states))
+	}
+	states, err = storage.LoadAllCDPStates()
+	if err != nil {
+		t.Fatalf("failed to load CDP states after rollback: %v", err)
+	}
+	if len(states) != 0 {
+		t.Fatalf("expected storage to be empty after rollback, got %d", len(states))
+	}
+}
+
+func TestOracleStorageRollbackCDPStatesSkipsRetainedUndo(t *testing.T) {
+	storage := newTestOracleStorage(t)
+	retainedRecord := cdpUndoRecord{
+		Network:         "mainnet",
+		Protocol:        "butane",
+		TransactionHash: "retained",
+		Slot:            99,
+	}
+	retainedState := &CDPState{
+		Network:  retainedRecord.Network,
+		Protocol: retainedRecord.Protocol,
+		CDPId:    "retained-cdp",
+		Slot:     retainedRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		retainedRecord,
+		[]*CDPState{retainedState},
+	); err != nil {
+		t.Fatalf("failed to apply retained CDP transaction: %v", err)
+	}
+
+	rollbackRecord := cdpUndoRecord{
+		Network:         retainedRecord.Network,
+		Protocol:        retainedRecord.Protocol,
+		TransactionHash: "rollback",
+		TransactionIdx:  1,
+		Slot:            100,
+		Spent:           []*CDPState{retainedState},
+	}
+	replacement := &CDPState{
+		Network:  rollbackRecord.Network,
+		Protocol: rollbackRecord.Protocol,
+		CDPId:    "replacement-cdp",
+		Slot:     rollbackRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		rollbackRecord,
+		[]*CDPState{replacement},
+	); err != nil {
+		t.Fatalf("failed to apply rollback CDP transaction: %v", err)
+	}
+	if err := storage.db.Update(func(txn *badger.Txn) error {
+		return txn.Set([]byte(cdpUndoStateKey(retainedRecord)), []byte("{"))
+	}); err != nil {
+		t.Fatalf("failed to corrupt retained undo record: %v", err)
+	}
+
+	states, err := storage.RollbackCDPStates("mainnet", "butane", 100)
+	if err != nil {
+		t.Fatalf("failed to roll back CDP states: %v", err)
+	}
+	if len(states) != 1 || states[0].CDPId != retainedState.CDPId {
+		t.Fatalf("expected restored state %q, got %+v", retainedState.CDPId, states)
+	}
+	if _, err := storage.LoadCDPState(
+		replacement.Network,
+		replacement.Protocol,
+		replacement.CDPId,
+	); err == nil {
+		t.Fatal("replacement CDP state remained after rollback")
+	}
+}
+
+func TestCDPUndoHistorySupportsDeepRollback(t *testing.T) {
+	storage := newTestOracleStorage(t)
+	oldRecord := cdpUndoRecord{
+		Network:         "mainnet",
+		Protocol:        "butane",
+		TransactionHash: "old-state",
+		Slot:            1,
+	}
+	oldState := &CDPState{
+		Network:  oldRecord.Network,
+		Protocol: oldRecord.Protocol,
+		CDPId:    "old-cdp",
+		Slot:     oldRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		oldRecord,
+		[]*CDPState{oldState},
+	); err != nil {
+		t.Fatalf("failed to apply old CDP transaction: %v", err)
+	}
+
+	replacementRecord := cdpUndoRecord{
+		Network:         oldRecord.Network,
+		Protocol:        oldRecord.Protocol,
+		TransactionHash: "replacement-state",
+		Slot:            2,
+		Spent:           []*CDPState{oldState},
+	}
+	replacementState := &CDPState{
+		Network:  replacementRecord.Network,
+		Protocol: replacementRecord.Protocol,
+		CDPId:    "replacement-cdp",
+		Slot:     replacementRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		replacementRecord,
+		[]*CDPState{replacementState},
+	); err != nil {
+		t.Fatalf("failed to apply replacement CDP transaction: %v", err)
+	}
+
+	latestRecord := cdpUndoRecord{
+		Network:         oldRecord.Network,
+		Protocol:        oldRecord.Protocol,
+		TransactionHash: "latest-state",
+		Slot:            1_000_000,
+	}
+	latestState := &CDPState{
+		Network:  latestRecord.Network,
+		Protocol: latestRecord.Protocol,
+		CDPId:    "latest-cdp",
+		Slot:     latestRecord.Slot,
+	}
+	if _, err := storage.ApplyCDPTransaction(
+		latestRecord,
+		[]*CDPState{latestState},
+	); err != nil {
+		t.Fatalf("failed to apply latest CDP transaction: %v", err)
+	}
+
+	states, err := storage.RollbackCDPStates("mainnet", "butane", 2)
+	if err != nil {
+		t.Fatalf("failed to roll back CDP states: %v", err)
+	}
+	if len(states) != 1 || states[0].CDPId != oldState.CDPId {
+		t.Fatalf(
+			"expected deep rollback to restore %q, got %+v",
+			oldState.CDPId,
+			states,
+		)
+	}
 }
 
 func TestOracleStorageLoadPoolState(t *testing.T) {

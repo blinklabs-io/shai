@@ -29,10 +29,10 @@ const (
 	activityKeyPrefix = "oracle_activity_swap_"
 	activityMetaKey   = "oracle_activity_meta"
 
-	// activityDeleteEntryOverhead is what Badger adds to the key length when
+	// deleteEntryOverhead is what Badger adds to the key length when
 	// it estimates the size of one queued delete: two meta bytes and ten bytes
 	// for the version appended to the key.
-	activityDeleteEntryOverhead = 12
+	deleteEntryOverhead = 12
 )
 
 type activityMetadata struct {
@@ -122,7 +122,7 @@ func (s *OracleStorage) SavePoolStateAndActivity(
 		if meta.LatestSlot > windowSlots {
 			cutoff = meta.LatestSlot - windowSlots
 		}
-		maxCount, maxSize := s.activityDeleteBudget()
+		maxCount, maxSize := s.deleteBudget()
 		return pruneActivityKeys(txn, cutoff, maxCount, maxSize)
 	})
 	if err != nil {
@@ -207,7 +207,7 @@ func (s *OracleStorage) LoadActivityState() (ActivityState, error) {
 // rollback never leaves a rolled-back swap at or below the recorded tip where a
 // restart would count its volume again.
 func (s *OracleStorage) RollbackActivity(slot uint64) error {
-	maxCount, maxSize := s.activityDeleteBudget()
+	maxCount, maxSize := s.deleteBudget()
 	for {
 		exhausted, err := s.rollbackActivityBatch(slot, maxCount, maxSize)
 		if err != nil {
@@ -323,13 +323,13 @@ func activitySlotFromKey(key []byte) (uint64, error) {
 	return slot, nil
 }
 
-// activityDeleteBudget reports how many entries and how many estimated bytes
+// deleteBudget reports how many entries and how many estimated bytes
 // of deletions one transaction may queue. Badger fails a transaction with
 // ErrTxnTooBig once its pending entries reach maxBatchCount or their estimated
 // size reaches maxBatchSize, which a long pruning gap or a deep rollback can
-// otherwise exceed in a single sweep. Half of each limit is used so the pool
-// state, swap, and metadata writes sharing the transaction still fit.
-func (s *OracleStorage) activityDeleteBudget() (int64, int64) {
+// otherwise exceed in a single sweep. Half of each limit is used so the other
+// writes sharing the transaction still fit.
+func (s *OracleStorage) deleteBudget() (int64, int64) {
 	return s.db.MaxBatchCount() / 2, s.db.MaxBatchSize() / 2
 }
 
@@ -367,7 +367,7 @@ func pruneActivityKeys(
 		if slot >= cutoff {
 			break
 		}
-		entry := int64(len(key)) + activityDeleteEntryOverhead
+		entry := int64(len(key)) + deleteEntryOverhead
 		if count+1 > maxCount || size+entry > maxSize {
 			break
 		}
@@ -418,7 +418,7 @@ func rolledBackActivityKeys(
 		if keySlot < slot {
 			return keys, lowest, true, nil
 		}
-		entry := int64(len(key)) + activityDeleteEntryOverhead
+		entry := int64(len(key)) + deleteEntryOverhead
 		// The batch always takes at least the newest slot, whatever the
 		// budget, so the caller is guaranteed to make progress. It stops only
 		// on a slot boundary, so the lowest slot it removed is removed whole.
